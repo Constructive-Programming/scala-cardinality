@@ -56,14 +56,10 @@ class CapabilitySpec extends Specification {
       a final class is its observable constructor arguments         $finalRecord
       a composed-getter law reads its records                       $laws
       a `val` and a parameterless `def` of one name are one member  $oneSlot
-      `Any`'s and `Product`'s members are universal (`canEqual`)    ${Pending.countDiffers(
-      universalRecord
-    )}
+      a `canEqual` of no parent is an abstract member               $universalRecord
       a `canEqual` overridden under another parameter name is none  $renamedCanEqual
       a Product, Equals or Serializable parent declares nothing     $markerParents
-      a Comparable parent declares its compareTo                    ${Pending.oldBehavior(
-      comparableParent
-    )}
+      a Comparable parent declares its compareTo                    $comparableParent
       a parameterized parent's public fields are a trait's fields   $parentFields
       a passed parent's field nothing overrides is its argument       $passedParentField
       a final class field observed where its qualifier reaches        ${Pending.knownLoss(
@@ -735,15 +731,16 @@ class CapabilitySpec extends Specification {
       .and(field("Use.mk") === Count.Finite(4))
   }
 
-  // canEqual is scala.Equals' equality test, outside the model like Any's members (v1.md §2): Eq2[A]
-  // is the record of x alone, one value a parametric body cannot inspect, so 2^1 Booleans. (It read
-  // 4 while canEqual was a free Any => Boolean over a terminal Any, then ε₀ once a function's Any
-  // parameter was positive, register D38.)
+  // Eq2 has no parent, so its canEqual restates nothing of scala.Equals: it is an abstract member
+  // any implementation supplies, a Boolean of a one-valued input (an input Any is one value), and
+  // the model excludes only the universal members of Any. Eq2[A] is the record (x, canEqual): x one
+  // value a parametric body cannot inspect, canEqual 2, so eq2 is a Boolean of a Boolean — 2^2 = 4
+  // (corrected.txt; the old reading dropped canEqual by its name, as if Eq2 were a case class).
   def universalRecord =
     one("""
       trait Eq2[A] { def x: A; def canEqual(that: Any): Boolean }
       object U { def eq2[A](e: Eq2[A]): Boolean = ??? }
-    """)("U.eq2") === Count.Finite(2)
+    """)("U.eq2") === Count.Finite(4)
 
   // scalameta's Tree declares `canEqual(that: Any)` and its classes override it as
   // `canEqual(other: Any)`: no identity question is asked of a member outside the model, so the
@@ -777,9 +774,10 @@ class CapabilitySpec extends Specification {
   }
 
   // `java.lang.Comparable[T]` declares one abstract `compareTo(T): Int`. K implements it, so K is
-  // the record of x: 2 values, 2^2 maps to Boolean. J leaves it to a subclass, whose compareTo the
-  // sources do not hold: refused by name, not as an unsupplied declaration. D declares it again, so
-  // it is D's own abstract member, read with its type: not refused for Comparable.
+  // the record of x: 2 values, 2^2 maps to Boolean. J leaves compareTo(o: J) abstract, so J's record
+  // holds a function of J itself: a recursion through a function's domain, refused by name, not as
+  // an unsupplied declaration. D declares it again, so it is D's own abstract member, read with its
+  // type: refused for the same recursion, not for Comparable.
   def comparableParent = {
     val found = one("""
       trait K extends Comparable[K] { def x: Boolean; def compareTo(o: K): Int = 0 }
@@ -791,10 +789,7 @@ class CapabilitySpec extends Specification {
     (found("Use.k") === Count.Finite(4))
       .and(found("UseD.d").toString must not(contain("java.lang.Comparable")))
       .and(
-        refused(
-          found("Use.j"),
-          "inherited parent declaration not implemented: java.lang.Comparable.compareTo"
-        )
+        refused(found("Use.j"), "recursive type not read: J")
       )
   }
 

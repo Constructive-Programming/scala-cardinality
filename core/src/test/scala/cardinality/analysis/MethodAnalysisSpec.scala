@@ -34,9 +34,7 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
     )}
       do not project a second constructor parameter list          $hiddenField
       do not construct through a private constructor              $privateConstructor
-      do not project an abstract case class as a product          ${Pending.resolvedRefusal(
-      abstractCase
-    )}
+      read an abstract case class as the record of its members    $abstractCase
       count a module's concrete producers as no implementation    $concreteProducers
       count a declared slot as a supplied value                   $declaredSlot
       let a declared callable be applied repeatedly               $declaredCallable
@@ -60,15 +58,11 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       importedBuiltin
     )}
       bind names inside a transparent alias at its use site       $aliasImportPosition
-      keep an import after the reference from binding it          ${Pending.resolvedRefusal(
-      importOrder
-    )}
+      read the import the compiler binds, wherever it is written  $importOrder
       keep a nested module's binders in scope                     $nestedModule
       let a subpackage sit inside its parent's grant              $packagePrivateSubpackage
       read a package-private abstraction as its record            $packagePrivateType
-      keep a file-private type from a sibling file                ${Pending.resolvedRefusal(
-      filePrivateType
-    )}
+      read a top-level private type from a sibling file           $filePrivateType
       read a package-private product from a sibling file          $packagePrivateProduct
   """
 
@@ -180,7 +174,9 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       .count must beLike { case Count.Unresolved(_) => ok }
 
   // The class's own rows count as any abstract class's: its constructor builds nothing from no
-  // parameters (1), and its declared `value` has no `A` to delegate to (0).
+  // parameters (1), and its declared `value` has no `A` to delegate to (0). A Holder is no product
+  // of constructor fields (it has none) but the record of its abstract member: extract reads
+  // h.value, its one A — 1.
   def abstractCase = {
     val found = cardinality.Compiled
       .analyze(
@@ -191,7 +187,7 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       )
       .map(entry => entry.name -> entry.count)
       .toMap
-    (found("extract") must beLike { case Count.Unresolved(_) => ok })
+    (found("extract") === Count.Finite(1))
       .and(found("Holder.<init>") === Count.Finite(1))
       .and(found("Holder.value") === Count.Finite(0))
   }
@@ -387,16 +383,14 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
   }
 
   def filePrivateType = {
-    // Without the qualifier there is no package grant: a top-level `private` class is its file's
-    // alone, so a sibling file's reference stays the name it cannot reach.
+    // A top-level `private` class is private to its enclosing package, so the sibling file of that
+    // package reaches it (scalac compiles the fixture): peek reads h.value, its one A — 1.
     val source = inputs(
       "Hidden.scala" -> "package example\nprivate case class Hidden[A](value: A)",
       "Use.scala" -> "package example\ndef peek[A](h: Hidden[A]): A = h.value"
     )
-    cardinality.Compiled.analyze(source).find(_.name == "example.peek").get.count must beLike {
-      case Count.Unresolved(reasons) =>
-        reasons.exists(_.contains("unresolved type: Hidden")) must beTrue
-    }
+    cardinality.Compiled.analyze(source).find(_.name == "example.peek").get.count === Count
+      .Finite(1)
   }
 
   def sealedSum = {
@@ -579,9 +573,8 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
   }
 
   def importOrder = {
-    // A clause binds its names from its own position onward: the earlier reference keeps the
-    // scope the compiler would give it — where the name is not otherwise reachable, it stays
-    // the name it cannot find — while the later one reads the imported product.
+    // The fixture compiles, so scalac bound both references to example.data.Vec, and its binding
+    // wins (decision D3): each reads the product's head or tail — 2.
     val source = inputs(
       "Vec.scala" -> "package example.data\ncase class Vec[A](head: A, tail: A)",
       "Use.scala" -> (
@@ -590,12 +583,8 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       )
     )
     val entries = cardinality.Compiled.analyze(source)
-    (entries.find(_.name == "example.late").get.count === Count.Finite(2)).and {
-      entries.find(_.name == "example.early").get.count must beLike {
-        case Count.Unresolved(reasons) =>
-          reasons.exists(_.contains("unresolved type: Vec")) must beTrue
-      }
-    }
+    (entries.find(_.name == "example.late").get.count === Count.Finite(2))
+      .and(entries.find(_.name == "example.early").get.count === Count.Finite(2))
   }
 
   def incomplete = {

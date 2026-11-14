@@ -37,9 +37,7 @@ class PolymorphicMemberSpec extends Specification {
       a goal's binders are fresh rigid atoms                        $skolem
       bounded and higher-kinded binders keep their reasons          $boundedAndKinded
       a context-bound binder is its evidence parameter               $contextBound
-      a bare-binder result that grows every goal exhausts the budget ${Pending.oldBehavior(
-      growingChain
-    )}
+      a bare-binder result that grows every goal exhausts the budget $growingChain
       a bare-binder result's compound instantiations are not searched $compoundInstantiation
       a polymorphic member inside a record's member counts as one supplied directly $nestedRecord
       a record a receiver's method or a function returns keeps its polymorphic member $produced
@@ -130,7 +128,7 @@ class PolymorphicMemberSpec extends Specification {
   // goals never repeat. True count 1 (unwrap ∘ wrap is ∀A. A → A, the identity, so wrap(b) is the
   // only F[B]); the budget refusal is the documented limit, never a number.
   def growingChain =
-    refused(bounds("bounds.U.cyc"), "Inhabitation state budget exceeded")
+    refused(bounds("bounds.U.cyc"), "solver depth budget exhausted")
 
   private lazy val inl = counts("""package inl
     |trait T { inline def f[M](x: M): Boolean }

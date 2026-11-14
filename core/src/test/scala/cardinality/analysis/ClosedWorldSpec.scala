@@ -1,6 +1,5 @@
 package cardinality.analysis
 
-import cardinality.Pending
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 
@@ -15,9 +14,7 @@ class ClosedWorldSpec extends Specification with InventoryFixtures {
   def is = s2"""
     A member no supplied template overrides is final
       in any file, through an alias, or by a mixin of another parent  $overrides
-      a parent outside the sources may override it: refused            ${Pending.resolvedRefusal(
-      unknownParent
-    )}
+      a library parent the classpath holds is read: m stays final      $unknownParent
       in a braceless body or after an annotation                      $layout
       a literal `val` with no type, and a constructor `val`           $values
     A class no supplied template extends is final
@@ -47,16 +44,14 @@ class ClosedWorldSpec extends Specification with InventoryFixtures {
       .and(rows(mixin)("C.target") === Count.Finite(4))
   }
 
-  // D mixes in Iterator, a library parent whose members this reading does not list: it may define
-  // m, so m is neither final nor known to vary — refused, never 4 or 16.
+  // D mixes in Iterator, a library parent the classpath holds: its members are the compiler's, and
+  // none is an m, so nothing supplied overrides C's m and it is final (true). target is a Boolean
+  // of b: b, !b, true, false — 4.
   def unknownParent =
-    refused(
-      rows(
-        "abstract class C { def m: Boolean = true; def target(b: Boolean): Boolean }\n" +
-          "abstract class D extends C with Iterator[Int]"
-      )("C.target"),
-      "member may be overridden through a parent outside the sources: C.m"
-    )
+    rows(
+      "abstract class C { def m: Boolean = true; def target(b: Boolean): Boolean }\n" +
+        "abstract class D extends C with Iterator[Int]"
+    )("C.target") === Count.Finite(4)
 
   // `final` is written before the keyword, so the indentation a braceless body reads is kept, and
   // after an annotation: m is final in both — 4.

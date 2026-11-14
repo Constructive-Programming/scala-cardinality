@@ -43,9 +43,7 @@ class InferredResultsSpec extends Specification with InventoryFixtures {
       an instance of a class outside the sources is read as written  ${Pending.knownLoss(
       outsideCreation
     )}
-      a transparent inline method's result is refused                ${Pending.oldBehavior(
-      transparentInline
-    )}
+      a transparent inline method's result is refused                $transparentInline
   """
 
   // `true` is a scala.Boolean even where `Boolean` names Int (2); `()` is Unit (1); `3` an Int;
@@ -319,10 +317,11 @@ class InferredResultsSpec extends Specification with InventoryFixtures {
       .and(found("O.h") === Count.Finite(BigInt(2).pow(32)))
   }
 
+  // Rule X: the call site types the expansion, so the compiler's Boolean is only an upper bound.
   def transparentInline =
     refused(
       count("object Tn { transparent inline def t = true }", "Tn.t"),
-      "inferred result type not resolved: transparent inline method"
+      "transparent inline result: the call site observes the expansion's type, not the declared scala.Boolean"
     )
 
 }

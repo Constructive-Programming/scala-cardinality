@@ -15,7 +15,7 @@ class ThrowableSlotsSpec extends Specification {
 
   def is = s2"""
     A throwable slot is open to implementations, never a size     $openSlots
-    every root-import spelling of a throwable is the open class    ${Pending.oldBehavior(spellings)}
+    every root-import spelling of a throwable is the open class    $spellings
     a constructor over a throwable slot says why it has no number  $constructorSlot
     a source class named Throwable is that class                   $shadowed
     a throwable the scala package does not alias is not one there  ${Pending.rejectedFixture(
@@ -42,12 +42,13 @@ class ThrowableSlotsSpec extends Specification {
       .and(found(("f.FailureException", Class)) === "open[Throwable]")
   }
 
+  // Each spelling is the class the compiler resolved, named as `openSlots` names it.
   def spellings =
     rowsOf(
       "a/A.scala" -> ("package a\nfinal case class K3(e: java.lang.Throwable, " +
         "f: scala.RuntimeException, g: java.util.NoSuchElementException)")
     )(("a.K3", Class)) ===
-      "open[java.lang.Throwable, scala.RuntimeException, java.util.NoSuchElementException]"
+      "open[Throwable, RuntimeException, NoSuchElementException]"
 
   def constructorSlot =
     constructor("f.FailureException.<init>", "F.scala" -> failing) ===

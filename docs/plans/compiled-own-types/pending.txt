@@ -1,58 +1,9 @@
-(a) pins old behavior | BinderBoundsSpec | an F-bound through a structure is refused
-(a) pins old behavior | CapabilitySpec | a Comparable parent declares its compareTo
-(a) pins old behavior | CompiledSpec | a fixture with withheld support should compile: a member written without a type takes the compiler's, spelled by its name
-(a) pins old behavior | CompiledSpec | a report over a fixture's files should write the compiler's types into each source
-(a) pins old behavior | ContextBindersSpec | binders of one clause are ambiguous
-(a) pins old behavior | HigherKindedBindingSpec | same-typed anonymous evidences are not counted
-(a) pins old behavior | InferredResultsSpec | a transparent inline method's result is refused
-(a) pins old behavior | MethodUnionNullabilitySpec | keep overlapping concrete alternatives unresolved
 (a) pins old behavior | NamespaceScopingSpec | an object's abstract type member stays open
-(a) pins old behavior | NamespaceSpec | an enum's cases are not read as a namespace
-(a) pins old behavior | NamespaceSpec | an open trait of an object is open
-(a) pins old behavior | NestedScopesSpec | a comprehension's binder is refused, never counted
-(a) pins old behavior | NestedScopesSpec | a polymorphic function literal binds its type parameters
-(a) pins old behavior | NestedScopesSpec | every control-flow form is read alike
-(a) pins old behavior | OwnersAndRecordsSpec | a given or a final member an inline body selects is fixed
-(a) pins old behavior | PolymorphicMemberSpec | a bare-binder result that grows every goal exhausts the budget
 (a) pins old behavior | ReportHygieneSpec | a braceless match type result reads as valid Scala
 (a) pins old behavior | ReportHygieneSpec | a literal type reads as written in rows and reasons
 (a) pins old behavior | ReportHygieneSpec | a refinement reads one way however it is laid out
 (a) pins old behavior | ReportHygieneSpec | an operator name stays apart from its result's colon
 (a) pins old behavior | ReportHygieneSpec | curried clauses read one way however laid out
-(a) pins old behavior | ReportSpec | an abstract member is open
-(a) pins old behavior | ThrowableSlotsSpec | every root-import spelling of a throwable is the open class
-(a) pins old behavior | TransparentInlineSpec | a transparent function result is refused too
-(a) pins old behavior | TypeMemberBoundarySpec | a bound mentioning the scrutinee refuses
-(a) pins old behavior | TypeMemberSpec | projections without a common instantiation stay open
-(a) pins old behavior | ValueRowsSpec | an inhabited, undeclared or unresolved type
-(b) pins a refusal the compiled tree resolves | AliasOverrideIdentitySpec | guards bounded alias parameters
-(b) pins a refusal the compiled tree resolves | AliasOverrideIdentitySpec | guards higher-kinded alias parameters
-(b) pins a refusal the compiled tree resolves | AliasOverrideIdentitySpec | guards type-lambda aliases
-(b) pins a refusal the compiled tree resolves | ClosedWorldSpec | a parent outside the sources may override it: refused
-(b) pins a refusal the compiled tree resolves | ContextualOverrideIdentitySpec | keeps dependent contextual results unresolved
-(b) pins a refusal the compiled tree resolves | DependencyRowsSpec | a compiled inline body is not read: its caller refuses
-(b) pins a refusal the compiled tree resolves | DependencyRowsSpec | a dependency's template is the one of its qualified name
-(b) pins a refusal the compiled tree resolves | HigherKindedBindingSpec | a class's bound is a position read where it is written
-(b) pins a refusal the compiled tree resolves | HigherKindedBindingSpec | inherited substitution keeps nominal identity
-(b) pins a refusal the compiled tree resolves | LeafFamiliesSpec | an extension, a parent's field, an overload, a later clause
-(b) pins a refusal the compiled tree resolves | MethodAnalysisSpec | do not project an abstract case class as a product
-(b) pins a refusal the compiled tree resolves | MethodAnalysisSpec | keep a file-private type from a sibling file
-(b) pins a refusal the compiled tree resolves | MethodAnalysisSpec | keep an import after the reference from binding it
-(b) pins a refusal the compiled tree resolves | MethodRefinementSpec | do not invent structural object representations
-(b) pins a refusal the compiled tree resolves | OwnersAndRecordsSpec | a deferred given is abstract: every class extending it gives one
-(b) pins a refusal the compiled tree resolves | PolyLambdaCardinalitySpec | refuses constrained lambda binders
-(b) pins a refusal the compiled tree resolves | PureCodeSpec | a sealed case or enum built by a throwing body is refused
-(b) pins a refusal the compiled tree resolves | PureCodeSpec | a union with Exception has no runtime class to test
-(b) pins a refusal the compiled tree resolves | PureCodeSpec | an alias nested out of reach does not stand for a parent
-(b) pins a refusal the compiled tree resolves | StdlibModelSpec | IterableOnce leaves iterator to the sources
-(b) pins a refusal the compiled tree resolves | StdlibModelSpec | a sealed template whose subtypes are fixed is a fixed receiver
-(b) pins a refusal the compiled tree resolves | StdlibModelSpec | a union does not discriminate a model sequence's class
-(b) pins a refusal the compiled tree resolves | SyntaxFeaturesSpec | a binder behind a reading that stops is refused
-(b) pins a refusal the compiled tree resolves | SyntaxFeaturesSpec | a floating zero is not read, its sign being lost
-(b) pins a refusal the compiled tree resolves | SyntaxFeaturesSpec | a union of literals holds its distinct constants
-(b) pins a refusal the compiled tree resolves | TargetViewsSpec | `Outer.this.m` of an open outer may be overridden to re-enter
-(b) pins a refusal the compiled tree resolves | TypeMemberBoundarySpec | a local implementer's captures are refused
-(b) pins a refusal the compiled tree resolves | TypeMemberBoundarySpec | a member some level declares as a class is no atom
 (c) known loss | AliasOverrideIdentitySpec | does not capture a caller binder in an alias body
 (c) known loss | AliasOverrideIdentitySpec | guards imported names in the alias declaration scope
 (c) known loss | ArticleCardinalitySpec | C cannot be manufactured
@@ -87,6 +38,8 @@
 (c) known loss | CapabilitySpec | hidden state of a trait's parameterized parent
 (c) known loss | CapabilitySpec | trait parameters, extension and pattern members; a var's value
 (c) known loss | CardinalitySpec | and its row says so, not the placeholder ω
+(c) known loss | CardinalitySpec | sealed parent with abstract child
+(c) known loss | CardinalitySpec | sealed parent without concrete subtypes
 (c) known loss | CompiledSpec | a fixture with withheld support should keep the support out of the analysis: no row of its own, its declaration not supplied
 (c) known loss | ContextBindersSpec | a deeper binder of the same type hides the outer one
 (c) known loss | ContextBindersSpec | a nested using, given or own binder hides the outer one
@@ -197,6 +150,7 @@
 (c) known loss | NamespaceSpec | a sealed child's own parameters are not the parent's
 (c) known loss | NamespaceSpec | a slot never lends a size resting on an unknown name
 (c) known loss | NamespaceSpec | a wildcard import names the package a name is read from
+(c) known loss | NamespaceSpec | an enum's class case is the type it names
 (c) known loss | NamespaceSpec | an imported name borrows no same-named source type
 (c) known loss | NamespaceSpec | an imported name is not open because another package's is
 (c) known loss | NamespaceSpec | an object's import and its own types shadow the enclosing body's
@@ -205,6 +159,7 @@
 (c) known loss | NamespaceSpec | the standard library may be spelled in full
 (c) known loss | NestedScopesSpec | a case clause's binder is refused, never counted
 (c) known loss | NestedScopesSpec | a case pattern or guard leaves the typing context as it is
+(c) known loss | NestedScopesSpec | a comprehension's binder is a lambda parameter
 (c) known loss | NestedScopesSpec | a given binder of a case clause is refused
 (c) known loss | NestedScopesSpec | a pattern that may refine a type refuses every count
 (c) known loss | OverrideIdentityImplementationSpec | keys an imported constructor by the path its import binds
@@ -256,6 +211,7 @@
 (c) known loss | StdlibModelSpec | a nested object reads its open owner's parents
 (c) known loss | StdlibModelSpec | a package scala of the sources outranks the root package
 (c) known loss | StdlibModelSpec | a renamed import names the path and the name
+(c) known loss | StdlibModelSpec | a sealed template with a subtype something extends is fixed
 (c) known loss | StdlibModelSpec | a selection through an import names the full path
 (c) known loss | StdlibModelSpec | a supplied namespace's missing member names the wildcard
 (c) known loss | StdlibModelSpec | an Array of a singleton needs its widened type's ClassTag
@@ -338,6 +294,7 @@
 (c) known loss | TransparentInlineSpec | a narrower class, None, or a declared singleton
 (c) known loss | TransparentInlineSpec | a transparent result of an open class may be a subclass
 (c) known loss | TypeMemberBoundarySpec | a member scrutinee is spelled by its path
+(c) known loss | TypeMemberBoundarySpec | a nested class's fields are what a member builds
 (c) known loss | TypeMemberBoundarySpec | a parent's private alias is that parent's own
 (c) known loss | TypeMemberBoundarySpec | a refinement no value of its base may have is refused
 (c) known loss | TypeMemberBoundarySpec | a type pattern before `case _` still needs a proof
@@ -363,11 +320,6 @@
 (c) known loss | UnsuppliedWildcardSpec | an enum companion's wildcard binds a case class
 (c) known loss | UnsuppliedWildcardSpec | quotes.reflect, whose members are not listed, may bind any
 (c) known loss | UnsuppliedWildcardSpec | refuses Singleton for the marker where a wildcard may bind it
-count differs: to derive, a correction or a bug | CapabilitySpec | `Any`'s and `Product`'s members are universal (`canEqual`)
-count differs: to derive, a correction or a bug | CardinalitySpec | recursion in a function domain has no count
-count differs: to derive, a correction or a bug | CardinalitySpec | sealed parent with abstract child
-count differs: to derive, a correction or a bug | CardinalitySpec | sealed parent without concrete subtypes
-count differs: to derive, a correction or a bug | CounterSpec | Skips unknown statements, bounds unknown types
 count differs: to derive, a correction or a bug | StoredValueSoundnessSpec | an intersection of unrelated families is empty
 rejected fixture, uncompiled support | AliasOverrideIdentitySpec | guards incorrect alias arity
 rejected fixture, uncompiled support | AliasOverrideIdentitySpec | guards mutually recursive aliases

@@ -168,7 +168,7 @@ class CardinalitySpec extends Specification {
     unsealed abstract parent is not a sum    ${src(
       "abstract class B6(y: Boolean); case class S6(z: Boolean) extends B6(z); case class R6(b: B6)"
     ) === EffectiveOmega + BooleanSize}
-    sealed parent with abstract child        ${Pending.countDiffers(
+    sealed parent with abstract child        ${Pending.knownLoss(
       src(
         "sealed trait Q; abstract class Qa(x: Boolean) extends Q; case class Qb(y: Boolean) extends Q; case class Uq(q: Q)"
       ) === EffectiveOmega + BooleanSize
@@ -200,10 +200,10 @@ class CardinalitySpec extends Specification {
     mutual sealed ADTs                         ${src(
       "sealed trait L; case object L0 extends L; case class L1(r: R) extends L; sealed trait R; case object R0 extends R; case class R1(l: L) extends R"
     ) === EffectiveOmega + EffectiveOmega + BooleanSize}
-    recursion in a function domain has no count      ${Pending.countDiffers(
-      src(
-        "case class P(b: Boolean, t: P => P)"
-      ) === EffectiveOmega
+    recursion in a function domain has no count      ${Rows.rows(
+      "case class P(b: Boolean, t: P => P)"
+    )(("P", Definition.Kind.Class)) must startWith(
+      "unresolved["
     )} (not 0: P(true, x => x) is a closed value; §8 covers covariant recursion only)
     and its row says so, not the placeholder ω  ${Pending.knownLoss(
       cardinality.Compiled
@@ -211,7 +211,7 @@ class CardinalitySpec extends Specification {
         .find(_.name == "P")
         .map(_.unbound.map(_.render)) === Some(List("recursion through a function's domain: P"))
     )}
-    sealed parent without concrete subtypes    ${Pending.countDiffers(
+    sealed parent without concrete subtypes    ${Pending.knownLoss(
       src(
         "sealed trait Open; trait Aux extends Open; case class Ref(o: Open)"
       ) === EffectiveOmega

@@ -33,15 +33,9 @@ class AliasOverrideIdentitySpec extends Specification {
       opaque
     )}
       keys abstract type members as the receiver's                     $abstractMember
-      guards higher-kinded alias parameters                            ${Pending.resolvedRefusal(
-      higherKinded
-    )}
-      guards type-lambda aliases                                        ${Pending.resolvedRefusal(
-      lambda
-    )}
-      guards bounded alias parameters                                  ${Pending.resolvedRefusal(
-      bounded
-    )}
+      a higher-kinded alias's expansion is an overload, not an override $higherKinded
+      a type-lambda alias expands to the parameter it overrides         $lambda
+      a bounded alias parameter expands to the parameter it overrides   $bounded
       guards incorrect alias arity                                     ${Pending.rejectedFixture(
       arity
     )}
@@ -191,26 +185,31 @@ class AliasOverrideIdentitySpec extends Specification {
       abstract class Instance[A] extends Base[A] { type Member = A; def get(a: A): A = a }
     """) === Count.Finite(1)
 
+  // The compiler expands the alias: Base's get takes Option[A], so Instance's get(a: A) overloads it
+  // and Base's stays an abstract capability on this. An A => A body may return a, g(None),
+  // g(Some(a)), g(Some(g(None))), ...: countably many.
   def higherKinded =
-    unresolved("""
+    count("""
       type Alias[F[_], A] = F[A]
       trait Base[A] { def get(a: Alias[Option, A]): A }
       abstract class Instance[A] extends Base[A] { def get(a: A): A = a }
-    """)
+    """) === Count.Countable
 
+  // Alias[A] is A, so Instance's get overrides Base's and no capability is left: A => A is 1.
   def lambda =
-    unresolved("""
+    count("""
       type Alias = [A] =>> A
       trait Base[A] { def get(a: Alias[A]): A }
       abstract class Instance[A] extends Base[A] { def get(a: A): A = a }
-    """)
+    """) === Count.Finite(1)
 
+  // `A <: Any` bounds nothing: Alias[A] is A, an override as in lambda, 1.
   def bounded =
-    unresolved("""
+    count("""
       type Alias[A <: Any] = A
       trait Base[A] { def get(a: Alias[A]): A }
       abstract class Instance[A] extends Base[A] { def get(a: A): A = a }
-    """)
+    """) === Count.Finite(1)
 
   def arity =
     unresolved("""

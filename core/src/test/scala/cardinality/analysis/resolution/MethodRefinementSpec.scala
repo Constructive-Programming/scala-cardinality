@@ -21,9 +21,7 @@ class MethodRefinementSpec extends Specification {
       do not erase refinements on a known product                   ${Pending.knownLoss(
       noProductErasure
     )}
-      do not invent structural object representations               ${Pending.resolvedRefusal(
-      noTraitProduct
-    )}
+      a refined trait with no term member is one value              $noTraitProduct
       retain structural term constraints                           $noTermErasure
       resolve projected fields for constructor analysis             $constructor
       preserve qualification through a forward alias               $qualifiedAlias
@@ -86,13 +84,13 @@ class MethodRefinementSpec extends Specification {
       case Count.Unresolved(reasons) => reasons.mkString must contain("constraints not erased")
     }
 
+  // The body may implement the abstract Optic (`new Optic[A] { type X = A }`), and a value of it
+  // has no term member to observe: one value, whatever x is — 1.
   def noTraitProduct =
     count(
       "trait Optic[A] { type X }; " +
         "def choose[A](x: A): Optic[A] { type X = A } = ???"
-    ) must beLike {
-      case Count.Unresolved(reasons) => reasons.mkString must contain("representation unavailable")
-    }
+    ) === Count.Finite(1)
 
   def noTermErasure =
     count("def choose(): Unit { def unavailable: Boolean } = ???") must beLike {

@@ -21,9 +21,7 @@ class BinderBoundsSpec extends Specification {
       a bound views a field that two values share as one case       $fieldCases
       a value's reading is marked apart from its path               $viewedPath
     Bounds that refer back
-      an F-bound through a structure is refused                     ${Pending.oldBehavior(
-      recursiveBounds
-    )}
+      an F-bound through a structure is refused                     $recursiveBounds
       a recursion through a subtype proof is refused                $evidenceRecursion
       an F-bound through a rigid application is a view              $keyedFBound
       bounds referring back through bounds alone are invalid        ${Pending.rejectedFixture(
@@ -136,7 +134,8 @@ class BinderBoundsSpec extends Specification {
 
   // Every A holds a smaller A: for an invariant final P no value exists (the context is vacuous,
   // exact 1), `A <: Option[A]` admits None. Before: 2, 4, 2^32. The order-swapped chain is legal
-  // Scala (`[A <: B, B <: Option[A]]` is E046 in 3.9.0, order-dependent).
+  // Scala (`[A <: B, B <: Option[A]]` is E046 in 3.9.0, order-dependent). The reason names the
+  // binders whose bounds refer back, each spelled with its owner.
   def recursiveBounds = {
     val counts = entries(products + """
       object R {
@@ -148,14 +147,14 @@ class BinderBoundsSpec extends Specification {
         def chain[B <: Option[A], A <: B](a: A): A = a
       }
     """)
-    def recursive(name: String, bound: String) =
-      refused(counts, name, s"recursive bound not read: $bound")
-    recursive("R.fbound", "A <: P[A]")
-      .and(recursive("R.toBool", "A <: P[A]"))
-      .and(recursive("R.toInt", "A <: P[A]"))
-      .and(recursive("R.mutual", "B <: P[A]"))
-      .and(recursive("R.option", "A <: Option[A]"))
-      .and(recursive("R.chain", "B <: Option[A]"))
+    def recursive(name: String, binders: String) =
+      refused(counts, s"R.$name", s"recursive bound not read: $binders")
+    recursive("fbound", "R$.fbound[A]")
+      .and(recursive("toBool", "R$.toBool[A]"))
+      .and(recursive("toInt", "R$.toInt[A]"))
+      .and(recursive("mutual", "R$.mutual[A], R$.mutual[B]"))
+      .and(recursive("option", "R$.option[A]"))
+      .and(recursive("chain", "R$.chain[A], R$.chain[B]"))
   }
 
   def evidenceRecursion =

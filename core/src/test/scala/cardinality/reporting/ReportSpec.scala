@@ -56,7 +56,7 @@ class ReportSpec extends Specification {
       a type constructor is a shape, not a gap    $constructorRow
       a named member resolves                     $memberByName
       an instance-qualified member resolves       $memberByValue
-      an abstract member is open                  ${Pending.oldBehavior(memberAbstract)}
+      an abstract member is its instance's choice $memberAbstract
       a member the sources do not give reads as written  ${Pending.knownLoss(memberUnknown)}
       a refinement is read as the type it refines $refinementRow
       an open abstraction reads as one in a report  $openRow
@@ -645,14 +645,17 @@ class ReportSpec extends Specification {
          |class C(val x: O) { type Y = x.Z }
          |""".stripMargin,
     )
-    // A member a body declares abstract is supplied by whoever implements it: unbounded, which the
-    // row says, rather than an unknown name.
+    // A member a body declares abstract is supplied by whoever implements it: x's Z is the choice of
+    // the instance x, so Y's size is a function of that choice, as of a parameter (`member Z`), which
+    // the row says rather than an unknown name.
     (found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
       ("O", None, Nil),
       ("C", Some(EffectiveOmega), List("O")),
-      ("C#Y", Some(EffectiveOmega), List("x.Z")),
+      ("C#Y", Some(EffectiveOmega), List("member Z")),
     ))
-      .and(found.find(_.name == "C#Y").exists(d => Definition.gap(d).contains(Definition.Gap.Open)))
+      .and(
+        found.find(_.name == "C#Y").flatMap(Definition.gap) === Some(Definition.Gap.Instantiation)
+      )
   }
 
   def memberUnknown = {

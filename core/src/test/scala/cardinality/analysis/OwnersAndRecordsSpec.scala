@@ -45,12 +45,8 @@ class OwnersAndRecordsSpec extends Specification {
     )}
       a match-type field reduces on the record's tuple argument        $matchField
     Members no subclass overrides
-      a given or a final member an inline body selects is fixed        ${Pending.oldBehavior(
-      fixedSelection
-    )}
-      a deferred given is abstract: every class extending it gives one ${Pending.resolvedRefusal(
-      deferredGiven
-    )}
+      a given or a final member an inline body selects is fixed        $fixedSelection
+      a deferred given is abstract: every class extending it gives one $deferredGiven
       a `deferred` nothing imports is no compiletime one               ${Pending.rejectedFixture(
       deferredBare
     )}
@@ -464,8 +460,8 @@ class OwnersAndRecordsSpec extends Specification {
   }
 
   // No subclass overrides a given (E164) or a final member: f's expansion selects T's g and U's g
-  // on every call site — g, 2 (T.f read `?`). V's g is open: a call site's subclass may override
-  // it inline.
+  // on every call site — g, 2 (T.f read `?`). V's g is open: VO overrides it inline with a
+  // compile-time operation, so f's expansion may call it — refused.
   def fixedSelection = {
     val found = one("""
       trait T { given g: Boolean = true; inline def f: Boolean = g }
@@ -478,8 +474,7 @@ class OwnersAndRecordsSpec extends Specification {
       .and(
         refused(
           found("V.f"),
-          "inline method: selects g on this, which a call site may type as a subclass of V that " +
-            "overrides g inline, and inline method VO.g uses scala.compiletime.codeOf"
+          "inline method: calls inline method VO.g, which uses scala.compiletime.codeOf"
         )
       )
   }
@@ -490,7 +485,8 @@ class OwnersAndRecordsSpec extends Specification {
   // world no supplied template overrides it inline with an expansion that differs per call site,
   // so f is g's functions too — 4 (it was refused). A
   // `deferred` another declaration binds — a member of V, X's imported in TX's object, a local
-  // `compiletime` object's selected in TL — is no abstract given.
+  // `compiletime` object's selected in TL — is no abstract given: g is the concrete given `true`
+  // (a val nothing overrides), so other reads nothing free and is a Boolean of nothing — 2.
   def deferredGiven = {
     val found = one("""
       import scala.compiletime.deferred
@@ -503,13 +499,12 @@ class OwnersAndRecordsSpec extends Specification {
       object compiletime { val deferred: Boolean = true }
       trait TL { given g: Boolean = compiletime.deferred; def other: Boolean = g }
     """)
-    val other = "given alias of a deferred not resolved to scala.compiletime"
     (found("T.other") === Count.Finite(4))
       .and(found("Q.other") === Count.Finite(4))
       .and(found("TI.f") === Count.Finite(4))
-      .and(refused(found("V.other"), s"$other: V.g"))
-      .and(refused(found("TXs.TX.other"), s"$other: TXs.TX.g"))
-      .and(refused(found("TL.other"), s"$other: TL.g"))
+      .and(found("V.other") === Count.Finite(2))
+      .and(found("TXs.TX.other") === Count.Finite(2))
+      .and(found("TL.other") === Count.Finite(2))
   }
 
   // A bare `deferred` no import binds (scalac rejects it, E006): this reading does not take it for

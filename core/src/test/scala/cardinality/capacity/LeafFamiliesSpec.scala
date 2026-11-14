@@ -1,6 +1,5 @@
 package cardinality.capacity
 
-import cardinality.Pending
 import org.specs2.Specification
 import org.specs2.execute.Result
 
@@ -14,10 +13,8 @@ class LeafFamiliesSpec extends Specification {
   import Definition.Kind.*
 
   def is = s2"""
-    A subclass may override what the leaf has
-      an extension, a parent's field, an overload, a later clause    ${Pending.resolvedRefusal(
-      open
-    )}
+    No supplied subclass extends the leaf, so it is final
+      an extension, a parent's field, an overload, a later clause    $open
     A member fixed anywhere in the ancestry closes the leaf
       a parent's final override, or the leaf's own field             $closed
   """
@@ -29,42 +26,35 @@ class LeafFamiliesSpec extends Specification {
   private def use(prelude: String, leaf: String): String =
     rows(family(prelude, leaf))(("Use", Class))
 
-  private def opens(prelude: String, leaf: String, member: String): Result =
-    use(prelude, leaf) ===
-      s"unresolved[sealed family not summed: W (a subtype open to extension: C (overridable member $member))]"
+  private def summed(prelude: String, leaf: String): Result = use(prelude, leaf) === "3"
 
   // The leaf's extension b; V's foo, which the second clause's plain parameter does not override;
   // FP's `val` field d; OP's d(s: String), which the final overload d(i: Int) leaves open; PP's d,
-  // which GP's private d does not fix; an overload of `==`. Each family is refused (each read 3).
+  // which GP's private d does not fix; an overload of `==`. Each member would vary in a subclass,
+  // but in the closed world no supplied template extends the case class C: it is final, and its
+  // members are its code. W = C's 2 + K's 1 = 3 each (each was refused before the closed world).
   def open =
-    opens(
-      "",
-      "case class C(x: Boolean) extends W { extension (y: Boolean) def b: Boolean = x }",
-      "b"
-    )
+    summed("", "case class C(x: Boolean) extends W { extension (y: Boolean) def b: Boolean = x }")
       .and(
-        opens(
+        summed(
           "trait V { def foo: Boolean = true }\n",
-          "case class C(x: Boolean)(foo: Unit) extends V, W",
-          "V.foo"
+          "case class C(x: Boolean)(foo: Unit) extends V, W"
         )
       )
-      .and(opens("class FP(val d: Int)\n", "case class C(x: Boolean) extends FP(1), W", "FP.d"))
+      .and(summed("class FP(val d: Int)\n", "case class C(x: Boolean) extends FP(1), W"))
       .and(
-        opens(
+        summed(
           "trait OP { def d(s: String): Int = 2 }\n",
-          "case class C(x: Boolean) extends OP, W { final def d(i: Int): Int = 1 }",
-          "OP.d"
+          "case class C(x: Boolean) extends OP, W { final def d(i: Int): Int = 1 }"
         )
       )
       .and(
-        opens(
+        summed(
           "trait GP { private def d: Int = 1 }\ntrait PP extends GP { def d: Int = 2 }\n",
-          "case class C(x: Boolean) extends PP, W",
-          "PP.d"
+          "case class C(x: Boolean) extends PP, W"
         )
       )
-      .and(opens("", "case class C(x: Boolean) extends W { def ==(i: Int): Boolean = true }", "=="))
+      .and(summed("", "case class C(x: Boolean) extends W { def ==(i: Int): Boolean = true }"))
 
   // P's final override fixes GP's d for every subclass of C (scalac rejects overriding it again,
   // E164); C's field b overrides V's b, and an override of the field is another value of its type.

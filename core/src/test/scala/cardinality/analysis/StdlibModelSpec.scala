@@ -51,9 +51,7 @@ class StdlibModelSpec extends Specification {
       an unapplied entry where a proper type is expected is refused ${Pending.rejectedFixture(
       unappliedProper
     )}
-      a union does not discriminate a model sequence's class        ${Pending.resolvedRefusal(
-      unionClass
-    )}
+      a union discriminates a model sequence's class                $unionClass
     Absent declarations
       a named import names the path it binds                         ${Pending.knownLoss(
       namedImport
@@ -107,13 +105,12 @@ class StdlibModelSpec extends Specification {
       a nested object reads its open owner's parents                ${Pending.knownLoss(
       nestedObject
     )}
-      IterableOnce leaves iterator to the sources                   ${Pending.resolvedRefusal(
-      iterableOnce
-    )}
+      IterableOnce leaves iterator to the sources                   $iterableOnce
       IterableOnce declares no type member                          $iterableTypes
       a model parent under an unsupplied wildcard is the model      $wildcardParent
-      a sealed template whose subtypes are fixed is a fixed receiver ${Pending.resolvedRefusal(
-      sealedParent
+      a sealed template whose subtypes are fixed is a fixed receiver $sealedParent
+      a sealed template with a subtype something extends is fixed  ${Pending.knownLoss(
+      sealedParentExtended
     )}
       a parent whose standing its own search asks is the model's    $selfReachingParent
   """
@@ -527,13 +524,10 @@ class StdlibModelSpec extends Specification {
         "needs higher-kinded instantiation)"
     )
 
-  // `Vector[Int] | String` would be a sum only with Vector's runtime class, which A2's table does
-  // not hold: refused, saying the model holds the declaration (not that it is absent).
+  // Vector and String are disjoint classes the compiler names, so `Vector[Int] | String` is their
+  // sum, an infinite input: a Boolean of it is ω, as `String => Boolean` is.
   def unionClass =
-    refused(
-      count("object U { def v(x: Vector[Int] | String): Boolean = ??? }", "U.v"),
-      "Vector has no runtime class this reading tells apart (stdlib model)"
-    )
+    count("object U { def v(x: Vector[Int] | String): Boolean = ??? }", "U.v") === Count.Countable
 
   def namedImport =
     count(
@@ -893,9 +887,10 @@ class StdlibModelSpec extends Specification {
       "inherited parent declaration not supplied: lib.Base"
     )
 
-  // Without `iterator` the trait leaves an Iterator-valued member to its subclasses; with it alone,
-  // a subclass may still override `knownSize` (an Int f could read) or `stepper`. With all three
-  // defined, f is Boolean => Boolean: 4.
+  // Without `iterator` the trait leaves an Iterator-valued member abstract: a capability of the
+  // receiver, a sequence of Ints f may read, so f is ω. With it defined, nothing supplied extends T,
+  // so `knownSize` and `stepper` are the library's code, which no subclass replaces, and f is
+  // Boolean => Boolean: 4, as with all three defined final.
   def iterableOnce = {
     val bare = "trait T extends IterableOnce[Int] { def f(b: Boolean): Boolean = ??? }"
     val implemented = "trait T extends IterableOnce[Int] {\n" +
@@ -908,20 +903,9 @@ class StdlibModelSpec extends Specification {
       |  final override def stepper[S <: Stepper[?]](implicit shape: StepperShape[Int, S]): S = ???
       |  def f(b: Boolean): Boolean = ???
       |}""".stripMargin
-    refused(
-      count(bare, "T.f"),
-      "inherited parent declaration not implemented: scala.collection.IterableOnce.iterator"
-    ).and(
-      refused(
-        count(implemented, "T.f"),
-        "inherited stdlib member a subclass may override: scala.collection.IterableOnce.knownSize"
-      )
-    ).and(
-      refused(
-        count(implemented, "T.f"),
-        "inherited stdlib member a subclass may override: scala.collection.IterableOnce.stepper"
-      )
-    ).and(count(complete, "T.f") === Count.Finite(4))
+    (count(bare, "T.f") === Count.Countable)
+      .and(count(implemented, "T.f") === Count.Finite(4))
+      .and(count(complete, "T.f") === Count.Finite(4))
   }
 
   // Inside a template extending IterableOnce, `Int` is scala.Int and `Mine` the package's alias (a
@@ -951,19 +935,25 @@ class StdlibModelSpec extends Specification {
       )("r.O.g") === Count.Finite(BigInt(2).pow(32))
     )
 
-  // P's instances are D1's, a final class: no subclass overrides `stepper`, so the receiver's own
-  // family is what stays unread. With a non-final child, a subclass may.
-  def sealedParent = {
-    val body = "{\n  def iterator: Iterator[Int] = ???\n  override def knownSize: Int = 0\n" +
-      "  def g(b: Boolean): String = ???\n}"
-    val closed = s"sealed trait P extends IterableOnce[Int] $body\nfinal class D1 extends P"
-    val open =
-      s"sealed trait P extends IterableOnce[Int] $body\nclass D1 extends P\nclass D2 extends D1"
-    val overridable = "inherited stdlib member a subclass may override"
-    refused(count(closed, "P.g"), "receiver is a sealed family this measurement does not split: P")
-      .and(clean(count(closed, "P.g"), overridable))
-      .and(refused(count(open, "P.g"), overridable))
-  }
+  // P's instances are D1's, a final class that overrides nothing: `stepper` and the rest are the
+  // library's code or P's, so the receiver holds nothing g may read: g is Boolean => Boolean, 4. With
+  // D1 extended by D2, which overrides nothing either, P's instances are D1's and D2's: 4 too.
+  private val sealedBody =
+    "{\n  def iterator: Iterator[Int] = ???\n  override def knownSize: Int = 0\n" +
+      "  def g(b: Boolean): Boolean = ???\n}"
+
+  def sealedParent =
+    count(
+      s"sealed trait P extends IterableOnce[Int] $sealedBody\nfinal class D1 extends P",
+      "P.g"
+    ) ===
+      Count.Finite(4)
+
+  def sealedParentExtended =
+    count(
+      s"sealed trait P extends IterableOnce[Int] $sealedBody\nclass D1 extends P\nclass D2 extends D1",
+      "P.g"
+    ) === Count.Finite(4)
 
   // Whether `Serializable` in `T`'s parents is the marker depends on what `import O.*` brings, and
   // `O` inherits `T`'s parents: the search for that channel meets itself. A search that meets itself

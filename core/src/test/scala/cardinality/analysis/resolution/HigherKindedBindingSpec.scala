@@ -52,9 +52,7 @@ class HigherKindedBindingSpec extends Specification {
       an export of a vocabulary name is not trusted                 ${Pending.knownLoss(
       exportedVocabulary
     )}
-      inherited substitution keeps nominal identity                 ${Pending.resolvedRefusal(
-      inherited
-    )}
+      inherited substitution keeps nominal identity                 $inherited
       a constructor field of F[Unit]                                $unfold
     Constructor arguments (R3)
       a rigid binder passed to a case class                         $boxRigid
@@ -75,15 +73,11 @@ class HigherKindedBindingSpec extends Specification {
       a named context bound is a named evidence                     $namedEvidence
       a higher-kinded evidence joins the environment                $hkEvidence
       a class's bound is evidence for its members                   $classEvidence
-      a class's bound is a position read where it is written        ${Pending.resolvedRefusal(
-      classBoundPosition
-    )}
+      a class's bound is a position read where it is written        $classBoundPosition
       a foreign evidence names the foreign type                     ${Pending.knownLoss(
       foreignBound
     )}
-      same-typed anonymous evidences are not counted                ${Pending.oldBehavior(
-      ambiguous
-    )}
+      same-typed anonymous evidences are not counted                $ambiguous
       anonymous using parameters do not overwrite each other        $anonymous
       a bounded binder's evidence is not provably unrelated         ${Pending.knownLoss(
       boundedEvidence
@@ -324,20 +318,15 @@ class HigherKindedBindingSpec extends Specification {
       .and(counts("T.swapped") === Count.Finite(0))
   }
 
-  // A parent instantiated at a binder keeps its key; one instantiated at `Option[B]` was read as a
-  // shape, which has lost the nominal identity `G[Option[B]]` needs (exact count 0).
+  // A parent instantiated at a binder keeps its key: Same's seed is a G[B], get — 1. Other's seed is
+  // a G[Option[B]], which a rigid G never turns into a G[B]: get has no implementation — 0.
   def inherited = {
     val counts = entries("""
       trait Base[F[_], A] { val seed: F[A] }
       trait Same[G[_], B] extends Base[G, B] { def get: G[B] }
       trait Other[G[_], B] extends Base[G, Option[B]] { def get: G[B] }
     """)
-    (counts("Same.get") === Count.Finite(1)).and(
-      counts("Other.get") must beLike {
-        case Count.Unresolved(reasons) =>
-          reasons must contain("nominal identity of substituted argument not tracked: A")
-      }
-    )
+    (counts("Same.get") === Count.Finite(1)).and(counts("Other.get") === Count.Finite(0))
   }
 
   // `Function1`, `Tuple2` and `=:=` are read as builtins wherever no source declares them, so an
@@ -482,9 +471,8 @@ class HigherKindedBindingSpec extends Specification {
   // A class's bound is the `using` parameter it stands for, also as a constructor position: the
   // estimate reads it inside the class, where `Tag` is a name it knows. `O.Tag[A]` is the sum
   // T1[A]() + T2[A]() = 2 whatever `A` is, so `Bound` and `Using` hold it beside `a`: 1 · 2 = 2.
-  // `R.Mark` has a subtype written through a renamed import, which the estimate refuses and the
-  // shape model misses (it would read 1 · 1 = 1; scalac's `R.Mark[Int]` holds `R.Z.M2`, so the
-  // truth is 2): read at the top of the file, `Mark` was no name the estimate knew and that 1 stood.
+  // `R.Mark` has a subtype written through a renamed import, which the compiler resolves:
+  // `R.Mark[A]` is M1[A]() + M2[A]() = 2 (scalac's `R.Mark[Int]` holds `R.Z.M2`), so 1 · 2 = 2.
   // Both spellings read alike: `K` and `KU` hold `Default[A]` beside `a` (4), `B` and `BU` a
   // `Boolean` beside `a` (2).
   def classBoundPosition = {
@@ -513,16 +501,10 @@ class HigherKindedBindingSpec extends Specification {
         final class Using[A](a: A)(using Mark[A])
       }
     """)
-    def unsummed(name: String) = counts(name) must beLike {
-      case Count.Unresolved(reasons) =>
-        reasons must contain(
-          "sealed family not summed: Mark (a subtype extends it through a renamed import: M2)"
-        )
-    }
     (counts("O.Bound.<init>") === Count.Finite(2))
       .and(counts("O.Using.<init>") === Count.Finite(2))
-      .and(unsummed("R.Bound.<init>"))
-      .and(unsummed("R.Using.<init>"))
+      .and(counts("R.Bound.<init>") === Count.Finite(2))
+      .and(counts("R.Using.<init>") === Count.Finite(2))
       .and(counts("O.K.<init>") === Count.Finite(4))
       .and(counts("O.KU.<init>") === Count.Finite(4))
       .and(counts("O.B.<init>") === Count.Finite(2))
@@ -536,7 +518,8 @@ class HigherKindedBindingSpec extends Specification {
       "declaration not supplied: cats.Monoid (named import Monoid)"
     )
 
-  // `summon[Default[A]]` is ambiguous (3.9.0: E172); exact count 1.
+  // `summon[Default[A]]` is ambiguous (3.9.0: E172); exact count 1. The refusal spells each type as
+  // the compiler does: the empty package's Default, FT2's own C.
   def ambiguous = {
     val counts = entries("""
       final case class Default[A](value: A)
@@ -545,10 +528,10 @@ class HigherKindedBindingSpec extends Specification {
     """)
     (counts("T.f") must beLike {
       case Count.Unresolved(reasons) =>
-        reasons must contain("ambiguous anonymous evidence: Default[A]")
+        reasons must contain("ambiguous anonymous evidence: .Default[A]")
     }).and(counts("FT2.twice") must beLike {
       case Count.Unresolved(reasons) =>
-        reasons must contain("ambiguous anonymous evidence: C[G]")
+        reasons must contain("ambiguous anonymous evidence: FT2.this.C[G]")
     })
   }
 
