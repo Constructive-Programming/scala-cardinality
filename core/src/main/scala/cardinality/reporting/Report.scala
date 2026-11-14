@@ -97,7 +97,7 @@ object Report {
       classpath: Seq[Path] = Nil,
       stubs: Option[Path] = None,
       classes: Option[CompiledTypes.Classes] = None,
-      frontEnd: Front = Front.Scalameta
+      frontEnd: Front = Front.Tasty
   )
 
   /** The front ends (docs/plans/compiled-own-types.md, "Front end: design and status"). `Scalameta`
