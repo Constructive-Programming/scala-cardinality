@@ -61,7 +61,8 @@ them, the input-order invariance and row identity on every run.
 
 ## Reproduce
 
-From the repository root, with sbt 2.0.9 and the build's Scala 3.8.4:
+Run from the repository root. The review ran with sbt 2.0.9 and the build's Scala 3.8.4 at
+`7f8bcff`; the build now uses sbt 2.1.0-RC1, with `core`, which runs the baseline, on Scala 3.10.1.
 
 ```bash
 mkdir -p target/eo-baseline

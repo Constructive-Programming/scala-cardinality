@@ -8,8 +8,9 @@ import cardinality.types.*
 /** What a clause written outside a namespace's body — an object's, or the top level of a package's
   * files — imports of its members: through a wildcard every accessible member but a given, through
   * a `given` selector the given ones (Scala 3 reference, given imports); a private or protected
-  * member only where it is accessible, which is not followed (probes/review-A7/round2/st6), nor are
-  * the members its parents pass on or its exports define (`inherits`, `exports`).
+  * member only where it is accessible, which is not followed (session fixture
+  * review-A7/round2/st6), nor are the members its parents pass on or its exports define
+  * (`inherits`, `exports`).
   */
 final private[cardinality] case class Exposure(
     stats: List[Stat],

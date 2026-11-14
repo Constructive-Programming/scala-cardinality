@@ -4,6 +4,8 @@ The method-side solver reads `Byte`, `Short`, `Char`, `Int`, `Long`, `Float`, `D
 `String` as **transparent** types: closed enumerations of literal values. This page states the
 rule, its derivation, the counts it produces and where it stops.
 
+Register entry: [D9](code-cardinality-foundations.md#d9-ground-scalar-types-are-transparent).
+
 ## The rule
 
 | Type | Values | Size |
@@ -20,11 +22,13 @@ type is not the "unrestricted runtime type/equality test" the [contract](../plan
 that exclusion is about tests on abstract and top types. Every other total operation (arithmetic,
 comparison, conversion, `toString`) is definable from T1 and T2 by case analysis, so no count below
 depends on which of them a body uses. Reference identity, unguarded partial operations, locale- or
-charset-dependent conversions and raw NaN bits stay excluded.
+charset-dependent conversions and any sign or payload observation of a NaN (`floatToRawIntBits`,
+`Math.copySign`; `StrictMath.copySign` is fine) stay excluded.
 
 `Float` and `Double` are counted under `equals`: IEEE `==` is not reflexive (NaN ≠ NaN), and raw
 NaN payloads may change on a copy on some platforms (the JDK documents this for
-`Float.intBitsToFloat`; recalled, not re-inspected here), so the 2^24 − 2 (2^53 − 2) NaN patterns
+`Float.intBitsToFloat`; OpenJDK jdk21u source, [bibliography](bibliography.md) [6], **Inspected
+(full text) — bibliographer**), so the 2^24 − 2 (2^53 − 2) NaN patterns
 are one value while the two zeros stay two. `String` is idealized as the free monoid over `Char`,
 the same idealization as `List` and the stored-value side's `String ~ ω`; the JVM's `Int.MaxValue`
 length bound would make every String count an unreadable finite number.
@@ -33,7 +37,8 @@ length bound would make every String count an unreadable finite number.
 
 Write `#(Γ ⊢ τ)` for the implementations of goal `τ` in environment `Γ`.
 
-- **Literal goal.** With no transparent value in `Γ` (they are split first) and no producer of a
+- **Literal goal.** In a consistent `Γ` (an absurd one has exactly one implementation, which the
+  absurd rule gives first) with no transparent value (they are split first) and no producer of a
   transparent result (those are refused, below), a `G`-valued expression can only be a literal:
   atoms have no observations. So `#(Γ ⊢ G) = |G|`, a rule weighted by the type's size.
 - **Uniform split.** For `x : G` with `n` values, an implementation is a decision tree on `x` (T2);
@@ -68,7 +73,7 @@ Write `#(Γ ⊢ τ)` for the implementations of goal `τ` in environment `Γ`.
   under the whole chain's substitution; parameters that resolve differently are overloads, two
   members (`g(x: Int): Int` and `g(x: Long): Int` beside `def f: Boolean`: `2^(2^(2^37 + 2^69))`).
 - **Corollary.** Over finite closed types only, `#(Γ ⊢ τ) = |τ|^Π|Γᵢ|`, the set-theoretic count
-  (type-arithmetic §3): `def f(x: Int): Int` is `2^(2^37)`, `def f(c: Char): Boolean` is
+  ([counting data](../site/arithmetic/counting-data.md) §3): `def f(x: Int): Int` is `2^(2^37)`, `def f(c: Char): Boolean` is
   `2^(2^16)`.
 
 ## Exact symbolic counts
@@ -136,7 +141,7 @@ takes the estimate's reading (`W(p: (Inner.type, C))` is the estimate's `2^8`), 
 where the estimate declines it. A position whose name the method side refuses as a shadowed
 builtin (below) is refused with that reason: the estimate reads the builtin, the same misreading.
 
-The stored-value algebra counts a function from `Nothing` as 0 (it can never run, type-arithmetic
+The stored-value algebra counts a function from `Nothing` as 0 (it can never run, [counting data](../site/arithmetic/counting-data.md)
 §3), while the method side counts its one function, so that a supplied `g: Nothing => String` does
 not make a context absurd. A constructor position of that type has two readings and is refused
 (`Y(f: Nothing => String)`: value space 1, estimate 0).
@@ -149,9 +154,12 @@ that tier.
 
 ## Limits
 
-- `def f[A](g: A => Int, a: A): Int` stays `?` — "Elimination of an opaque callable's transparent
-  ground result is unsupported". Its true count is `(2^32)^(2^32)` (functions of `g(a)`); a
-  producer reading would say `2^32 + 1` and a cycle reading ω, both wrong.
+- `def h[A](g: (A => Boolean) => Int, k: A => Boolean): Int` stays `?` — "Elimination of an
+  opaque callable's transparent ground result is unsupported": `g` takes a function the solver
+  would have to synthesize before its ground result could be split. (`def f[A](g: A => Int, a: A):
+  Int` is counted: the split reads `g(a)` and every result is a function of it, `(2^32)^(2^32)` =
+  `2^(2^37)`; `GroundTypesSpec` pins it. A producer reading would say `2^32 + 1` and a cycle
+  reading ω, both wrong.)
 - A `var` reads as the value it holds (register D26; the interim `mutable capture` is gone); a
   literal type (`x: 3`) is one constant ([syntax-features.md](syntax-features.md)); a union with a
   ground alternative needs a discrimination proof; an exported or `given`-imported ground name is

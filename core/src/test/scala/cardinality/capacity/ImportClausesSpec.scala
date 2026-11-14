@@ -104,9 +104,10 @@ class ImportClausesSpec extends Specification {
       .and(found(("l3.Z", Class)) === "unresolved[Int (may be imported by zz.*)]")
   }
 
-  // Two wildcards of one body that both bind a name are E049 (scalac 3.9.0, probes/a7/prec/neg/n3),
-  // so a supplied member keeps the name whatever order the clauses are written in: `q.T` = Boolean,
-  // 2. A wildcard written before `import q.*` may bind `q` itself; `_root_.q.*` it cannot rebind.
+  // Two wildcards of one body that both bind a name are E049 (scalac 3.9.0, session fixture
+  // a7/prec/neg/n3), so a supplied member keeps the name whatever order the clauses are written in:
+  // `q.T` = Boolean, 2. A wildcard written before `import q.*` may bind `q` itself; `_root_.q.*` it
+  // cannot rebind.
   def sameBodyWildcards = {
     val q = "q/T.scala" -> "package q\ntype T = Boolean"
     val found = rowsOf(
@@ -125,10 +126,10 @@ class ImportClausesSpec extends Specification {
   }
 
   // A `given` selector binds its prefix's given instances, terms of any name: `zz.given` may bind
-  // `compose` (scalac: probes/review-A7/r11), a supplied object's anonymous given binds none. A
-  // package no file declares a member in (`zz`, spelled by `package zz.inner` alone) holds what a
-  // dependency declares there (r14), so its wildcard may bind `T`; one a file declares a member in
-  // is read as complete (the closed-package assumption): `T` is `q`'s, 2.
+  // `compose` (scalac, session fixture review-A7/r11), a supplied object's anonymous given binds
+  // none. A package no file declares a member in (`zz`, spelled by `package zz.inner` alone) holds
+  // what a dependency declares there (r14), so its wildcard may bind `T`; one a file declares a
+  // member in is read as complete (the closed-package assumption): `T` is `q`'s, 2.
   def openNamespaces = {
     val q = "q/T.scala" -> "package q\ntype T = Boolean\npackage compose:\n  type C = Boolean"
     val found = rowsOf(
@@ -161,9 +162,9 @@ class ImportClausesSpec extends Specification {
 
   // A wildcard over an object or a package object binds what its parents pass on and its export
   // clauses define too, and no private member outside where it is accessible (Scala 3.9.0:
-  // probes/a7fix2/stored compiles `val w: Two = 42` under `import Lib.*` and `= true` under
-  // `import Priv.*`). The estimate reads none of them, so a name the body does not define, or one
-  // it defines privately, is refused there.
+  // session fixture a7fix2/stored compiles `val w: Two = 42` under `import Lib.*` and `= true`
+  // under `import Priv.*`). The estimate reads none of them, so a name the body does not define, or
+  // one it defines privately, is refused there.
   def unreadMembers = {
     val found = rowsOf(
       "p/P.scala" ->
@@ -196,7 +197,7 @@ class ImportClausesSpec extends Specification {
   }
 
   // An export defines a member of its template, which outranks an import of the name there and an
-  // outer definition of it (crosscheck X1; scalac: `def g(t: T): Boolean = t` compiles in both):
+  // outer definition of it (cross-check X1; scalac: `def g(t: T): Boolean = t` compiles in both):
   // |C#P| = |Y.T| = 2, not |X.T| = 2^32, and |Outer.D#Q| = |A.T| = 2.
   def exportsOutrank = {
     val found = rows(

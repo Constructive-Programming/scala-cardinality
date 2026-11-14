@@ -14,13 +14,14 @@ import LookupBindings.{before, Unread}
   * Scala imports through a wildcard every accessible member but a given, through a `given` selector
   * the given and implicit ones (Scala 3 reference, given imports); a private member is no import
   * outside the scopes it is accessible in (Scala 3.9.0 binds `compose` under `import Lib.*` to
-  * another file's package when `Lib`'s is private: probes/review-A7/round2/private). A namespace's
-  * members are its own definitions — a package's subpackages among them —, the aliases its export
-  * clauses define and, for an object or a package object, what its parents pass on (Scala 3.9.0
-  * reads `compose.C` under `import Lib.*` through `object Lib extends Base`'s inherited `compose`:
-  * round2/givenparent2). An object, a subpackage or a case class's or enum's companion is a
-  * namespace the rest of the path is read in; a value, method or given is a value whose type's
-  * member the path selects, not followed; a parent outside the sources may declare any name.
+  * another file's package when `Lib`'s is private: session fixture review-A7/round2/private). A
+  * namespace's members are its own definitions — a package's subpackages among them —, the aliases
+  * its export clauses define and, for an object or a package object, what its parents pass on
+  * (Scala 3.9.0 reads `compose.C` under `import Lib.*` through `object Lib extends Base`'s
+  * inherited `compose`: round2/givenparent2). An object, a subpackage or a case class's or enum's
+  * companion is a namespace the rest of the path is read in; a value, method or given is a value
+  * whose type's member the path selects, not followed; a parent outside the sources may declare any
+  * name.
   */
 final private[resolution] class TermMembers(
     supplied: SuppliedNamespaces,
@@ -32,7 +33,7 @@ final private[resolution] class TermMembers(
 
   /** What a wildcard over the namespaces at `paths` binds a path's first name to, read in `from`
     * (Scala 3.9.0 binds `compose` through `import Lib.*` to `val Lib.compose` over another file's
-    * package: probes/review-A7/r15); over a package the sources spell only as a prefix, a
+    * package: session fixture review-A7/r15); over a package the sources spell only as a prefix, a
     * subpackage; nothing (Right(Nil)) where it has no member of the name.
     */
   def wildcard(

@@ -8,8 +8,8 @@ import org.specs2.Specification
 import org.specs2.execute.Result
 
 // Capability records, member classification, target views and override identity
-// (design/capabilities.md C0–C7, C9). Every fixture is valid Scala 3.9.0 (compiled with scalac:
-// probes/b3/spec, probes/b3fix2/spec). Each count is derived in the comment above its check.
+// (capabilities design, C0–C7, C9). Every fixture is valid Scala 3.9.0 (compiled with scalac;
+// session fixtures b3/spec, b3fix2/spec). Each count is derived in the comment above its check.
 class CapabilitySpec extends Specification {
   import Inhabitation.Count
   import NaturalSyntax.pow
@@ -417,7 +417,7 @@ class CapabilitySpec extends Specification {
   }
 
   // No CNothing exists (every subclass passes a Nothing): reading its empty record would give 2,
-  // the true count is 1 (vacuous) — refused (crosscheck X6).
+  // the true count is 1 (vacuous) — refused (cross-check X6).
   // Sub extends CNothing, so its n is state an open class hides; with no Sub (the closed world)
   // CNothing is final, and n a field no member observes.
   def unwitnessed = {

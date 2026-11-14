@@ -5,8 +5,8 @@ concrete classes (the few kinds that stay without a row are listed under *Not ro
 kind is measured by the rule its Scala translation already has; no counting rule is new. Sources keep the verification level the
 literature pass gave them: \[24\] Scala 3 reference, *Translation of Enums and ADTs*, and \[30\] Scala
 3 draft specification, ch. 5, both **Inspected (full text) — bibliographer** (bibliography T5).
-Compiler fixtures were run with Scala 3.9.0 in this session (`$S/probes/b5/scalac`,
-`$S/probes/b5/specfix`, `$S/probes/b5-fix2`, every spec fixture). Executable:
+Compiler fixtures were run with Scala 3.9.0 (session fixtures `b5/scalac`,
+`b5/specfix`, `b5-fix2`, every spec fixture). Executable:
 `DefinitionInventorySpec`.
 
 ## What is a row
@@ -47,8 +47,8 @@ in an open template too.
 An anonymous given is a member of the name 3.9.0 synthesizes from its type: `given_` and the
 simple names the type spells (`given A = a` is `given_A`, `given Ord[List[T]]` is `given_Ord_List`,
 `given (Int, String)` is `given_Int_String`, `given (String => Int)` is `given_String_to_Int`;
-`GivenNames` lists every shape, each checked against `-Xprint:typer`, fixtures
-`$S/probes/b5-fix2/gname`). `new C[A](x, y).given_A` compiles, so that name selects it, and an
+`GivenNames` lists every shape, each checked against `-Xprint:typer`, session fixtures
+`b5-fix2/gname`). `new C[A](x, y).given_A` compiles, so that name selects it, and an
 anonymous `given A = a` in `final class C[A](a: A, b: A) extends T[A]` implements `T`'s `given
 given_A: A`: the declaration is the given itself (a or b, 2, never 3), and for every other member
 of `C` concrete code. A bounded wildcard in a given alias's type (`given Ord[? <: String]`, named
@@ -63,8 +63,8 @@ the call site) it counts as its given twin, otherwise it is refused with the inl
 inline method's body (a block, function literal, case clause, comprehension, anonymous class) is
 copied into every expansion: it counts in its typing context when the method's body passes and
 carries `definition inside an inline method: …` when it does not
-(`DefinitionInventorySpec.inlineGivens`, `NestedScopesSpec.inlineOwners`, fixtures
-`$S/probes/b5-land`).
+(`DefinitionInventorySpec.inlineGivens`, `NestedScopesSpec.inlineOwners`, session fixtures
+`b5-land`).
 
 **Values.** A `val` is a parameterless member: "a stable member can only be overridden by a stable
 member" (\[30\], *Overriding*), and a 3.9.0 fixture (`specfix/f08`) compiles a `val` implementing a
@@ -138,7 +138,7 @@ is refused — `pattern of an enclosing case clause may refine a type: case TInt
 may refine a type: TInt()` for a generator) — except a result with one value (`Unit`: 1 whatever the
 context, D-terminal). 3.9.0 refines a method's and a class's type parameters this way, through
 extractor, typed and object patterns, but not abstract type members, path-dependent types, binders,
-wildcards or literals (`$S/probes/b5-fix2/refine`); the reading does not check that the pattern's
+wildcards or literals (session fixtures `b5-fix2/refine`); the reading does not check that the pattern's
 class pins an argument (`case Some(_)` of an `Option[A]` pins none), so it refuses any such pattern
 with a type parameter in scope, and none without one. Scala's GADT reasoning is not modelled: both
 compilers have known soundness holes there (Parreaux, Boruch-Gruszecki & Giarrusso 2019, Scala

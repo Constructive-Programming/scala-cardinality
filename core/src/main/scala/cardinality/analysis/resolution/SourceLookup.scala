@@ -49,7 +49,7 @@ final private[cardinality] class SourceLookup(
   // The blocks of one package in the scope's own file — the scope alone for any other body. Scala
   // gives a definition of the reference's compilation unit, made available by a package clause, the
   // highest precedence wherever in the file its block stands (spec ch. 2; Scala 3.9.0 reads a
-  // sibling `package p { type Two = Boolean }` over `import zzz.*`: probes/review-A7/r9).
+  // sibling `package p { type Two = Boolean }` over `import zzz.*`: session fixture review-A7/r9).
   private def blocks(scope: Frame): List[Frame] =
     if (isPackage(scope)) blocksByFile.getOrElse(scope.path -> scope.input, Nil) else List(scope)
 
@@ -330,7 +330,8 @@ final private[cardinality] class SourceLookup(
     /** The type a qualified path denotes among the sources: a declaration, else a member an object
       * or package at its prefix exports or an object or package object inherits; Absent where none
       * of them has it. An enum's class case is a type this reading does not hold (`import E.*`
-      * binds the case class `E.A` over another file's `A`: Scala 3.9.0, probes/review-A7/r16).
+      * binds the case class `E.A` over another file's `A`: Scala 3.9.0, session fixture
+      * review-A7/r16).
       */
     def member(path: List[String], from: Frame, seen: Set[String]): Found =
       declared(path, from) match {
@@ -577,7 +578,7 @@ final private[cardinality] class SourceLookup(
     // A first name nothing around the reference binds is the nearest member of that name of the
     // packages the scope opens, then the root: the one namespace the sources have there (`c` in
     // package `a.b` is `a.b.c` when the sources declare it, whatever the root `c` holds — Scala
-    // 3.9.0, probes/review-A7/round2/anchors); with none, each anchor in turn.
+    // 3.9.0, session fixture review-A7/round2/anchors); with none, each anchor in turn.
     private def nearest(anchors: List[List[String]], head: String): List[List[String]] =
       anchors
         .map(_ :+ head)
@@ -744,7 +745,7 @@ final private[cardinality] class SourceLookup(
     // What a `given` selector binds a term name to: a given or implicit member of a closed
     // namespace (`TermMembers`), nothing else there; any name a given of a namespace no source
     // supplies may have (Scala 3.9.0 binds `compose` through `import zzz.given`:
-    // probes/review-A7/r11). It opens no namespace a doubt falls back to.
+    // session fixture review-A7/r11). It opens no namespace a doubt falls back to.
     private def givenOpening(prefix: Target, name: String): Opening = {
       val written = s"${prefix.segments.mkString(".")}.given"
       over(prefix, written) {

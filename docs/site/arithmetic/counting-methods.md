@@ -53,8 +53,8 @@ into a triage list:
 ```
 Generic method / constructor implementation cardinalities
   53 signatures: 41 finite · 3 countably infinite · 9 unresolved
-  8 unresolved on: unresolved type
-  1 unresolved on: given environment not resolved
+  8 unresolved on: declaration not supplied
+  1 unresolved on: recursive type not read
 
 4  example.Pair.<init>  Pair[A](left: A, right: A)  Light.scala:11  [constructor]
 1  example.Accessor.get  get[X, A](fa: (X, A)): A  Accessor.scala:18  [method]
@@ -85,14 +85,16 @@ estimate for Scala's `Seq` representation.
 | `case class Empty(xs: Nothing*)` constructor | `1` | The only field sequence is empty |
 | Sequence-of-`A` shape goal with no `A` producer | `1` | Only `Nil` |
 | Sequence-of-`A` shape goal with `x: A` | $\omega$ | Productive `Cons` cycle, distinct lengths |
-| `def use[A](x: A)(fs: (A => A)*): A` | `?` | Arbitrary sequence elimination is outside the fragment |
-| `case class Many[A](xs: A*)` constructor | `?` | Arbitrary input-sequence transformations are not enumerated |
+| `def use[A](x: A)(fs: (A => A)*): A` | $\omega$ | `x`, `f(x)`, `f(f(x))`, …: two answers at length 1 already |
+| `case class Many[A](xs: A*)` constructor | $\omega$ | The slot is filled from `xs`: identity, tail, reverse, … |
 
-The solver does not enumerate total length tests, safe element selection, mapping, folds or
-recursive sequence elimination. When a supplied sequence can be present in a non-singleton
-goal, it reports:
+A supplied sequence at the top of the environment is eliminated by its length
+([rule SE](https://github.com/Constructive-Programming/scala-cardinality/blob/main/docs/research/stdlib-model.md#rule-se-eliminating-a-supplied-sequence-by-length)),
+which gives the `use` and `Many` rows above. A sequence that rule cannot reach — inside a
+supplied sum, as a supplied callable's result, as a parameter of a function the goal builds,
+under an existential or a proof — is not eliminated, and the reason names its place:
 
-> Repeated-argument sequence elimination is unsupported (length tests, selection and folds)
+> Repeated-argument sequence elimination is unsupported: a sequence a supplied callable returns
 
 Element types still use the ordinary resolver and environment checks. General `Seq[T]`
 names, aliases and collection methods are not resolved by this feature.

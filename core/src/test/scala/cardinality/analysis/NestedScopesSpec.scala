@@ -6,8 +6,8 @@ import org.specs2.Specification
   * comprehensions (docs/research/definition-inventory.md, *Nested scopes* and *Control flow*): each
   * is counted in its typing context, the signature lambda lifting gives it, which control flow
   * leaves as it is; a pattern's binders are refused, and so is every count under a pattern that may
-  * refine a type. Every fixture compiles with Scala 3.9.0 (`$S/probes/b5/spec`,
-  * `$S/probes/b5-fix2/spec`); each expected number is derived beside it.
+  * refine a type. Every fixture compiles with Scala 3.9.0 (session fixtures `b5/spec`,
+  * `b5-fix2/spec`); each expected number is derived beside it.
   */
 class NestedScopesSpec extends Specification with InventoryFixtures {
 
@@ -288,7 +288,7 @@ class NestedScopesSpec extends Specification with InventoryFixtures {
 
   // A definition in a scope of an inline method is copied into every expansion (register D27): it
   // counts when the method's body passes — a Boolean function of c and the capture b, 16 — and
-  // carries the method's refusal when it does not. Fixture `$S/probes/b5-land/nest.scala` (3.9.0).
+  // carries the method's refusal when it does not. Session fixture `b5-land/nest.scala` (3.9.0).
   def inlineOwners = {
     val found = rows(
       """|import scala.compiletime.summonInline

@@ -229,8 +229,9 @@ ThisBuild / scalacOptions ++= Seq(
   "17"
 )
 
-// Keep the plugin binary-loadable inside sbt's Scala 3.8.4 runtime. Enable the
-// Scala 3.9+ optimizer only when a future sbt-compatible compiler supports it.
+// The Scala 3.9+ optimizer, its inlining limited to the current compilation's sources. A bare
+// setting, so every project gets it: `core` (3.10.1) and the sbt 2 and Mill plugins (3.9.0);
+// the sbt 1 plugin's Scala 2.12 matches no case.
 scalacOptions ++= (CrossVersion.partialVersion(scalaVersion.value) match {
   case Some((3, minor)) if minor >= 9 => Seq("-opt", "-opt-inline:<sources>")
   case _                              => Nil

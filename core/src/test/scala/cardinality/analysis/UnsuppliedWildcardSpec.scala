@@ -13,7 +13,7 @@ import org.specs2.matcher.MatchResult
   * definition of the file, an explicit import, and a supplied wildcard of the same scope keep their
   * names: Scala rejects a reference both of them and the unsupplied wildcard bind (E049). Every
   * fixture compiles with Scala 3.9.0 against a `zzz` stub that declares nothing of the names
-  * (probes/a7/spec, probes/a7/prec); `pick(x: Two): Two` with `Two = Boolean` counts
+  * (session fixtures a7/spec, a7/prec); `pick(x: Two): Two` with `Two = Boolean` counts
   * `|Boolean → Boolean| = 4` wherever `Two` is read.
   */
 class UnsuppliedWildcardSpec extends Specification {
@@ -76,8 +76,8 @@ class UnsuppliedWildcardSpec extends Specification {
   private val pick = "def pick(x: Two): Two = x"
 
   // `p.Two` is another file's package member: `import zzz.*` outranks it (scalac binds a `zzz`
-  // member `Fst` over the package's in audit/ad931e2/probes/chunk-00/prec), so the name is not
-  // read. Without the
+  // member `Fst` over the package's in the ad931e2 audit's session fixture chunk-00/prec), so the
+  // name is not read. Without the
   // wildcard, and with a `zzz` the sources supply that declares no `Two`, it is `p.Two` again: 4.
   def packageMember = {
     val found = counts(
@@ -110,7 +110,7 @@ class UnsuppliedWildcardSpec extends Specification {
   }
 
   // A projection `H#M` reads `H` where it is written, as any type name: `H#M` = Boolean (4) beside
-  // no wildcard, unread under `zzz.*` (probes/a7/proj).
+  // no wildcard, unread under `zzz.*` (session fixture a7/proj).
   def projection = {
     val found = counts(
       "p/H.scala" -> "package p\ntrait H { type M = Boolean }",
@@ -122,8 +122,8 @@ class UnsuppliedWildcardSpec extends Specification {
   }
 
   // `compose` is package `p.compose` unless `zzz` declares a term `compose`, which the wildcard
-  // written before `import compose.*` would bind instead (scalac: probes/a7/prec/p5.scala binds
-  // `zzz.v.compose.Fst`). `_root_.p.compose.*` cannot be rebound: 4.
+  // written before `import compose.*` would bind instead (scalac, session fixture a7/prec/p5.scala
+  // binds `zzz.v.compose.Fst`). `_root_.p.compose.*` cannot be rebound: 4.
   def rebindsPrefix = {
     val found = counts(
       two,
@@ -137,7 +137,7 @@ class UnsuppliedWildcardSpec extends Specification {
   }
 
   // The first name of an import's path, or of a qualified type, binds like any identifier: after
-  // `import zzz.*`, `q` may be `zzz.q` (scalac: probes/a7/prec/p6.scala and probes/a7/plain bind
+  // `import zzz.*`, `q` may be `zzz.q` (scalac, session fixtures a7/prec/p6.scala and a7/plain bind
   // the wildcard's `dev` over the root package). `_root_.q` is the root package: 4.
   def rebindsHead = {
     val found = counts(
@@ -161,8 +161,8 @@ class UnsuppliedWildcardSpec extends Specification {
       .and(found("a.Q.rooted") === Count.Finite(4))
   }
 
-  // Wildcards rank alike, so an inner scope's shadows an outer scope's (scalac: probes/a7/prec/p8
-  // binds the inner `zzz.w.Fst`).
+  // Wildcards rank alike, so an inner scope's shadows an outer scope's (scalac, session fixture
+  // a7/prec/p8 binds the inner `zzz.w.Fst`).
   def shadowsOuterWildcard = {
     val found = counts(
       "s/U.scala" ->
@@ -181,7 +181,7 @@ class UnsuppliedWildcardSpec extends Specification {
 
   // `import zzz.{Boolean as _, *}` leaves `Boolean` to the root imports. `compose` in the later
   // `import compose.*` may be `zzz.compose`, and `scala` in `scala.jdk.CollectionConverters.*`
-  // may be `zzz.scala`, whose wildcards could bind it (scalac: probes/review-A7/r8 binds
+  // may be `zzz.scala`, whose wildcards could bind it (scalac, session fixture review-A7/r8 binds
   // `zzz.compose.Boolean`, an `Int`; r5). Neither unsupplied namespace is assumed to (the
   // never-shadowed assumption), and the listed CollectionConverters declares no `Boolean`, so all
   // three are b, !b, true, false: 4.
@@ -201,9 +201,10 @@ class UnsuppliedWildcardSpec extends Specification {
   }
 
   // `O.type & Singleton` is `O.type` only where `Singleton` is `scala.Singleton`: a `zzz` declaring
-  // `type Singleton = Nothing` would make it empty (scalac: probes/review-A7q/sc), but an unsupplied
-  // namespace is assumed not to (the never-shadowed assumption): 1, as without the wildcard.
-  // `quotes.reflect` does declare its own `Singleton` (probes/review-A7/r4/m.scala): refused.
+  // `type Singleton = Nothing` would make it empty (scalac, session fixture review-A7q/sc), but an
+  // unsupplied namespace is assumed not to (the never-shadowed assumption): 1, as without the
+  // wildcard. `quotes.reflect` does declare its own `Singleton` (session fixture
+  // review-A7/r4/m.scala): refused.
   def singletonMarker = {
     val single = "def single(o: O.type): O.type & Singleton = o"
     val found = counts(
@@ -235,7 +236,7 @@ class UnsuppliedWildcardSpec extends Specification {
   }
 
   // A `given` selector binds the given instances of its prefix, terms of any name: `zzz.given` may
-  // bind `compose` (scalac: probes/review-A7/r11 binds a given `zzz.compose` over package
+  // bind `compose` (scalac, session fixture review-A7/r11 binds a given `zzz.compose` over package
   // `p.compose`), a supplied `Lib.given` binds Lib's given `compose` — a value, not followed —
   // and `Quiet.given`, whose given is anonymous, binds no `compose`: `C = Boolean`, 4. A wildcard
   // binds no given (Scala 3 reference, given imports): under `import Lib.*`, 4 too.
@@ -261,8 +262,9 @@ class UnsuppliedWildcardSpec extends Specification {
   // A supplied wildcard binds what its namespace holds under the name, a value included (scalac:
   // r15 binds `val Lib.compose` over package `p.compose`), and an enum companion's wildcard binds
   // its case classes (r16 binds the case `E.A` over another file's `type A`): neither is read. A
-  // case with neither parameters nor type parameters is a value, no type (probes/a7fix2/spec/cases
-  // compiles `val b: B = true`, `val d: D = true` under `import E.*`): `B`, `D` stay `Unit`, 1.
+  // case with neither parameters nor type parameters is a value, no type (session fixture
+  // a7fix2/spec/cases compiles `val b: B = true`, `val d: D = true` under `import E.*`): `B`, `D`
+  // stay `Unit`, 1.
   def valuesAndCases = {
     val found = counts(
       "p/Lib.scala" ->
@@ -283,7 +285,7 @@ class UnsuppliedWildcardSpec extends Specification {
 
   // `import Outer3.this.o.Two` names a member of a value (scalac: r12 binds `o.Two`, an `Int`, over
   // the package's `Two`), and its wildcard twin may bind any name. A selector naming another member
-  // binds nothing else (probes/a7fix2/spec/outer5 compiles `val w: Two = true`): 4.
+  // binds nothing else (session fixture a7fix2/spec/outer5 compiles `val w: Two = true`): 4.
   def unfollowedPrefixes = {
     val found = counts(
       two,
@@ -359,10 +361,10 @@ class UnsuppliedWildcardSpec extends Specification {
     )
   }
 
-  // Term heads (`TermMembers`): every fixture compiles with Scala 3.9.0 (probes/a7fix2/spec, with
-  // a `zzz` stub declaring `trait Base` for scalac only), and its `val w` pins the binding. `C =
-  // Int` inside `Lib`'s namespaces, `Boolean` in the packages of the same names: `|Int => Int| =
-  // 2^(32·2^32) = 2^(2^37)` where the clause binds the head, 4 where it does not.
+  // Term heads (`TermMembers`): every fixture compiles with Scala 3.9.0 (session fixtures
+  // a7fix2/spec, with a `zzz` stub declaring `trait Base` for scalac only), and its `val w` pins
+  // the binding. `C = Int` inside `Lib`'s namespaces, `Boolean` in the packages of the same names:
+  // `|Int => Int| = 2^(32·2^32) = 2^(2^37)` where the clause binds the head, 4 where it does not.
   private val packages =
     "p/P.scala" ->
       "package p\npackage compose:\n  type C = Boolean\npackage two:\n  type C = Boolean\npackage other:\n  type C = Boolean"
@@ -513,8 +515,8 @@ class UnsuppliedWildcardSpec extends Specification {
   }
 
   // A definition of the reading file outranks every wildcard; one in an outer scope, against an
-  // inner wildcard that binds the name, is E049 (probes/a7/prec/neg/n1), so where the program
-  // compiles the definition is the name. An enum keeps builtin names out of the reading.
+  // inner wildcard that binds the name, is E049 (session fixture a7/prec/neg/n1), so where the
+  // program compiles the definition is the name. An enum keeps builtin names out of the reading.
   def fileDefinitions = {
     val found = counts(
       "d/U.scala" -> s"package d\nimport zzz.*\nenum Two { case A, B }\nobject U { $pick }",
@@ -524,7 +526,7 @@ class UnsuppliedWildcardSpec extends Specification {
   }
 
   // A named import outranks a wildcard of its scope, and two wildcards of one scope that both
-  // bind a name are E049 (probes/a7/prec/neg/n3): `q.Two` stands in both.
+  // bind a name are E049 (session fixture a7/prec/neg/n3): `q.Two` stands in both.
   def sameScopeImports = {
     val found = counts(
       q,
@@ -600,7 +602,7 @@ class UnsuppliedWildcardSpec extends Specification {
 
   // Of the names the root imports bind, reflect declares only `Singleton` and `Symbol` (its 323
   // type members, scala-library 3.9.0 TASTy), so a root spelling the model reads is not its:
-  // another file's `type Boolean = Unit` of the package stands (scalac: probes/a7fix1/root
+  // another file's `type Boolean = Unit` of the package stands (scalac, session fixture a7fix1/root
   // compiles `val w: Boolean = ()` there), `Unit => Unit`, 1 — as on the stored side.
   def reflectRoots = {
     val found = counts(
@@ -637,9 +639,9 @@ class UnsuppliedWildcardSpec extends Specification {
     )
   }
 
-  // audit/ad931e2/probes/chunk-00/modifyf2 and verify-indep/modifyf.scala, `cats` as `zzz`:
-  // `Fst` is another file's match type, which `compose.*` may shadow — its `compose` itself bound
-  // perhaps by `zzz.instances.function.*`. The control imports `Fst` by name: 2.
+  // ad931e2 audit session fixtures chunk-00/modifyf2 and verify-indep/modifyf.scala, `cats` as
+  // `zzz`: `Fst` is another file's match type, which `compose.*` may shadow — its `compose` itself
+  // bound perhaps by `zzz.instances.function.*`. The control imports `Fst` by name: 2.
   def modifyF = {
     val found = counts(
       "dev/p/affine.scala" ->
@@ -684,10 +686,11 @@ class UnsuppliedWildcardSpec extends Specification {
       .and(found("dev.p.ctl.Ctl.first") === Count.Finite(2))
   }
 
-  // audit/ad931e2/synth/optic-id, with a `_root_` twin: `BijectionIso` is another file's class of
-  // the package, which `zzz.syntax.functor.*` may shadow, and so may it the head `dev` of the
-  // qualified spelling (scalac: probes/a7/plain binds `zzz.syntax.functor.dev.r.optics`). Only the
-  // `_root_` spelling is read: (A ⇒ A) × (A ⇒ A) has one inhabitant.
+  // ad931e2 audit session fixture synth/optic-id, with a `_root_` twin: `BijectionIso` is another
+  // file's class of the package, which `zzz.syntax.functor.*` may shadow, and so may it the head
+  // `dev` of the qualified spelling (scalac, session fixture a7/plain binds
+  // `zzz.syntax.functor.dev.r.optics`). Only the `_root_` spelling is read: (A ⇒ A) × (A ⇒ A) has
+  // one inhabitant.
   def opticId = {
     val found = counts(
       "dev/r/iso.scala" ->

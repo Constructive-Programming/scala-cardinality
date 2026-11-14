@@ -190,7 +190,9 @@ fixtures, but without compiler metadata it is not syntax) and is not done.
   are aliased by type definitions, term members by method definitions.
 - Scala 3 draft specification, ch. 2 \[28\], and SLS 2.13, ch. 2 \[32\]: **Inspected (full text)**
   (verifier) — the precedence list and inner-scope shadowing.
-- Reynolds 1983 \[9\]: **bibliography-verified**. Mitchell & Plotkin 1988: **classical** (C-10).
+- Reynolds 1983 \[9\]: **bibliography-verified**. Mitchell & Plotkin 1988: **classical** (C-10);
+  record **metadata-verified**, the abstract reports abstract data type declarations typed as
+  existential types.
 - Pitts & Stark 1998 (HOOTS, CUP): **Metadata-verified**; the abstract reports that local state
   must be handled for representation independence — why the exclusion of mutation is load-bearing,
   not the `var`-as-value reading itself, which rests on the contract.

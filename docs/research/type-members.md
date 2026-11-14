@@ -149,7 +149,7 @@ the atoms' 2 would overcount — refused.
 
 *Implemented declarations (G1).* No subclass replaces a member of a final template, so an inherited
 declaration a level implements is concrete code computing from the environment the template is
-given; under the contract's model assumption on bodies it neither adds nor hides a value (D10, the
+given; under the contract's model assumption on bodies it neither adds nor hides a value (D19, the
 environment's concrete-code result). Left as a free capability it adds values the program cannot
 produce (`D.other` would read ω, true 1).
 
@@ -185,8 +185,9 @@ produce (`D.other` would read ω, true 1).
 
 Verification levels as in the evidence register. \[29\] Scala 3 draft specification ch. 3 —
 **Inspected**; \[18\] Scala 3 reference, *Match Types* — **Inspected**; \[1\] Doeraene, SIP-56 —
-**Inspected**; Mitchell & Plotkin 1988, TOPLAS 10(3) — **Metadata-verified**, classical record for
-C-10 (the abstract reports abstract data type declarations typed as existential types); Hu &
+**Inspected**; Mitchell & Plotkin 1988, TOPLAS 10(3) — **classical** (C-10); record
+**metadata-verified**, the abstract reports abstract data type declarations typed as existential
+types; Hu &
 Lhoták 2020, PACMPL 4(POPL), DOI 10.1145/3371077 — **Metadata-verified** (the abstract reports the
 undecidability of `D<:` subtyping and decidable fragments without bad bounds); Blanvillain,
 Brachthäuser, Kjaer & Odersky 2022, PACMPL 6(POPL), DOI 10.1145/3498698 — **Metadata-verified**

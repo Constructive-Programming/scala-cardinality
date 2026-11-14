@@ -22,10 +22,13 @@ in code, tests and docs:
   - A `throw`, or a call that may throw, is neither a value nor an implementation. A body or
     default whose result is a throw supplies nothing.
   - Never withhold a count because code might throw.
-  - Exceptions used as data are ordinary values of open `java.lang` classes: a `Throwable`
-    passed, stored or returned.
-- **Exclude every other effect the same way**, like the universal members of `Any`: I/O,
-  logging, `printStackTrace`, `fillInStackTrace`, `addSuppressed`, `initCause`, and so on.
+  - Exceptions used as data are ordinary values of the twelve throwables the root imports bind and
+    the standard-library model lists (`Throwable`, `Exception`, …, and
+    `java.util.NoSuchElementException` through `scala`; register D26): a `Throwable` passed,
+    stored or returned.
+- **Exclude every other effect the same way**, like the universal members of `Any` (excluded on
+  a value of any type, not only of abstract or top types): I/O, logging, `printStackTrace`,
+  `fillInStackTrace`, `addSuppressed`, `initCause`, and so on.
   Divergence, a `null` the type does not declare, unsafe casts, reflection and unrestricted
   runtime type or equality tests are outside the model too.
 
@@ -133,8 +136,9 @@ Count an `inline def` exactly like a `def` unless its body uses a compile-time o
 - `transparent` and `inline` parameters do not disqualify a method by themselves. An `inline`
   parameter has its argument's value, since nothing has side effects (boxing aside: only the
   excluded universal members see it).
-- Rule X still applies: a `transparent` result is `?` unless its declared type is a singleton,
-  because callers see the type of what the expansion returns.
+- [Rule X](docs/research/top-types-unions.md#rule-x-transparent-inline-results-callers-may-see-narrowed)
+  still applies: a `transparent` result is `?` unless its declared type is a singleton, because
+  callers see the type of what the expansion returns.
 - An abstract `inline def` counts like an abstract `def`: an inline body may call it as a
   capability, and an override implementing it is read through its own body.
 - An implicit conversion the body may meet is typed where the body is written, like any call. The
@@ -196,8 +200,9 @@ The analyzer's code does not define what a number means; these documents do.
 
 ## Build and gates
 
-The build uses sbt 2 (`project/build.properties`) and Scala 3.9.0 (`build.sbt`). `core` is the
-calculator, a pure library tested with specs2. `plugin` is the sbt plugin, tested with scripted.
+The build uses sbt 2 (`project/build.properties`). `core` is on Scala 3.10.1, the sbt 2 and Mill
+plugins on 3.9.0 and the sbt 1 plugin on 2.12.20 (`build.sbt`). `core` is the calculator, a pure
+library tested with specs2. `plugin` is the sbt plugin, tested with scripted.
 
 ```bash
 sbt core/testFull                    # core test suite, uncached

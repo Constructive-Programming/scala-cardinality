@@ -104,7 +104,7 @@ type is a context function is wrapped in the literal, whose binders are syntheti
 innermost candidate. For a method's result the wrapper encloses the whole body — a block, a
 helper call and a local definition included — so the binders hide outer evidence of their types
 from every search the body makes (fixture `cf`: `g(using 1)(using 2)` prints 2; `cf2`, `cf3`
-`local`, `viaAlias`, `C.g` likewise), and a deeper candidate hides them in turn (fixtures a5-fix1
+`local`, `viaAlias`, `C.g` likewise), and a deeper candidate hides them in turn (session fixtures a5-fix1
 `r1`: `two[Int](using 1)(using 2)` prints the inner 2; a nested `using A`, a body's `given A` and
 a nested `A ?=> A` result each win over the enclosing binder; `(A, A) ?=> A` makes `summon[A]` an
 E172 ambiguity). Implicit search applies a context-function candidate to the givens it finds:
@@ -116,7 +116,7 @@ E172 ambiguity). Implicit search applies a context-function candidate to the giv
 context functions are plain functions. Scala wraps exactly where the expected type, dealiased, is
 a context function class: an infix alias, an applied lambda, a match type that reduces to one, a
 projection, a path, a member as seen from the receiver and a refinement declaring `apply` wrap;
-a union, an intersection, a singleton and an abstract type do not (fixtures a5-fix1 `w1`–`w4`,
+a union, an intersection, a singleton and an abstract type do not (session fixtures a5-fix1 `w1`–`w4`,
 `r2`, `r4`, `r8`, review `o1`–`o3`). An expression of type `T ?=> R` with no expected type is
 applied to a found given, so `def asc = (k: Boolean ?=> Boolean)` is a `Boolean` (review fixture
 `i3`: `boolean asc()`, prints `false` with no given at the use site), as a call `f(a)` of a method
@@ -155,7 +155,7 @@ operation:
 
 `transparent` and `inline` parameters do not disqualify a method by themselves. An `inline`
 parameter is its argument expression substituted by name; with no side effects (D26) that is
-its value. A2's rule X stays: a `transparent inline` result whose declared type callers may see
+its value. [Rule X](top-types-unions.md#rule-x-transparent-inline-results-callers-may-see-narrowed) stays: a `transparent inline` result whose declared type callers may see
 narrowed is `?` (`transparent inline result: the call site observes the expansion's type, …`).
 Every declared result but a singleton type may be narrowed (next paragraph), so a transparent
 method counts only when it declares one (`transparent inline def one: 1 = 1`).
@@ -164,12 +164,12 @@ method counts only when it declares one (`transparent inline def one: 1 = 1`).
 and callers tell two expansions with the same values apart by that type: an overload resolves
 differently, a member becomes selectable. Scala 3.9.0 gives an expansion a subclass the body
 builds (`new Sub(b)` beside a declared `Foo`), a case of a sealed family (`S2.type` beside a
-declared `S`, fixture review-A6 h13: `h(T.s(true))` picks `h(S2.type)`, `h(T.sKept(true))` with
+declared `S`, session fixture review-A6 h13: `h(T.s(true))` picks `h(S2.type)`, `h(T.sKept(true))` with
 body `(S2: S)` picks `h(S)`), `None.type` beside `Option[Boolean]` (h11), an opaque alias's
 representation outside its scope (`Direct[X, A]` read as `A`, h12; `ForgetK` likewise, h14), a
 literal's type (`true` beside `Boolean`), and the singleton type of a stable path the body returns:
 `transparent inline def id[A](x: A): A = x` is typed `v.type` at `id(v)`, while
-`{ val y = x; y }` is typed `Int` (fixture a6-fix1 t1; a `Fin` parameter, an object's `val` alike).
+`{ val y = x; y }` is typed `Int` (session fixture a6-fix1 t1; a `Fin` parameter, an object's `val` alike).
 So the values a body computes do not bound what callers observe unless the declared type is
 already a singleton. A one-valued type such as `Unit` or a final class without fields is refused
 too, because a stable path of that type may be returned; this reading does not enumerate stable
@@ -222,7 +222,7 @@ on a parameter is a function of its value. So a body free of those operations, s
 member an argument's class may override, is at every call site the same function of the values
 its signature names as the method's own body is — up to the members the model excludes for every
 method: universal equality, `getClass` and reflection, which boxing lets an expansion read
-differently (fixture review-A6 h1: `x.getClass` of `boxed[Int](1)` is the primitive class, `x ==
+differently (session fixture review-A6 h1: `x.getClass` of `boxed[Int](1)` is the primitive class, `x ==
 x` of `selfEq[Double](NaN)` is false, where the `def` twins see a box). The parametric count of the
 signature counts it, as it counts a `def`. A type test is refused even so: in a `def` a test on a
 type variable is erased to a fixed class, in an expansion it reads the argument (below), so it
@@ -240,12 +240,12 @@ The fixtures pin each way back to the call site:
 Four more channels reach the call site without any compile-time operation in the source, and
 the check refuses each (review round 2 found the last forms of each; `InlineScopesSpec`):
 
-- A member an expansion selects on a narrower class. Fixtures review-A6 h3, h7, h8 (Scala 3.9.0):
+- A member an expansion selects on a narrower class. Session fixtures review-A6 h3, h7, h8 (Scala 3.9.0):
   `call(b: Base, x) = b.f(x)` given an `Over` whose `override inline def f` uses `summonFrom`
   prints 5, then 9 under a call-site `given Int = 9`, while its `def` twin prints 5 both times;
   the same through `this` (`twice = step(step(x))` in an open class), through an abstract member
   implemented inline in a final class, and through a function parameter whose argument's class
-  has an inline `apply` (eo's `BijectionIso.modify` shape). Fixture a6-fix1 d1 maps which
+  has an inline `apply` (eo's `BijectionIso.modify` shape). Session fixture a6-fix1 d1 maps which
   receivers are re-selected: a parameter (by value, by name or inline), `this`, a field or member
   result selected on one, a lambda's parameter when the lambda is applied in place; a local `val`
   (declared or inferred), an ascription `(b: Base)` and a transparent callee's result are not. So
@@ -261,7 +261,7 @@ the check refuses each (review round 2 found the last forms of each; `InlineScop
   inline one that passes is that function, and an extension method or an unrelated template's
   member is never selected as the override. A field selected that way is read as a value
   of a type the subclass may narrow, so a member selected on it is checked the same way. `C.this`
-  names the template C around the body (fixture review-A6 r2 `o1`: `Outer.this.f(x)` inside a
+  names the template C around the body (session fixture review-A6 r2 `o1`: `Outer.this.f(x)` inside a
   final inner class prints 5, then 9 — the call site's `SubOuter` overrides `f` inline). An
   argument clause a callee does not take applies its result's `apply`: `Obj.g(x)` with `def g:
   Fn` is `Obj.g.apply(x)`, and Fn's inline `apply` is expanded (fixture r2 `m1`, 5 then 9; the
@@ -275,20 +275,20 @@ the check refuses each (review round 2 found the last forms of each; `InlineScop
   Fixture a6 `b1`: `x.isInstanceOf[A]` is false for `isA[String](1)`, and true in the
   corresponding method. A type test whose erased class depends on a type parameter or an abstract
   type refuses: `tests the type A at run time, which each expansion instantiates`. An array's
-  class is its element type's (fixture review-A6 h5: `isArr[Int](Array("a"))` is false,
+  class is its element type's (session fixture review-A6 h5: `isArr[Int](Array("a"))` is false,
   `isArr[String]` true), so `Array[A]` refuses, and an alias is read where it is declared, its
   class's type parameters as variables (`type TA = Array[A]` in `class C[A]`). `classOf` reifies
-  the same way (fixture review-A6 r2 `c2`: `intArr[Int]` is true and `intArr[String]` false for
+  the same way (session fixture review-A6 r2 `c2`: `intArr[Int]` is true and `intArr[String]` false for
   `isIntArr(classOf[Array[A]])`, where the method's erased array is never `Array[Int]`'s class),
   so its type argument is read like a tested type: `reifies with classOf the class of Array[A] …`.
 - A given the body leaves to implicit search: the given chosen where the method is written may be
   an inline one, expanded at each call site. Fixture a6 `b1`: `viaGiven` prints "default", then
-  "callsite"; fixtures review-A6 h4 and h7 show the same through an extension group's `using`
+  "callsite"; session fixtures review-A6 h4 and h7 show the same through an extension group's `using`
   clause ("plain", then "abcd"), a context function read as its result (0, then 4) and an
   eta-expanded method with a `using` clause (1, then 5). A call that leaves a contextual clause, a
   context bound or an extension group's clause to the compiler refuses, and so does a reference
   applied to fewer clauses than a contextual one (eta-expansion fills it), `summon` and
-  `implicitly`. A local method or given is a callee like a supplied one (fixtures review-A6 r2
+  `implicitly`. A local method or given is a callee like a supplied one (session fixtures review-A6 r2
   `l4`, `l6`: a local `def read(using f: Flag)` called as `read`, or with a context bound, prints
   true, then false), and its parameter defaults are read as part of the body (`l5`: a default
   calling an inline `summonFrom` method prints 5, then 9). A value of a context function type is
@@ -322,13 +322,13 @@ the check refuses each (review round 2 found the last forms of each; `InlineScop
   conversion is read by its type, not its spelling: a given or implicit value of `scala.Conversion`
   (through an alias or a renaming import) or of a supplied class extending it, an implicit object
   extending it, an implicit method of one value clause, an implicit class; it is inline when it
-  is an inline given or method or when the `apply` it runs is (fixture review-A6 h10: `given
+  is an inline given or method or when the `apply` it runs is (session fixture review-A6 h10: `given
   toTag: Conversion[Int, Tag] with inline def apply` prints "none", then "abcd"). A conversion or
   extension counts where Scala may find it from the body: in an enclosing scope or an inherited
   template, through an import of the body's scopes, or in an implicit scope — every member of an
   object holding a type or companion to one, of a class, trait or given instance, of a package
   declaring an opaque type — and one the body or a method around it declares, and what an export
-  clause defines again in a scope found so (an export defines aliases, D11; fixture a6-fix1b
+  clause defines again in a scope found so (an export defines aliases, D11; session fixture a6-fix1b
   `ex2`: an exported given and a given local to the body each expand RichR's inline `m`, 2, then
   9); never one local to another method, nor one `private[p]` to a package `p` the body is
   outside (Scala inserts only an accessible implicit). For an applied selection whose qualifier is
@@ -355,7 +355,7 @@ the check refuses each (review round 2 found the last forms of each; `InlineScop
 under its own frame, as the index reads a supplied one: its type parameters are its own, its
 clauses, defaults and declared types are read where it is written, and a call of it is checked
 like a call of a supplied method. Inside an anonymous class, a local class or a local given
-instance, `this` and the names the template inherits are that template's (fixture review-A6 r2
+instance, `this` and the names the template inherits are that template's (session fixture review-A6 r2
 `a1`: `run(new Mid { def k = this.h })` expands Mid's inline `h`, 5 then 9, though the enclosing
 object declares a plain `h`). An anonymous class and a given instance are closed; a local class a
 local subclass may extend is open. A local type named like a type the reading resolves outside the

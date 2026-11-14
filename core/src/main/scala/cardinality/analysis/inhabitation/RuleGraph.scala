@@ -100,8 +100,8 @@ final private[inhabitation] class Live(
     found
   }
 
-  /** ω whatever the reasons elsewhere (capabilities C11, restricted as SYNTHESIS D-capabilities and
-    * crosscheck X3 require): the root reaches a cycle along rules that carry no reason and no
+  /** ω whatever the reasons elsewhere (capabilities C11, restricted as decision D-capabilities and
+    * cross-check X3 require): the root reaches a cycle along rules that carry no reason and no
     * polymorphic instantiation, every child of every such rule is built by rules without reasons,
     * and the empty goal is not built, even optimistically, at any goal on the way.
     *

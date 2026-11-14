@@ -48,7 +48,7 @@ carrier `F` is a rigid constructor ([higher-kinded binders](higher-kinded-binder
   identity cannot be established.
 
 The compiler-backed fixtures verify the named top-level companion and nested
-companion cases against the project's Scala 3.8.4 compiler, as well as an unrelated
+companion cases against the Scala 3.8.4 compiler the project then used, as well as an unrelated
 same-file object and outside-file consumers. See the Scala reference's
 [opaque type details](https://docs.scala-lang.org/scala3/reference/other-new-features/opaques-details.html)
 for the synthetic top-level scope and transparency rules.

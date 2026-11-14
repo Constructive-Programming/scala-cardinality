@@ -9,7 +9,7 @@ import cardinality.analysis.inhabitation.NaturalSyntax.pow
 import org.specs2.Specification
 import org.specs2.execute.Result
 
-// The boundary of the type-member reading (design/members.md, review of B2): which `this` a path
+// The boundary of the type-member reading (type-members design, review of B2): which `this` a path
 // names, which members are free, which refinements describe a value. Every fixture is valid Scala
 // 3.9.0; the compiler facts the refusals rest on are pinned against `memberfixture`.
 class TypeMemberBoundarySpec extends Specification {
@@ -177,7 +177,7 @@ class TypeMemberBoundarySpec extends Specification {
 
   // A trait with no term member has the empty record: h — 1 (the result is one value), k — the 4
   // functions of b. Every template a parameter, parent, self type or constructor modifier may give
-  // a term member — or no instance at all (`CNothing(n: Nothing)`, CROSSCHECK X6) — keeps the
+  // a term member — or no instance at all (`CNothing(n: Nothing)`, cross-check X6) — keeps the
   // abstract-representation reason.
   def typesOnly = {
     val found = entries("""

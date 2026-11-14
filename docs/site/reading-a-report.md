@@ -17,10 +17,10 @@ second reading and one value by the first.
 ## A row
 
 ```
-?  example.Holder[A]  class     Light.scala:11  unresolved: A
-ω  example.Succ       class     Light.scala:17
-2  example.Custom     class     Light.scala:5
-—  example.Light      abstract  Light.scala:3
+?   example.Holder[A]  class     Light.scala:11  depends on its instantiation (A)
+ω   example.Succ       class     Natural.scala:7
+3   example.Light      abstract  Light.scala:3
+2   example.Custom     class     Light.scala:5
 ```
 
 The columns are the number, the definition, its kind, its source position, and the reason
@@ -33,7 +33,7 @@ when the number is not exact.
 | `n` | A finite count, exact up to 127. Above that, a bit capacity: $\le 2^{32}$. |
 | `ω` | Countably infinite: `String`, a productive recursive type, a function over an infinite domain. |
 | `ε₀` | The tier above $\omega$: a function space with infinite domain and codomain, e.g. `String => String`. |
-| `?` | The calculator could not bound it. The row still carries the size it reached and names the type that stopped it. `?` is not a proof of infinity. |
+| `?` | No single number here. The reason after the row says what would give one: the instantiation it depends on, the open abstraction, the name not supplied. `?` is not a proof of infinity. |
 | `—` | No cardinality of its own, such as an abstract type. |
 
 Sizes are polynomials $a\cdot\varepsilon_0 + b\cdot\omega + n$, compared lexicographically

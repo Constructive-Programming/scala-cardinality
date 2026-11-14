@@ -5,6 +5,8 @@ estimate (`capacity/*`), and the constructor-slot reading it lends the method si
 type name the way Scala binds it; when the binding is outside the supplied sources, or not
 followed, the name is a reason (`?`), never a same-named declaration found elsewhere.
 
+Register entry: [D11](code-cardinality-foundations.md#d11-a-name-denotes-the-declaration-scala-binds-it-to).
+
 ## The rules
 
 - **A type owns its name; an object is a term.** Scala keeps types and terms in separate
@@ -198,7 +200,7 @@ followed, the name is a reason (`?`), never a same-named declaration found elsew
   declaration, not supplied: `Expr (imported from scala.quoted.Expr, not supplied)`. A wildcard
   over an object or a package object binds what its parents pass on and its export clauses define
   too, and no private member outside where it is accessible (Scala 3 reference, given imports;
-  fixtures `probes/a7fix2/stored`): this reading follows none of them, so a name the body does not
+  session fixtures `a7fix2/stored`): this reading follows none of them, so a name the body does not
   define, under a namespace with parents or exports, and a private member are refused: `Two (may
   be imported by Lib.*, an inherited member not followed)`, `compose.C (may be imported by Priv.*,
   a private member not followed)`. A wildcard binds no given, a `given` selector no other member.
@@ -240,7 +242,7 @@ over another file's; `import x.*` inside package `p` binds `p.x`'s `Obj` over th
 shadows `a`'s object `x`; `val (p, n) = …` and `self: Pr =>` bind `p` and `self`; `O.M[Int]` reads
 `O.Span`; `trait Holder { type W; U(w: W) }` with `Impl` choosing `type W = Int`.
 
-Further fixtures (Scala 3.9.0, the integrated review's `probes/stored/{inh,self,inst2,inhterm,
+Further fixtures (Scala 3.9.0, the integrated review's session fixtures `stored/{inh,self,inst2,inhterm,
 unsup,t3,en,en2,en3,en4,pkgobj,pkgobj2}` and `z1b/fx/{inh,chk,spec}`): an inherited alias binds over
 a package member of the same unit and the root imports, and an outer object's definition beside
 it is E049; a nested object's own definition is nearer than what its owner inherits; inherited
@@ -264,7 +266,7 @@ members, enum companions), `ReportSpec.memberByName`,
   lists bind only what it lists. A package spelled only as a prefix counts as such a namespace.
 - **A definition in another block of the reading file's package** (`package p { type T = … }`
   beside `package p { import zz.*; … T … }` in one file) outranks every wildcard (spec ch. 2;
-  Scala 3.9.0 fixture `probes/review-A7/r9`), but each block here reads with its own definitions
+  Scala 3.9.0 session fixture `review-A7/r9`), but each block here reads with its own definitions
   only: the estimate refuses `T` there through the wildcard, a refusal where the method side reads
   the definition. No eo 1.0.0 source writes two blocks of one package.
 - **A `given` selector over a supplied namespace** binds a given instance the estimate holds as a

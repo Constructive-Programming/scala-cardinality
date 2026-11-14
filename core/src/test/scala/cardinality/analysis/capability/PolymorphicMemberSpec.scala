@@ -7,9 +7,9 @@ import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 import org.specs2.execute.Result
 
-// Polymorphic members of supplied capabilities (design/capabilities.md C8, PB0–PB4). Every fixture
-// is valid Scala 3.9.0 (compiled with scalac: probes/b4/spec poly1–poly4, probes/b4fix/spec inl and
-// bounds, probes/b4fix2/spec aliases and paths). Each count is derived in the comment above its
+// Polymorphic members of supplied capabilities (capabilities design, C8, PB0–PB4). Every fixture
+// is valid Scala 3.9.0 (compiled with scalac; session fixtures b4/spec poly1–poly4, b4fix/spec inl
+// and bounds, b4fix2/spec aliases and paths). Each count is derived in the comment above its
 // check.
 class PolymorphicMemberSpec extends Specification {
   import Inhabitation.Count
@@ -95,8 +95,9 @@ class PolymorphicMemberSpec extends Specification {
     |""".stripMargin)
 
   // No M has Int <: M <: String, and none provably has X <: M <: String for a rigid X: scalac
-  // rejects every call (probes/review-B4/pb0c), so the only A is `a` — true count 1, never the ω of
-  // a callable f. A one-sided bound always has a solution (M = Int): f is a free endomap — ω.
+  // rejects every call (session fixture review-B4/pb0c), so the only A is `a` — true count 1, never
+  // the ω of a callable f. A one-sided bound always has a solution (M = Int): f is a free endomap —
+  // ω.
   def phantomTwoSided =
     refused(bounds("bounds.U.t"), "polymorphic capability binder: M (bounded)")
       .and(refused(bounds("bounds.U.v"), "polymorphic capability binder: M (bounded)"))
@@ -154,9 +155,9 @@ class PolymorphicMemberSpec extends Specification {
     |""".stripMargin)
 
   // scalac rejects `c.f(a)`, `c.g(true)`, `c.flag`, `this.choose(a, b)` in a body that is not inline
-  // (probes/review-B4/inlc, inlc2, inl2c), so the members add nothing; their types (Boolean,
-  // Boolean ⇒ Boolean, a tag) are built from nothing, so every receiver has an instance: t, t2, v
-  // are true/false (2), T5.m is a or b (2). The ordinary twin `u` reads f ≅ Boolean: 4.
+  // (session fixtures review-B4/inlc, inlc2, inl2c), so the members add nothing; their types
+  // (Boolean, Boolean ⇒ Boolean, a tag) are built from nothing, so every receiver has an instance:
+  // t, t2, v are true/false (2), T5.m is a or b (2). The ordinary twin `u` reads f ≅ Boolean: 4.
   // `V2.m` reads its own receiver's deferred `flag` (built from nothing, dropped): true or false — 2.
   def deferredInline =
     (inl("inl.W.t") === Count.Finite(2))
@@ -180,9 +181,9 @@ class PolymorphicMemberSpec extends Specification {
   }
 
   // An inline body may call c.f: each expansion calls the override of the receiver's static type
-  // there (probes/b4fix/inl b.scala). It counts as an abstract `def` does, so i reads c's record
-  // (f ≅ Boolean, as U.f) beside a: i is true or false of it — 4, as the ordinary twin `u` (it was
-  // refused as resolved at each expansion).
+  // there (session fixture b4fix/inl b.scala). It counts as an abstract `def` does, so i reads c's
+  // record (f ≅ Boolean, as U.f) beside a: i is true or false of it — 4, as the ordinary twin `u`
+  // (it was refused as resolved at each expansion).
   def deferredInlineExpansion =
     inl("inl.W.i") === Count.Finite(4)
 
@@ -221,10 +222,10 @@ class PolymorphicMemberSpec extends Specification {
       |abstract class UsesIds[A] extends Ids[A] { def pick[B](value: B): B = value }
       |""".stripMargin)("UsesIds.pick") === Count.Finite(1)
 
-  // Memo A10 (SYNTHESIS D-capabilities): `create[C](): C` has the empty type, so a receiver with one
-  // is a vacuous environment — 1; a Maker to build needs a value of the empty type — 0. Vacuity, not
-  // the target, makes `flip` and `any` 1: a context that admitted a Maker would give `flip` its four
-  // Boolean functions and `any` no A at all.
+  // Design item A10 (decision D-capabilities): `create[C](): C` has the empty type, so a receiver
+  // with one is a vacuous environment — 1; a Maker to build needs a value of the empty type — 0.
+  // Vacuity, not the target, makes `flip` and `any` 1: a context that admitted a Maker would give
+  // `flip` its four Boolean functions and `any` no A at all.
   def absurd = {
     val found = counts("""trait Absurd[A] { def pick[B](value: B): B; def create[C](): C }
       |abstract class UsesAbsurd[A] extends Absurd[A] { def pick[B](value: B): B = value }
@@ -271,11 +272,11 @@ class PolymorphicMemberSpec extends Specification {
 
   // A class type conforms to another only through a base class, so evidence of two traits neither of
   // which is a base of the other never competes, whatever the arguments: scalac 3.9.0 compiles
-  // `summon[Acc[F]].get(fa)` and `summon[Mark[A]].mark(a)` beside the other (probes/b4fix2/overlap
-  // o3). `apart` counts tag(a) and mark(a), each case a Boolean: 2^4; `both` keeps only its member's
-  // own reason. `Sub[A] extends Tag[A]` is a candidate for a search of `Tag[A]`: refused, and so is
-  // `Wide`, whose record is the wider product (o4: 3.9.0 selects the `T1` evidence, a ranking the
-  // reading never relies on).
+  // `summon[Acc[F]].get(fa)` and `summon[Mark[A]].mark(a)` beside the other (session fixture
+  // b4fix2/overlap o3). `apart` counts tag(a) and mark(a), each case a Boolean: 2^4; `both` keeps
+  // only its member's own reason. `Sub[A] extends Tag[A]` is a candidate for a search of `Tag[A]`:
+  // refused, and so is `Wide`, whose record is the wider product (o4: 3.9.0 selects the `T1`
+  // evidence, a ranking the reading never relies on).
   def unrelatedEvidence = {
     val found = counts("""trait Acc[F[_, _]] { def get[X, A](fa: F[X, A]): A }
       |trait RevAcc[F[_, _]] { def rev[X, A](a: A): F[X, A] }

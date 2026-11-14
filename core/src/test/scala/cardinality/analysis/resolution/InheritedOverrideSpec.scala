@@ -102,7 +102,7 @@ class InheritedOverrideSpec extends Specification {
 
   // `create[C](): C` is a supplied member of type `∀C. C`, the empty type (capabilities PB1): no
   // instance has one, so the environment is vacuous and every expression is the one absurd
-  // elimination — 1 (SYNTHESIS D-capabilities).
+  // elimination — 1 (decision D-capabilities).
   def otherGeneric =
     count(
       "Child.pick",
