@@ -38,7 +38,7 @@ sbt -Dcardinality.self=0.1.0-SNAPSHOT cardinalityReport   # target/**/<module>/c
 
 ### Reading sizes
 
-A size is the polynomial `a·ε₀ + b·ω + n` (`docs/type-arithmetic.md`). It falls in one tier:
+A size is the polynomial `a·ε₀ + b·ω + n` (`docs/site/arithmetic/counting-data.md`). It falls in one tier:
 
 | Tier | Condition | Examples |
 | --- | --- | --- |

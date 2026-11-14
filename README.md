@@ -38,7 +38,7 @@ Key references motivating this work:
 
 - [Counting type inhabitants](https://web.archive.org/web/20181221193229/https://alexknvl.com/posts/counting-type-inhabitants.html)
   (Alex Knvl, 2018): the type arithmetic condensed in
-  [docs/type-arithmetic.md](docs/type-arithmetic.md)
+  [docs/site/arithmetic/counting-data.md](docs/site/arithmetic/counting-data.md)
 - [The Hidden Powers of Total Program Cardinality](https://medium.com/@rodolfohansen/the-hidden-powers-of-total-program-cardinality-9351ba774d4d)
 - [The Hidden Powers of Total Program Cardinality (2 of 2)](https://medium.com/@rodolfohansen/the-hidden-powers-of-total-program-cardinality-2-of-2-ceb0a3af13dd)
 
@@ -172,7 +172,7 @@ are historical.
 The calculator is an early work in progress. It reads a module's compiled classes (TASTy, through
 [tasty-query](https://github.com/scalacenter/tasty-query)) and counts products, tagged sums,
 exponentials, powersets and primitives, following the type arithmetic condensed
-in [docs/type-arithmetic.md](docs/type-arithmetic.md), and reports the cardinality
+in [docs/site/arithmetic/counting-data.md](docs/site/arithmetic/counting-data.md), and reports the cardinality
 of the definitions a source introduces — classes, enums, modules, type aliases and
 opaque types, nested definitions included. Every type is the compiler's; the sources only name
 and place the rows.
@@ -207,14 +207,26 @@ the test suite.
 
 ## Documentation
 
-[`docs/`](docs) holds the pages that get published as the documentation site — currently
-[type arithmetic](docs/type-arithmetic.md), the counting rules the calculator targets and
-the tests that pin them down. The README stays the entry point for the repository itself.
+[`docs/`](docs) is the source of truth. [`docs/site/`](docs/site) is the published
+subset: [getting started](docs/site/getting-started.md),
+[reading a report](docs/site/reading-a-report.md),
+[counting data](docs/site/arithmetic/counting-data.md),
+[counting methods](docs/site/arithmetic/counting-methods.md) and
+[references](docs/site/references/index.md). Internal notes under `docs/plans`, `docs/research`
+and `docs/baselines` are not rendered. The README stays the entry point for the repository
+itself.
 
 ```bash
-sbt siteRender                      # renders docs/ into target/site
+sbt siteRender                      # renders docs/site/ into target/site
 python3 -m http.server -d target/site 8000
 ```
+
+Formulas are typeset by the browser: `siteRender` first runs the math pre-pass
+(`scripts/render-math.mjs`, backed by the vendored [temml](https://temml.org/) in
+`scripts/vendor/`), which turns dollar-math and `math` fenced blocks into MathML Core,
+and Laika then renders the staged tree with raw content enabled. This needs Node ≥ 18
+on the PATH (the runner images and CI provide it; nothing is installed with npm).
+A self-hosted copy of Libertinus Math serves as the math font.
 
 The renderer is [Laika](https://typelevel.org/Laika/) with its Helium theme — the same
 engine the sister project [`eo`](https://github.com/Constructive-Programming/eo) uses.
@@ -233,7 +245,7 @@ Cloudflare Pages — a preview per pull request, production on `v*` tags — onc
 `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets exist together with the
 `scala-cardinality-docs` Pages project. Until then that workflow skips with a notice.
 
-The build has three modules:
+The build has these modules:
 
 - `core` — the calculator itself (the TASTy front end under `cardinality.compiled`, the `Size`
   algebra, the method side's solver, `Report`): a pure library with no sbt types, tested with
@@ -241,28 +253,51 @@ The build has three modules:
 - `plugin` — `sbt-cardinality`, an sbt 2 plugin that reports on the build it is
   added to, and on a library's published jars. It is tested end-to-end
   with sbt's scripted framework (`sbt plugin/scripted`).
-- `millPlugin` — `mill-cardinality`, the same reports for Mill 1.3.
+- `sbt1-plugin` — the same plugin for sbt 1 (Scala 2.12), tested by scripted on a real sbt 1
+  (`sbt sbt1Plugin/scripted`).
+- `mill-plugin` — `mill-cardinality`, a Mill module trait, tested with Mill's testkit.
+- `core-native` — experimental: `core` as a Scala Native binary, written for the scalameta front
+  end. It does not compile against the TASTy front end, which is tasty-query's, and tasty-query has
+  no Scala Native build; it is kept as it was until it has one. Not published or gated.
+- `plugin-loader` and `plugin-sbt` — sources compiled into the plugins, not modules: the loader all
+  three reach `core` through, and the keys and report logic the two sbt plugins share.
 
-Everything builds with the Scala version sbt 2.0.x itself runs on (3.8.4),
-because the plugin — and `core`, which it loads — must be binary-loadable
-inside sbt, and Scala 3 binary compatibility is backward only.
+No plugin depends on `core`: each resolves the published `scala-cardinality_3` and calls its
+JDK-typed entry point (`cardinality.Entry`) in a classloader apart from the build tool's. A plugin
+only has to be built with a Scala its build tool can load (Scala 3 binary compatibility is backward
+only; sbt 1 runs 2.12), and `core` is free to move to a later Scala 3.
 
 ## Reports
 
-The plugin is on Maven Central for sbt 2, running on JDK 25 or later; add it to
-`project/plugins.sbt`:
+The plugin is on Maven Central for sbt 2; add it to `project/plugins.sbt`:
 
 ```scala
-addSbtPlugin("dev.constructive" % "sbt-cardinality" % "0.0.2")
+addSbtPlugin("dev.constructive" % "sbt-cardinality" % "0.0.6")
 ```
 
-The calculator alone is `"dev.constructive" %% "scala-cardinality" % "0.0.2"`.
+From 0.0.3, sbt 1 builds (1.10 or later) use the same line and the same keys: sbt
+picks the sbt 1 artifact (`sbt-cardinality_2.12_1.0`).
 
-For Mill (1.3 or later, on JDK 25), load the plugin in `build.mill`'s header and mix
+Every plugin runs one calculator call at a time per JVM: a root `cardinalityReport` over many
+modules then needs the heap of its largest module, not of all of them at once.
+
+None of the plugins (sbt 2, sbt 1, Mill) depends on the calculator. Each resolves
+`scala-cardinality_3` at its own version (`cardinalityVersion`) and runs it inside the build tool,
+in a classloader apart from the tool's own: the plugin is built for the tool's Scala, whatever the
+calculator's is. The build tool may run on JDK 17, 21 or 25 (CI tests each).
+
+TASTy is not forwards compatible, so a calculator reads code compiled by Scala up to the one its
+TASTy reader (tasty-query) is built on: 0.0.5 and later read Scala 3.0 through 3.10; 0.0.4 and
+earlier read up to 3.9. A newer Scala's classes show up as `compiled class not read: …` at the end
+of the report; they need a calculator built on that Scala.
+
+The calculator alone is `"dev.constructive" %% "scala-cardinality" % "0.0.6"`.
+
+For Mill (1.3 or later), load the plugin in `build.mill`'s header and mix
 `CardinalityModule` into a `ScalaModule`:
 
 ```scala
-//| mvnDeps: ["dev.constructive::mill-cardinality_mill1:0.0.2"]
+//| mvnDeps: ["dev.constructive::mill-cardinality_mill1:0.0.6"]
 import millcardinality.CardinalityModule
 
 object foo extends ScalaModule with CardinalityModule { def scalaVersion = "3.9.0" }
@@ -270,8 +305,7 @@ object foo extends ScalaModule with CardinalityModule { def scalaVersion = "3.9.
 
 `mill foo.cardinalityReport`, `mill foo.cardinalityReportOf <path>...` and
 `mill foo.cardinalityReportSelected <qualified-method-name>...` run the reports below; each
-writes `report.txt` under the command's `out/` directory. `mill foo.cardinalitySeedSkill` seeds the
-reduction skill with Mill's commands (see below; `cardinalitySkillFile` moves it).
+writes `report.txt` under the command's `out/` directory. `mill foo.cardinalitySeedSkill` seeds the reduction skill like `sbt cardinalitySeedSkill` (below), with Mill commands.
 
 `sbt cardinalityReport` measures every definition the project's `Compile`
 sources introduce — nested definitions included — and logs a report: what each

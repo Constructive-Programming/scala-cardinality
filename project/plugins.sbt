@@ -45,3 +45,6 @@ sys.props
   .get("cardinality.self")
   .toSeq
   .map(v => addSbtPlugin("dev.constructive" % "sbt-cardinality" % v))
+
+// Experimental: `core` as a Scala Native binary (`coreNative` in build.sbt). Opt-in per project.
+addSbtPlugin("org.scala-native" % "sbt-scala-native" % "0.5.12")

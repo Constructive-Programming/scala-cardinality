@@ -1,0 +1,10 @@
+# The sbt 1 plugin loads the calculator apart from sbt's Scala 2.12 and reports like the sbt 2
+# plugin: the project's definitions, with a dependency's type (cats' NonEmptyList) read from its jar.
+> cardinalityReport
+$ must-mirror report.txt expected/report.txt
+> cardinalityReportSelected head
+# The dependencies' stubs are rendered once: a second report over the same classpath reuses them.
+$ sleep 1000
+$ touch rendered-before
+> cardinalityReport
+$ newer rendered-before target/cardinality/stubs.bin

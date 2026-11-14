@@ -21,14 +21,14 @@ developers := List(
 // artifacts here, `sonaRelease` uploads and releases them (SONATYPE_USERNAME / SONATYPE_PASSWORD).
 publishTo := localStaging.value
 
-// Pinned to the Scala version sbt 2.x itself runs on (sbt 2.1.0-RC1's metabuild is
-// 3.9.0, matching cats-eo 1.2.1): the sbt plugin — and `core`, which it loads — must
-// be binary-loadable inside sbt, and Scala 3 binary compatibility is backward only.
+// The Scala sbt 2.x itself runs on (sbt 2.1.0-RC1's metabuild is 3.9.0, matching cats-eo 1.3.0).
+// The sbt 2 plugin must be binary-loadable inside sbt, and Scala 3 binary compatibility is backward
+// only. `core` no longer has to follow: the plugins load it apart (`loaderSettings` below).
 scalaVersion := "3.9.0"
 
 // The root project only aggregates; it publishes nothing and has no sources.
 lazy val root = (project in file("."))
-  .aggregate(core, plugin, millPlugin)
+  .aggregate(core, plugin, sbt1Plugin, millPlugin)
   .settings(
     name := "scala-cardinality-root",
     publish / skip := true
@@ -40,13 +40,16 @@ lazy val root = (project in file("."))
 lazy val core = project
   .settings(
     name := "scala-cardinality",
+    // tasty-query reads TASTy up to the Scala it is built on, so `core` follows tasty-query's Scala.
+    scalaVersion := coreScalaVersion,
     description := "Counts the values of Scala types and the implementations of Scala signatures",
     libraryDependencies ++= Seq(
-      "dev.constructive" %% "cats-eo" % "1.2.1",
-      "dev.constructive" %% "cats-eo-generics" % "1.2.1",
-      "dev.constructive" %% "cats-eo-schemes" % "1.2.1",
-      // Compiled dependency declarations (TASTy); 1.9.0 is the release built on Scala 3.9.0.
-      "ch.epfl.scala" %% "tasty-query" % "1.9.0",
+      "dev.constructive" %% "cats-eo" % "1.3.0",
+      "dev.constructive" %% "cats-eo-generics" % "1.3.0",
+      "dev.constructive" %% "cats-eo-schemes" % "1.3.0",
+      // Compiled classes (TASTy); 1.10.0 is built on Scala 3.10.0 and reads TASTy up to 28.10, so
+      // code compiled by Scala 3.0 through 3.10.
+      "ch.epfl.scala" %% "tasty-query" % "1.10.0",
       "org.typelevel" %% "cats-core" % "2.13.0",
       "org.specs2" %% "specs2-core" % "4.23.0" % Test,
       "org.specs2" %% "specs2-cats" % "4.23.0" % Test,
@@ -79,12 +82,49 @@ lazy val core = project
     coverageMinimumStmtTotal := 90
   )
 
+// Experimental: `core` as a Scala Native binary (`sbt coreNative/nativeLink`), written for the
+// scalameta front end: the same sources minus the TASTy reader, with a stand-in for `TastyStubs`,
+// a SHA-256 `MessageDigest` (absent from Scala Native's Java library) and a main. It does not
+// compile against the TASTy front end, which is all tasty-query: tasty-query publishes JVM and
+// Scala.js builds only (1.10.0), and a native binary holds no JDK to read. Kept as it was, until
+// tasty-query has a Native build. Not aggregated: nothing here is published, tested or gated.
+lazy val coreNative = (project in file("core-native"))
+  .enablePlugins(ScalaNativePlugin)
+  .settings(
+    name := "scala-cardinality-native",
+    // NATIVE_RELEASE=1 builds the optimized binary (minutes); the default debug build links fast.
+    nativeConfig ~= { config =>
+      if (sys.env.contains("NATIVE_RELEASE"))
+        config
+          .withMode(scala.scalanative.build.Mode.releaseFast)
+          .withLTO(scala.scalanative.build.LTO.thin)
+      else config
+    },
+    publish / skip := true,
+    coverageEnabled := false,
+    Compile / unmanagedSourceDirectories += (core / Compile / scalaSource).value,
+    Compile / unmanagedSources := (Compile / unmanagedSources).value.filterNot { source =>
+      val path = source.toString.replace('\\', '/')
+      path.contains("/core/src/main/scala/cardinality/tasty/") && !path.endsWith("/StubFile.scala")
+    },
+    libraryDependencies ++= Seq(
+      "dev.constructive" %% "cats-eo" % "1.3.0",
+      "dev.constructive" %% "cats-eo-generics" % "1.3.0",
+      "dev.constructive" %% "cats-eo-schemes" % "1.3.0",
+      "org.scalameta" %% "scalameta" % "4.17.4",
+      // scalameta's Native artifact leaves out the fastparse it shades on the JVM.
+      "com.lihaoyi" %% "fastparse" % "3.1.1",
+      "org.typelevel" %% "cats-core" % "2.13.0"
+    )
+  )
+
 // Measurement over a frozen corpus (bench/README.md). Not aggregated by `root`: it runs on demand,
 // never in CI, and publishes nothing.
 lazy val bench = project
   .dependsOn(core)
   .settings(
     name := "scala-cardinality-bench",
+    scalaVersion := coreScalaVersion,
     publish / skip := true,
     coverageEnabled := false,
     // `bench/runMain cardinality.bench.CorpusRun` (scripts/measure-corpus.sh): a JVM of its own per
@@ -93,33 +133,81 @@ lazy val bench = project
     Compile / run / javaOptions ++= Seq("-Xmx16g", "-Xss8m")
   )
 
-// The sbt plugin: reads each subproject's sources and hands them to `core`.
+// The three build-tool plugins share one way to reach `core`: none depends on it. Each resolves
+// `scala-cardinality_3` at its own version (`BuildInfo`) and calls `cardinality.Entry` in a
+// classloader apart from the build tool's (`plugin-loader`, one source compiled into each). A
+// plugin is then built for its tool's Scala, whatever `core`'s is: sbt 1 runs Scala 2.12, and a
+// tool on another Scala 3 minor cannot read this one's classes either.
+lazy val loaderSettings = Seq(
+  Compile / unmanagedSourceDirectories +=
+    (ThisBuild / baseDirectory).value / "plugin-loader" / "src" / "main" / "scala",
+  Compile / unmanagedResourceDirectories +=
+    (ThisBuild / baseDirectory).value / "plugin-loader" / "src" / "main" / "resources",
+  Compile / sourceGenerators += Def.task {
+    val out = (Compile / sourceManaged).value / "cardinality" / "loader" / "BuildInfo.scala"
+    val text = s"""package cardinality.loader
+                  |
+                  |private[loader] object BuildInfo { val version = "${version.value}" }
+                  |""".stripMargin
+    IO.write(out, text)
+    Seq(out)
+  }.taskValue
+)
+
+// What the two sbt plugins share beside the loader: the keys and the helpers both use (`plugin-sbt`, one
+// source compiled into each), and scripted, which boots a real sbt of the plugin's kind on each
+// test project with the plugin and the `core` it resolves published locally first.
+lazy val sbtPluginSettings = loaderSettings ++ Seq(
+  name := "sbt-cardinality",
+  Compile / unmanagedSourceDirectories +=
+    (ThisBuild / baseDirectory).value / "plugin-sbt" / "src" / "main" / "scala",
+  // scripted resolves the plugin by version, so the tests pass it through a system property.
+  scriptedLaunchOpts += s"-Dplugin.version=${version.value}",
+  scriptedBufferLog := false,
+  scriptedDependencies := {
+    val _ = (core / publishLocal).value
+    publishLocal.value
+  }
+)
+
+// The sbt 2 plugin: reads each subproject's sources and hands them to `core`.
 // Kept as thin as possible — logic that can live in `core` must live in
 // `core`, where the coverage and mutation gates bite.
 lazy val plugin = project
   .enablePlugins(SbtPlugin)
-  .dependsOn(core)
   .settings(
-    name := "sbt-cardinality",
-    description := "sbt plugin reporting the cardinality of a project's definitions and methods",
-    // scripted boots a fresh sbt per test project and resolves the plugin by
-    // version, so the tests pass it through a system property.
-    scriptedLaunchOpts += s"-Dplugin.version=${version.value}",
-    scriptedBufferLog := false,
-    // scripted resolves the plugin and its `core` dependency from the local
-    // repository; publish both before any test project boots.
-    scriptedDependencies := {
-      val _ = (core / publishLocal).value
-      publishLocal.value
-    }
+    sbtPluginSettings,
+    description := "sbt plugin reporting the cardinality of a project's definitions and methods"
   )
 
-// The Mill plugin: `CardinalityModule`, mixed into a `ScalaModule`. Mill 1.3 compiles builds with
-// Scala 3.9.0, this build's version, so the plugin loads `core` directly. The `_mill1` suffix is
-// Mill's convention for plugins built against its 1.x API.
-lazy val millPlugin = (project in file("mill-plugin"))
-  .dependsOn(core)
+// The sbt 1 plugin, for builds that cannot move to sbt 2 yet. Same artifact name as `plugin`;
+// sbt's cross suffixes (`_2.12_1.0` vs `_sbt2_3`) keep them apart.
+lazy val sbt1Plugin = (project in file("sbt1-plugin"))
+  .enablePlugins(SbtPlugin)
   .settings(
+    sbtPluginSettings,
+    description := "sbt 1 plugin reporting the cardinality of a project's definitions and methods",
+    scalaVersion := "2.12.20",
+    pluginCrossBuild / sbtVersion := "1.10.0",
+    // The Scala 3 flags in ThisBuild / scalacOptions are not 2.12 flags.
+    scalacOptions := Seq(
+      "-deprecation",
+      "-feature",
+      "-unchecked",
+      "-Ywarn-unused",
+      "-Xfatal-warnings",
+      // Scala 3 syntax (`import sbt.*`), so the sources shared with the Scala 3 plugins compile
+      // here and scalafix's OrganizeImports rules hold.
+      "-Xsource:3"
+    ),
+    coverageEnabled := false
+  )
+
+// The Mill plugin: `CardinalityModule`, mixed into a `ScalaModule`. Built with the Scala Mill 1.3
+// compiles builds with; the `_mill1` suffix is Mill's convention for plugins on its 1.x API.
+lazy val millPlugin = (project in file("mill-plugin"))
+  .settings(
+    loaderSettings,
     name := "mill-cardinality_mill1",
     description := "Mill plugin reporting the cardinality of a module's definitions and methods",
     libraryDependencies ++= Seq(
@@ -131,11 +219,15 @@ lazy val millPlugin = (project in file("mill-plugin"))
     // (zinc); Mill loads them as it ships them, so sbt's cross-suffix check does not apply here.
     conflictWarning := ConflictWarning.disable,
     // The testkit evaluates the plugin's tasks in this JVM; forked, so its daemon threads end with
-    // the run.
-    Test / fork := true
+    // the run. The plugin resolves `core` at its own version: published locally first.
+    Test / fork := true,
+    Test / compile := (Test / compile).dependsOn(core / publishLocal).value
   )
 
 lazy val millVersion = "1.3.1"
+
+// `core`'s Scala: tasty-query's (above). The plugins stay on their tools' Scala.
+lazy val coreScalaVersion = "3.10.1"
 
 // ----------------------------------------------------------------
 // Compiler options
@@ -153,7 +245,11 @@ ThisBuild / scalacOptions ++= Seq(
   "-unchecked",
   "-Wunused:all",
   "-Wvalue-discard",
-  "-Werror"
+  "-Werror",
+  // Java 17 bytecode, compiled against Java 17's API whatever JDK builds it: the calculator and
+  // the plugins run on JDK 17, 21 and 25 (CI builds on each).
+  "-java-output-version",
+  "17"
 )
 
 // Keep the plugin binary-loadable inside sbt's Scala 3.8.4 runtime. Enable the
@@ -190,13 +286,20 @@ ThisBuild / scalafixDependencies +=
 // where the instrumented code lives.
 coverageHighlighting := true
 
+// Self-measurement (`-Dcardinality.self`, see project/plugins.sbt) reports one module at a time:
+// the two sbt plugins' reports each read the stubs of all of sbt, and four reports at once do not
+// fit the heap `.jvmopts` gives.
+Global / concurrentRestrictions ++=
+  (if (sys.props.contains("cardinality.self")) Seq(Tags.limitAll(1)) else Nil)
+
 // Full coverage sweep used by CI (`sbt coverageAll`). `clean` first so a
 // rebuild starts from the sources: on a cold sbt cache this discards any stale
 // instrumented classes. (sbt 2 may serve `clean` from its machine-wide task
-// cache; see the README note on cold runs.)
+// cache; see the README note on cold runs.) `core` only: it holds the instrumented code, and
+// the plugins' tests load a published `core`, which must not be an instrumented one.
 addCommandAlias(
   "coverageAll",
-  "clean; coverage; test; coverageReport"
+  "clean; coverage; core/test; coverageReport"
 )
 
 // Mutation-testing sweep used on demand and at release (`sbt mutationAll`).
@@ -208,9 +311,15 @@ addCommandAlias("mutationAll", "core/stryker")
 // ----------------------------------------------------------------
 // Documentation site
 // ----------------------------------------------------------------
-// `docs/` is the source of truth for the repository and for the site, so there is no
-// copy to keep in sync: `siteRender` runs Laika (the same engine and Helium theme the
-// sister project `eo` uses) over that directory and writes `target/site`.
+// `docs/` is the source of truth for the repository; `docs/site/` is the published
+// subset. There is no copy to keep in sync: `siteRender` first runs the math pre-pass
+// (`scripts/render-math.mjs`, backed by the vendored temml in `scripts/vendor/`), which
+// stages the tree under `target/site-src` with `$…$` and ```math fences replaced by
+// MathML Core, and Laika (the same engine and Helium theme the sister project `eo` uses)
+// then renders that tree into `target/site`. The pre-pass needs Node ≥ 18 on the PATH;
+// a formula temml cannot parse fails the build. Internal notes under `docs/plans`,
+// `docs/research` and `docs/baselines` stay out of the input tree, so they are neither
+// rendered nor reachable from the site.
 //
 // Two deviations from `eo`'s setup, both forced by sbt 2: its `sbt-typelevel-site`
 // plugin has no sbt 2 build, so the render step lives in `project/SiteRenderer.scala`
@@ -221,15 +330,35 @@ addCommandAlias("mutationAll", "core/stryker")
 // `siteRender` is declared at the build level so `sbt siteRender` resolves, but only the
 // root project renders: the site belongs to the repository, not to a module, and aggregating
 // the task would write it once per module. Root has no sources, so nothing else is tied to it.
-lazy val siteRender = taskKey[Unit]("Render docs/ into the static site under target/site")
+lazy val siteRender = taskKey[Unit]("Render docs/site/ into the static site under target/site")
 
 // Uncached on purpose: writing the site is a side effect, so it must re-read `docs/` on
 // every run rather than trust a cache entry that only tracks a directory path.
 root / siteRender := Def.uncached {
+  val base = (ThisBuild / baseDirectory).value
+  // The math pre-pass stages docs/site/ under site-staged/ with every formula as MathML
+  // Core; Laika then renders the staged tree (with raw content enabled, so the MathML
+  // passes through unescaped). A formula temml cannot parse fails here.
+  // The staging directory deliberately sits OUTSIDE target/: under target/ the sbt 2
+  // JVM's cached view of the target tree makes Laika's input walk see an empty
+  // directory, and the render produces theme assets only.
+  val staged = base / "site-staged"
   // Not `target.value`: sbt 2 nests that under `target/out/jvm/...`, and the deploy
   // workflow wants one path it can point at.
-  val output = (ThisBuild / baseDirectory).value / "target" / "site"
+  val output = base / "target" / "site"
+  IO.delete(staged)
+  val mathPass = scala.sys.process.Process(
+    Seq(
+      "node",
+      "scripts/render-math.mjs",
+      (base / "docs" / "site").getAbsolutePath,
+      staged.getAbsolutePath
+    ),
+    base
+  )
+  val exit = mathPass.!
+  if (exit != 0) sys.error(s"render-math.mjs exited with $exit: a formula could not be parsed")
   IO.delete(output)
-  SiteRenderer.render((ThisBuild / baseDirectory).value / "docs", output)
+  SiteRenderer.render(staged, output)
   streams.value.log.info(s"Site written to ${output.getAbsolutePath}")
 }

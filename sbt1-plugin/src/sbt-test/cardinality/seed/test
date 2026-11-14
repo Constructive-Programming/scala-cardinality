@@ -1,0 +1,11 @@
+# cardinalitySeedSkill writes the reduction skill template that ships with the plugin,
+# parameterized by the build (project name substituted, no template placeholders left),
+# refreshes a file it generated on a second run, and refuses to overwrite a file the
+# plugin did not generate.
+> cardinalitySeedSkill
+> checkSkill
+> cardinalitySeedSkill
+> checkSkill
+> takeSkill
+-> cardinalitySeedSkill
+> checkOwnership

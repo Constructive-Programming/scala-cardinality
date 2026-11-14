@@ -217,7 +217,7 @@ SLS 2.13 ch. 2 \[32\] in the verified bibliography, both **Inspected (full text)
 least-fixed-point reading of an object member solved with its enclosing body agrees with solving
 the body first and the object after (Bekić's lemma — **classical**). A lazy knot is a value the
 least fixed point does not contain: it is the greatest-fixed-point part the ν completion counts
-(docs/type-arithmetic.md §8), so when that completion is blocked the μ value is a lower bound,
+(docs/site/arithmetic/counting-data.md §8), so when that completion is blocked the μ value is a lower bound,
 not the count.
 
 **Compiler fixtures** (Scala 3.9.0's compiler run on the fixture sources, this session): `Foo.B` with a trait `Foo` and no `object Foo` is rejected; `package a.b` does not

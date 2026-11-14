@@ -180,10 +180,10 @@ The analyzer's code does not define what a number means; these documents do.
 - [docs/plans/v1.md §2](docs/plans/v1.md), "Agreed counting contract". It sets the two
   questions (implementation cardinality and stored-value cardinality), the scope and
   equivalence, the assumptions and what each output means.
-- [docs/counting-type-inhabitants.md](docs/counting-type-inhabitants.md) covers the method side:
+- [docs/site/arithmetic/counting-methods.md](docs/site/arithmetic/counting-methods.md) covers the method side:
   observational equivalence, parametric atoms, sums, products and exponentials, least fixed
   points and absurd elimination.
-- [docs/type-arithmetic.md](docs/type-arithmetic.md) covers the stored-value side.
+- [docs/site/arithmetic/counting-data.md](docs/site/arithmetic/counting-data.md) covers the stored-value side.
 - The per-rule notes are in [docs/research/](docs/research). The evidence register,
   [code-cardinality-foundations.md](docs/research/code-cardinality-foundations.md), records the
   sources and the status of each rule.
@@ -207,12 +207,14 @@ The analyzer's code does not define what a number means; these documents do.
 
 ## Build and gates
 
-The build uses sbt 2 (`project/build.properties`) and Scala 3.9.0 (`build.sbt`). `core` is the
-calculator, a pure library tested with specs2. `plugin` is the sbt plugin, tested with scripted.
+The build uses sbt 2 (`project/build.properties`); `core` is on Scala 3.10.1, tasty-query's, and the
+plugins on their tools' Scala (`build.sbt`). `core` is the calculator, a pure library tested with
+specs2. `plugin` and `sbt1-plugin` are the sbt 2 and sbt 1 plugins, tested with scripted;
+`mill-plugin` is tested with Mill's testkit.
 
 ```bash
 sbt core/testFull                    # core test suite, uncached
-sbt plugin/scripted                  # plugin end-to-end tests
+sbt plugin/scripted sbt1Plugin/scripted millPlugin/testFull   # plugin end-to-end tests
 sbt scalafmtAll scalafixAll          # formatting and semantic rules (CI checks both)
 sbt coverageAll                      # coverage report; CI gates on a floor
 bash scripts/check-file-metrics.sh   # per-file length and comment-ratio gate

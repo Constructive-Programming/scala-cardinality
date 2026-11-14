@@ -383,7 +383,7 @@ object Compiled {
     if (Files.exists(root.resolve("ok"))) Some(out)
     else if (Files.exists(root.resolve("failed")) || sources.isEmpty) None
     else {
-      val staged = staging.resolve(s"$key.${Thread.currentThread.threadId}")
+      val staged = staging.resolve(s"$key.${Thread.currentThread.getId}")
       val src = staged.resolve("src")
       def laidOut(of: List[Input]) = of.map(i => written(src, i.path, i).toString)
       // What is compiled before the fixture, each part alone and against the ones before it: the
