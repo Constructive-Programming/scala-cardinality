@@ -15,7 +15,6 @@
 (a) pins old behavior | GroundEnvironmentSpec | two anonymous evidences of one ground type are unreachable
 (a) pins old behavior | HigherKindedBindingSpec | same-typed anonymous evidences are not counted
 (a) pins old behavior | InferredResultsSpec | a transparent inline method's result is refused
-(a) pins old behavior | InlineMethodsSpec | the A5 fixtures stay refused
 (a) pins old behavior | MethodUnionNullabilitySpec | keep overlapping concrete alternatives unresolved
 (a) pins old behavior | NamespaceScopingSpec | a generic definition named without arguments has no value space
 (a) pins old behavior | NamespaceScopingSpec | an abstract type member shadows an outer type
@@ -31,16 +30,7 @@
 (a) pins old behavior | ReportHygieneSpec | a refinement reads one way however it is laid out
 (a) pins old behavior | ReportHygieneSpec | an operator name stays apart from its result's colon
 (a) pins old behavior | ReportHygieneSpec | curried clauses read one way however laid out
-(a) pins old behavior | ReportHygieneSpec | so does one whose result is inferred
-(a) pins old behavior | ReportHygieneSpec | whatever its alternatives are spelled like
 (a) pins old behavior | ReportSpec | an abstract member is open
-(a) pins old behavior | StoredScopesSpec | a path's first name, and constructor parameters outside
-(a) pins old behavior | StoredScopesSpec | a qualified-private member is inherited, a private one not
-(a) pins old behavior | StoredScopesSpec | a singleton case is a term only, a plain object no enum
-(a) pins old behavior | StoredScopesSpec | a wildcard, a selector, a path and a bare name bind the case
-(a) pins old behavior | StoredScopesSpec | case parameters read in the companion, the body imports cases
-(a) pins old behavior | StoredScopesSpec | constructor slots read the member on both sides
-(a) pins old behavior | StoredValueSoundnessSpec | a parameterised family instantiates through its slots
 (a) pins old behavior | ThrowableSlotsSpec | every root-import spelling of a throwable is the open class
 (a) pins old behavior | TransparentInlineSpec | a transparent function result is refused too
 (a) pins old behavior | TypeMemberBoundarySpec | a bound mentioning the scrutinee refuses
@@ -82,13 +72,6 @@
 (b) pins a refusal the compiled tree resolves | ImportClausesSpec | a supplied member keeps the name against a wildcard beside it
 (b) pins a refusal the compiled tree resolves | ImportClausesSpec | an import of an inherited member says so
 (b) pins a refusal the compiled tree resolves | ImportClausesSpec | what parents, exports or privacy add to a namespace is not read
-(b) pins a refusal the compiled tree resolves | InlineMethodsSpec | a channel outside the sources refuses all but identities
-(b) pins a refusal the compiled tree resolves | InlineMethodsSpec | a given left to implicit search, summon, valueOf
-(b) pins a refusal the compiled tree resolves | InlineMethodsSpec | an exported or a local conversion is found where it is visible
-(b) pins a refusal the compiled tree resolves | InlineMethodsSpec | an extension restating the member is never taken (P2)
-(b) pins a refusal the compiled tree resolves | InlineMethodsSpec | an inline conversion of the sources refuses every body
-(b) pins a refusal the compiled tree resolves | InlineMethodsSpec | library members, extractors, named arguments, overriding
-(b) pins a refusal the compiled tree resolves | InlineMethodsSpec | reasons quote what they name
 (b) pins a refusal the compiled tree resolves | InlineScopesSpec | a conversion private to another package is never inserted
 (b) pins a refusal the compiled tree resolves | InlineScopesSpec | a given whose type a wildcard may hide is read as its declaration
 (b) pins a refusal the compiled tree resolves | InlineScopesSpec | a local type that hides an outer one refuses
@@ -106,24 +89,9 @@
 (b) pins a refusal the compiled tree resolves | PureCodeSpec | a sealed case or enum built by a throwing body is refused
 (b) pins a refusal the compiled tree resolves | PureCodeSpec | a union with Exception has no runtime class to test
 (b) pins a refusal the compiled tree resolves | PureCodeSpec | an alias nested out of reach does not stand for a parent
-(b) pins a refusal the compiled tree resolves | ReportHygieneSpec | a literal shaped like a placeholder is the literal
-(b) pins a refusal the compiled tree resolves | ReportHygieneSpec | a refinement reason quotes the source, on one line
-(b) pins a refusal the compiled tree resolves | ReportHygieneSpec | a source name shaped like a placeholder is its own
-(b) pins a refusal the compiled tree resolves | ReportHygieneSpec | so does one behind aliases of aliases
-(b) pins a refusal the compiled tree resolves | ReportHygieneSpec | so is one that only starts like a placeholder
 (b) pins a refusal the compiled tree resolves | StdlibModelSpec | IterableOnce leaves iterator to the sources
 (b) pins a refusal the compiled tree resolves | StdlibModelSpec | a sealed template whose subtypes are fixed is a fixed receiver
 (b) pins a refusal the compiled tree resolves | StdlibModelSpec | a union does not discriminate a model sequence's class
-(b) pins a refusal the compiled tree resolves | StoredScopesSpec | a package object's parents may bind any name
-(b) pins a refusal the compiled tree resolves | StoredScopesSpec | a parent through an alias or a value is not read
-(b) pins a refusal the compiled tree resolves | StoredScopesSpec | a parent's export may define the name, which is refused
-(b) pins a refusal the compiled tree resolves | StoredScopesSpec | abstract, opaque and parameterised members are not read
-(b) pins a refusal the compiled tree resolves | StoredScopesSpec | an export read with an import, or a private member, is refused
-(b) pins a refusal the compiled tree resolves | StoredScopesSpec | an unsupplied parent refuses; marker parents declare nothing
-(b) pins a refusal the compiled tree resolves | StoredValueSoundnessSpec | a pattern matches by spelling only where both mean alike
-(b) pins a refusal the compiled tree resolves | StoredValueSoundnessSpec | a subtype through a renamed import
-(b) pins a refusal the compiled tree resolves | StoredValueSoundnessSpec | a subtype through an alias, or reached twice
-(b) pins a refusal the compiled tree resolves | StoredValueSoundnessSpec | an instantiation is its own least fixed point
 (b) pins a refusal the compiled tree resolves | SyntaxFeaturesSpec | a binder behind a reading that stops is refused
 (b) pins a refusal the compiled tree resolves | SyntaxFeaturesSpec | a floating zero is not read, its sign being lost
 (b) pins a refusal the compiled tree resolves | SyntaxFeaturesSpec | a union of literals holds its distinct constants
@@ -136,23 +104,6 @@
 (b) pins a refusal the compiled tree resolves | TypeMemberBoundarySpec | a member some level declares as a class is no atom
 (b) pins a refusal the compiled tree resolves | TypeMemberScopeSpec | a projection through `this` or an owner's member is refused
 (b) pins a refusal the compiled tree resolves | TypeMemberScopeSpec | an opaque alias spelled through `this` is not followed
-(b) pins a refusal the compiled tree resolves | UnsuppliedWildcardSpec | ModifyF.map.map and Direct.first are refused
-(b) pins a refusal the compiled tree resolves | UnsuppliedWildcardSpec | Optic.id is refused, a `_root_` twin keeps 1
-(b) pins a refusal the compiled tree resolves | UnsuppliedWildcardSpec | a `given` selector may bind a path's first name
-(b) pins a refusal the compiled tree resolves | UnsuppliedWildcardSpec | a package the sources spell only as a prefix is open
-(b) pins a refusal the compiled tree resolves | UnsuppliedWildcardSpec | a parameter whose declared type is in doubt keeps that reason
-(b) pins a refusal the compiled tree resolves | UnsuppliedWildcardSpec | a supplied wildcard binding a value, an enum case
-(b) pins a refusal the compiled tree resolves | UnsuppliedWildcardSpec | an import whose prefix is no path
-(b) pins a refusal the compiled tree resolves | UnsuppliedWildcardSpec | an object's inherited members, by kind, and an unsupplied parent
-(b) pins a refusal the compiled tree resolves | UnsuppliedWildcardSpec | nor a builtin a constructor slot reads, unlike `zz.*`
-(b) pins a refusal the compiled tree resolves | UnsuppliedWildcardSpec | refuses a member of a record its field type names
-(b) pins a refusal the compiled tree resolves | UnsuppliedWildcardSpec | refuses a package member of another file it may shadow
-(b) pins a refusal the compiled tree resolves | UnsuppliedWildcardSpec | refuses a prefix it may rebind, and a name under that prefix
-(b) pins a refusal the compiled tree resolves | UnsuppliedWildcardSpec | refuses the first name of a named import or a qualified type
-(b) pins a refusal the compiled tree resolves | UnsuppliedWildcardSpec | refuses the type a projection reads its member from
-(b) pins a refusal the compiled tree resolves | UnsuppliedWildcardSpec | shadows an outer scope's supplied wildcard
-(b) pins a refusal the compiled tree resolves | UnsuppliedWildcardSpec | the aliases an object's export clauses define
-(b) pins a refusal the compiled tree resolves | UnsuppliedWildcardSpec | what a package object's parents pass on
 (c) known loss | AliasOverrideIdentitySpec | does not capture a caller binder in an alias body
 (c) known loss | AliasOverrideIdentitySpec | guards imported names in the alias declaration scope
 (c) known loss | ArticleCardinalitySpec | C cannot be manufactured
@@ -334,6 +285,7 @@
 (c) known loss | ReentrySpec | in a branch, a lambda applied in place or an η-expansion: `?`
 (c) known loss | ReentrySpec | inside a match arm, a try, an interpolation or a loop: `?`
 (c) known loss | ReentrySpec | strict initializers and template statements
+(c) known loss | ReportHygieneSpec | a report tallies a union under the reason it stopped on
 (c) known loss | ReportHygieneSpec | every reason spells a refinement as the row does
 (c) known loss | ReportSpec | a function space over an unmodelled type names it
 (c) known loss | ReportSpec | a match type that does not reduce stays unread
@@ -372,6 +324,7 @@
 (c) known loss | StoredValueSoundnessSpec | a parent name an object rebinds names another type
 (c) known loss | StoredValueSoundnessSpec | a reference carries the reasons of what it reads
 (c) known loss | StoredValueSoundnessSpec | a subtype varies as the slot it binds, or is refused
+(c) known loss | StoredValueSoundnessSpec | an anonymous instance, or a subtype reached twice
 (c) known loss | StoredValueSoundnessSpec | an enum case pinned to one instantiation is refused
 (c) known loss | StoredValueSoundnessSpec | context bounds are constructor inputs
 (c) known loss | StoredValueSoundnessSpec | every class of reasons renders, unresolved first
@@ -454,6 +407,7 @@
 (c) known loss | TypeMemberSpec | a value path is a choice only where it can be overridden
 (c) known loss | TypeMemberSpec | an unsupplied parent may define the member
 (c) known loss | TypeMemberSpec | nominal, bounded and bounded-scrutinee projections stay open
+(c) known loss | UnsuppliedWildcardSpec | an enum companion's wildcard binds a case class
 (c) known loss | UnsuppliedWildcardSpec | quotes.reflect, whose members are not listed, may bind any
 (c) known loss | UnsuppliedWildcardSpec | refuses Singleton for the marker where a wildcard may bind it
 count differs: to derive, a correction or a bug | CapabilitySpec | `Any`'s and `Product`'s members are universal (`canEqual`)
@@ -461,6 +415,7 @@ count differs: to derive, a correction or a bug | CardinalitySpec | recursion in
 count differs: to derive, a correction or a bug | CardinalitySpec | sealed parent with abstract child
 count differs: to derive, a correction or a bug | CardinalitySpec | sealed parent without concrete subtypes
 count differs: to derive, a correction or a bug | CounterSpec | Skips unknown statements, bounds unknown types
+count differs: to derive, a correction or a bug | StoredValueSoundnessSpec | an intersection of unrelated families is empty
 rejected fixture, uncompiled support | AliasOverrideIdentitySpec | guards incorrect alias arity
 rejected fixture, uncompiled support | AliasOverrideIdentitySpec | guards mutually recursive aliases
 rejected fixture, uncompiled support | AliasOverrideIdentitySpec | guards nearer imports shadowing an outer binder
