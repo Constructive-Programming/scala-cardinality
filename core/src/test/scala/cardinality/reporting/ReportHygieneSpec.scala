@@ -20,18 +20,10 @@ class ReportHygieneSpec extends Specification with AfterAll {
 
   def is = s2"""
     Method rows
-      a refinement reason quotes the source, on one line    ${Pending.resolvedRefusal(
-      refinementReason
-    )}
-      so does one behind aliases of aliases                 ${Pending.resolvedRefusal(
-      nestedAliases
-    )}
-      a source name shaped like a placeholder is its own    ${Pending.resolvedRefusal(
-      placeholderName
-    )}
-      so is one that only starts like a placeholder         ${Pending.resolvedRefusal(
-      placeholderPrefix
-    )}
+      a refined result through an alias is quoted as written $refinementReason
+      so is one behind aliases of aliases                   $nestedAliases
+      a source name shaped like a placeholder is its own    $placeholderName
+      so is one that only starts like a placeholder         $placeholderPrefix
       a literal type reads as written in rows and reasons   ${Pending.oldBehavior(literalRows)}
       a refinement reads one way however it is laid out     ${Pending.oldBehavior(
       refinementLayouts
@@ -40,11 +32,9 @@ class ReportHygieneSpec extends Specification with AfterAll {
       a signature drops its layout and trailing comma       $signatureLayout
       curried clauses read one way however laid out         ${Pending.oldBehavior(curriedClauses)}
       a braceless match type result reads as valid Scala    ${Pending.oldBehavior(bracelessResult)}
-      a literal shaped like a placeholder is the literal    ${Pending.resolvedRefusal(
-      placeholderLiteral
-    )}
+      a literal shaped like a placeholder is the literal    $placeholderLiteral
       every reason spells a refinement as the row does      ${Pending.knownLoss(refinedReasons)}
-      so does one whose result is inferred                  ${Pending.oldBehavior(inferredResult)}
+      so does one whose result is inferred                  $inferredResult
 
     Blocker categories
       the category ends at the first separator              $separator
@@ -53,9 +43,8 @@ class ReportHygieneSpec extends Specification with AfterAll {
       but the colon after a name ending in `_` is           $underscoreColons
       every subtype, name and namespace tallies once        $instances
       a union counts under the reason it stopped on         $unions
-      whatever its alternatives are spelled like            ${Pending.oldBehavior(
-      unionAlternatives
-    )}
+      whatever its alternatives are spelled like            $unionAlternatives
+      a report tallies a union under the reason it stopped on ${Pending.knownLoss(unionReport)}
       prose and its punctuation are kept                    $prose
       a report tallies a category once per signature        $tally
 
@@ -79,8 +68,10 @@ class ReportHygieneSpec extends Specification with AfterAll {
     case _                       => Nil
   }
 
-  // `Aux` is a transparent alias, so the normalizer freezes its arguments behind placeholders
-  // before it reads the refinement it expands to. The reason names what the source wrote there.
+  // The old front end froze a transparent alias's arguments behind `$cardinality…` placeholders and
+  // refused the refinement it expanded to, quoting it; the TASTy front end reads the refinement.
+  // `Optic` holds a type member and no value member, so each of these results is one value: 1. The
+  // signature is the source's spelling, placeholder-shaped names and literals included.
   def refinementReason = {
     val found = entries(
       """|package r
@@ -91,13 +82,11 @@ class ReportHygieneSpec extends Specification with AfterAll {
          |}
          |""".stripMargin
     ).find(_.name == "r.Optic.make").get
-    (reasons(found) must contain(
-      "refined representation unavailable (constraints not erased): Optic[A] { type X = (A, B) }"
-    )).and(reasons(found).exists(_.contains("$cardinality")) must beFalse)
+    (found.count === Count.Finite(1))
+      .and(found.signature === "make[A, B](a: A, b: B): Aux[A, (A, B)]")
   }
 
-  // `PGrate` passes its arguments to `Aux`, whose normalizer freezes them again: the placeholders
-  // of the outer expansion are leaves of the inner one, and both are spelled back.
+  // `PGrate` passes its arguments to `Aux`, and `Grate` to `PGrate`: one value each.
   def nestedAliases = {
     val found = entries(
       """|package g
@@ -111,19 +100,11 @@ class ReportHygieneSpec extends Specification with AfterAll {
          |}
          |""".stripMargin
     )
-    def reasonsOf(name: String) = reasons(found.find(_.name == name).get)
-    (reasonsOf("g.Optic.iso") must contain(
-      "refined representation unavailable (constraints not erased): Optic[S, A] { type X = Unit }"
-    )).and(
-      reasonsOf("g.Optic.unit") must contain(
-        "refined representation unavailable (constraints not erased): " +
-          "Optic[Option[A], Option[A]] { type X = Unit }"
-      )
-    )
+    def countOf(name: String) = found.find(_.name == name).get.count
+    (countOf("g.Optic.iso") === Count.Finite(1)).and(countOf("g.Optic.unit") === Count.Finite(1))
   }
 
-  // Placeholders never take a name the sources use, so a type the source itself named like one is
-  // quoted as that name — backquoted, as scalameta spells it — not as what a placeholder stood for.
+  // A type the source itself named like a placeholder is quoted as that name, backquoted as written.
   def placeholderName = {
     val found = entries(
       """|package d
@@ -135,14 +116,11 @@ class ReportHygieneSpec extends Specification with AfterAll {
          |}
          |""".stripMargin
     ).find(_.name == "d.Optic.make").get
-    reasons(found) must contain(
-      "refined representation unavailable (constraints not erased): " +
-        "Optic[A] { type X = `$cardinalityProjection1` }"
-    )
+    (found.count === Count.Finite(1))
+      .and(found.signature === "make[A](a: A): Aux[A, `$cardinalityProjection1`]")
   }
 
-  // A source name that only begins with a placeholder's text is not a placeholder: it is quoted as
-  // the source wrote it, never with the start of it replaced (`Inta`).
+  // A source name that only begins with a placeholder's text is quoted as the source wrote it.
   def placeholderPrefix = {
     val found = entries(
       """|package d
@@ -154,10 +132,8 @@ class ReportHygieneSpec extends Specification with AfterAll {
          |}
          |""".stripMargin
     ).find(_.name == "d.Optic.make").get
-    reasons(found) must contain(
-      "refined representation unavailable (constraints not erased): " +
-        "Optic[Int] { type X = `$cardinalityProjection1a` }"
-    )
+    (found.count === Count.Finite(1))
+      .and(found.signature === "make[A](a: A): Aux[Int, `$cardinalityProjection1a`]")
   }
 
   // Two overloads that differ only in a literal's spaces (a target name keeps their erasures apart)
@@ -267,8 +243,7 @@ class ReportHygieneSpec extends Specification with AfterAll {
     found.signature === "f[T](t: T): T match { case Int => String; case _ => Boolean }"
   }
 
-  // A literal type's text is what the source wrote, even shaped like a placeholder: restored, it
-  // would quote another type (`"Int"`, the first frozen leaf's spelling).
+  // A literal type's text is what the source wrote, even shaped like a placeholder: one value, 1.
   def placeholderLiteral = {
     val found = entries(
       """|package p
@@ -279,10 +254,8 @@ class ReportHygieneSpec extends Specification with AfterAll {
          |}
          |""".stripMargin
     ).find(_.name == "p.Optic.second").get
-    reasons(found) must contain(
-      "refined representation unavailable (constraints not erased): " +
-        "Optic[Int] { type X = \"$cardinalityProjection1\" }"
-    )
+    (found.count === Count.Finite(1))
+      .and(found.signature === "second(a: Int): Aux[Int, \"$cardinalityProjection1\"]")
   }
 
   // A union's and a self type's reasons spell a refinement with its `;`, as the signature does.
@@ -325,8 +298,9 @@ class ReportHygieneSpec extends Specification with AfterAll {
          |}
          |""".stripMargin
     ).find(_.name == "s.O.pick").get
-    // The compiler's result is written in: the signature reads it, on one line.
-    found.signature === "pick[A](x: A, y: A): A"
+    // A signature is the source's spelling: an inferred result is not spelled (the corpus rows'
+    // reading under the TASTy front end); the count is the compiler's `A`, x or y: 2.
+    (found.signature === "pick[A](x: A, y: A)").and(found.count === Count.Finite(2))
   }
 
   def separator =
@@ -414,9 +388,8 @@ class ReportHygieneSpec extends Specification with AfterAll {
   // read from sources as from reasons. A case class with a body that no `final` closes is the
   // alternative that stops (an abstract class with a method reads as a capability record and an
   // empty open trait as one value, either leaving the union to the overlap proof).
-  def unionAlternatives = {
-    val why = "case class open to extension"
-    val written = List(
+  def unionAlternatives =
+    List(
       "json | Missing",
       "Data | Missing",
       "\"a: b\" | Missing",
@@ -426,7 +399,13 @@ class ReportHygieneSpec extends Specification with AfterAll {
       "F[A] { def run: Int } | Null",
       "A with B | Null",
       "t | Null"
-    ).map(union => Blockers.category(s"union ($union): $why: x")).distinct
+    ).map(union => Blockers.category(s"union ($union): case class open to extension: x"))
+      .distinct === List("union _: case class open to extension")
+
+  // The same unions read from sources: the TASTy front end refuses `f` and `g` before the union
+  // (`a capability record of a case class something extends`), and `h` on its refined function.
+  def unionReport = {
+    val why = "case class open to extension"
     val code =
       """|package ul
          |case class json(n: Int) { def run: Int = n }
@@ -441,8 +420,7 @@ class ReportHygieneSpec extends Specification with AfterAll {
          |}
          |""".stripMargin
     val rendered = Report(List(Report.Source("Example.scala", Nil, entries(code))), Nil).render
-    (written === List(s"union _: $why"))
-      .and(rendered must contain(s"  2 unresolved on: union _: $why\n"))
+    (rendered must contain(s"  2 unresolved on: union _: $why\n"))
       .and(rendered must contain("  1 unresolved on: union _: unsupported type\n"))
   }
 

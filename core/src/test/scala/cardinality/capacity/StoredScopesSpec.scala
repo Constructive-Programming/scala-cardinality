@@ -19,53 +19,29 @@ class StoredScopesSpec extends Specification {
 
   def is = s2"""
     An explicit enum companion holds the enum's cases
-      a wildcard, a selector, a path and a bare name bind the case     ${Pending.oldBehavior(
-      enumCompanion
-    )}
-      a singleton case is a term only, a plain object no enum          ${Pending.oldBehavior(
-      enumTerms
-    )}
+      a wildcard, a selector, a path and a bare name bind the case     $enumCompanion
+      a singleton case is a term only, a plain object no enum          $enumTerms
       constructor slots lent to the method side refuse alike          ${Pending.knownLoss(
       enumLending
     )}
-      case parameters read in the companion, the body imports cases    ${Pending.oldBehavior(
-      enumCases
-    )}
+      case parameters read in the companion, the body imports cases    $enumCases
 
     A package holds what its package object and exports pass on
-      a package object's parents may bind any name                    ${Pending.resolvedRefusal(
-      packageParents
-    )}
+      a package object's parents pass their members on                $packageParents
       a top-level export over a package's object is followed          $packageExports
-      an export read with an import, or a private member, is refused  ${Pending.resolvedRefusal(
-      packageRefusals
-    )}
+      an export read with an import, a private member, a parent's     $packageRefusals
       a path's first name through a followed export                   $packageHeads
 
     A template body binds its parents' and self type's members
       inherited aliases over a package's or the root's names          $inheritedAliases
       transitive parents, self types and nearer declarations          $inheritedScopes
-      a path's first name, and constructor parameters outside         ${Pending.oldBehavior(
-      inheritedTerms
-    )}
-      a parent's export may define the name, which is refused          ${Pending.resolvedRefusal(
-      inheritedExports
-    )}
-      an unsupplied parent refuses; marker parents declare nothing    ${Pending.resolvedRefusal(
-      unsuppliedParents
-    )}
-      a parent through an alias or a value is not read               ${Pending.resolvedRefusal(
-      unreadParents
-    )}
-      a qualified-private member is inherited, a private one not      ${Pending.oldBehavior(
-      qualifiedPrivate
-    )}
-      abstract, opaque and parameterised members are not read         ${Pending.resolvedRefusal(
-      unreadMembers
-    )}
-      constructor slots read the member on both sides                 ${Pending.oldBehavior(
-      inheritedLending
-    )}
+      a path's first name, and constructor parameters outside         $inheritedTerms
+      a parent's export defines the name                               $inheritedExports
+      an unsupplied parent and marker parents declare nothing         $unsuppliedParents
+      a parent through an alias or a value is read                   $unreadParents
+      a qualified-private member is inherited, a private one not      $qualifiedPrivate
+      abstract, opaque and parameterised members                      $unreadMembers
+      constructor slots read the member on both sides                 $inheritedLending
 
     An opaque alias is its representation only inside its scope
       a member alias inside its template, refused outside             $opaqueMembers
@@ -79,14 +55,11 @@ class StoredScopesSpec extends Specification {
   private def refusedCount(count: Count, reason: String): Result =
     count must beLike { case Count.Unresolved(rs) => rs.exists(_.contains(reason)) must beTrue }
 
-  // A count refused with each of these reasons, verbatim.
-  private def refusedExactly(count: Count, reasons: String*): Result =
-    count must beLike { case Count.Unresolved(rs) => rs must containAllOf(reasons) }
-
   // `object E` beside `enum E` holds `E.A`: under `import E.*`, an explicit selector, a qualified
   // path, and bare inside `object E`, `A` is the case class — not another file's `type A = Unit`
-  // (1) — and the case class is not read as a type of its own, so each row is refused. The sealed
-  // `S` sums `L(a: A)`, refused too. `E.X` stays the companion's own alias (2).
+  // (1) — and the case class is not read as a type of its own, so each row is refused (the TASTy
+  // front end names the case `A`). The sealed `S` sums `L(a: A)`, refused too. `E.X` stays the
+  // companion's own alias (2).
   def enumCompanion = {
     val found = rowsOf(
       "en/a.scala" ->
@@ -106,7 +79,7 @@ class StoredScopesSpec extends Specification {
            |""".stripMargin,
       "en/b.scala" -> "package en\ntype A = Unit"
     )
-    val refusal = "enum case type not read: en.E.A"
+    val refusal = "enum case type not read: A"
     refusedWith(found(("en.Sel.U1", Class)), refusal)
       .and(refusedWith(found(("en.Qual.U2", Class)), refusal))
       .and(refusedWith(found(("en.Wild.U3", Class)), refusal))
@@ -121,8 +94,8 @@ class StoredScopesSpec extends Specification {
   // `case Boolean` is a value: `import G.*` binds no type `Boolean`, so `Ug(b: Boolean)` is the
   // builtin's 2 (scalac accepts `UseG.Ug(true)`). `object Color` accompanies no enum, so its class
   // `Rgb(r: Byte, g: Byte)` is read (≤2^16) and `P(c: Rgb, f: Flag)` is 2^16·2 = ≤2^17 under its
-  // wildcard. With no explicit companion the enum is no namespace the estimate reads, and the
-  // wildcard over it may bind anything.
+  // wildcard. Without an explicit companion, `import H.*` still binds the case class `H.Boolean`,
+  // whose type is not read: refused.
   def enumTerms = {
     val found = rowsOf(
       "g/a.scala" ->
@@ -139,7 +112,7 @@ class StoredScopesSpec extends Specification {
     )
     (found(("g.UseG.Ug", Class)) === "2")
       .and(found(("g.UseC.P", Class)) === "≤2^17")
-      .and(refusedWith(found(("g.UseH.Uh", Class)), "Boolean (may be imported by H.*)"))
+      .and(refusedWith(found(("g.UseH.Uh", Class)), "enum case type not read: Boolean"))
   }
 
   // The method side reads a constructor's slots through the estimate: refused there, the slot has
@@ -181,23 +154,24 @@ class StoredScopesSpec extends Specification {
       "ec/b.scala" -> "package ec\ntype A = Unit\ntype T = Unit"
     )
     val found = rowsOf(files*)
-    val refusal = "enum case type not read: ec.E.A"
+    val refusal = "enum case type not read: A"
     refusedWith(found(("ec.E", Enum)), refusal)
-      .and(refusedWith(found(("ec.E2", Enum)), "enum case type not read: ec.E2.A"))
+      .and(refusedWith(found(("ec.E2", Enum)), refusal))
       .and(refusedWith(found(("ec.Use", Class)), refusal))
       .and(refusedWith(found(("ec.E#W", Alias)), refusal))
       .and(refusedWith(found(("ec.E#In", Class)), refusal))
       .and(found(("ec.G", Enum)) === "3")
       .and(found(("ec.HI", Alias)) === "≤2^33")
-      .and(refusedExactly(constructor("ec.E.C.<init>", files*), refusal))
+      .and(refusedCount(constructor("ec.E.C.<init>", files*), "enum case type not read: ec.E$.A"))
   }
 
   private val base = "basep/Base.scala" -> "package basep\ntrait Base { type Boolean = Int }"
 
   // `package object lib extends basep.Base` makes `Boolean` a member of `lib`, which outranks the
-  // root import in another file of `lib` (scalac reads `lib.U(42).b` as an `Int`): the estimate
-  // does not follow parents, so the name is refused — never the builtin's 2. A wildcard over
-  // `lib` from outside says the same. A package object's own alias is a member it defines: ≤2^32.
+  // root import in another file of `lib` (scalac reads `lib.U(42).b` as an `Int`): the compiled
+  // name is `Int`, ≤2^32 — never the builtin's 2. A wildcard over `lib` from outside reads the
+  // same. A package object's own alias is a member it defines: `U(b: Int, s: scala.Boolean)` is
+  // 2^32·2 = ≤2^33.
   def packageParents = {
     val found = rowsOf(
       base,
@@ -207,11 +181,8 @@ class StoredScopesSpec extends Specification {
       "rlib/package.scala" -> "package object rlib { type Boolean = Int }",
       "rlib/U.scala" -> "package rlib\nfinal case class U(b: Boolean, s: scala.Boolean)",
     )
-    refusedWith(
-      found(("lib.U", Class)),
-      "Boolean (may be a member of package lib, an inherited member not followed)"
-    )
-      .and(refusedWith(found(("use.V", Class)), "an inherited member not followed"))
+    (found(("lib.U", Class)) === "≤2^32")
+      .and(found(("use.V", Class)) === "≤2^32")
       .and(found(("rlib.U", Class)) === "≤2^33")
   }
 
@@ -232,12 +203,11 @@ class StoredScopesSpec extends Specification {
       .and(found(("lib4.W2", Class)) === "≤2^33")
   }
 
-  // An export written after an import reads its path with that import: not followed from the
-  // package alone, so a name it may define is refused — a path's first name too. A private member
-  // is not exported; the estimate does not follow which one is, and refuses. An exported object's
-  // own parents may pass on any name (`Src extends B` exports `B`'s `Boolean = Int`: scalac reads
-  // `W(5)`), which is not followed either. An export over a value is not followed: in the empty
-  // package, the reason names it so.
+  // The compiler resolves each export. One written after an import defines `Boolean = Int` and
+  // `q.X = Int`: ≤2^32 each, a path's first name too. A private member is not exported: `lib6.W`
+  // reads the builtin, 2. An exported object's own parents pass their members on (`Src extends B`
+  // exports `B`'s `Boolean = Int`: scalac reads `W(5)`): ≤2^32. An export over a value, in the
+  // empty package, defines `q` = `Src.q`: ≤2^32.
   def packageRefusals = {
     val found = rowsOf(
       "lib5/Exp.scala" ->
@@ -250,34 +220,11 @@ class StoredScopesSpec extends Specification {
       "Exp.scala" -> "object Src { object q { type X = Int } }\nval s = Src\nexport s.*",
       "U.scala" -> "final case class U(x: q.X)",
     )
-    refusedWith(
-      found(("lib5.W", Class)),
-      "Boolean (may be a member of package lib5, an exported member not followed)"
-    )
-      .and(
-        refusedWith(
-          found(("lib5.R", Class)),
-          "q.X (may be a member of package lib5, an exported member not followed)"
-        )
-      )
-      .and(
-        refusedWith(
-          found(("lib6.W", Class)),
-          "Boolean (exported from Src, a private member not followed)"
-        )
-      )
-      .and(
-        refusedWith(
-          found(("l7.W", Class)),
-          "Boolean (may be exported from Src, an inherited member not followed)"
-        )
-      )
-      .and(
-        refusedWith(
-          found(("U", Class)),
-          "q.X (may be a member of the empty package, an exported member not followed)"
-        )
-      )
+    (found(("lib5.W", Class)) === "≤2^32")
+      .and(found(("lib5.R", Class)) === "≤2^32")
+      .and(found(("lib6.W", Class)) === "2")
+      .and(found(("l7.W", Class)) === "≤2^32")
+      .and(found(("U", Class)) === "≤2^32")
   }
 
   // A path's first name the package's files do not define is read through a followed export like
@@ -357,7 +304,8 @@ class StoredScopesSpec extends Specification {
   // parent's: `Inner.T` is `Int`. A primary constructor's parameters are read outside the body: `K2(b:
   // Boolean)` is the builtin's 2. A `val` parameter is a member too, and so is a case class's (scalac:
   // `OP.UP(42).x: Int`, `OK.UK(42).x: Int`), ≤2^32 each; a plain or a private one is not, so the
-  // package's `p` binds (`OC.UC(()).x: Unit`, `OR.UR(()).x: Unit`), 1 — and so do the `<init>` rows.
+  // package's `p` binds (`OC.UC(()).x: Unit`, `OR.UR(()).x: Unit`), 1 — and so do the `<init>` rows,
+  // where the method side counts `Int` exactly: 2^32.
   def inheritedTerms = {
     val files = List(
       "vp.scala" ->
@@ -391,17 +339,16 @@ class StoredScopesSpec extends Specification {
       .and(parameters(("vp.OK.UK", Class)) === "≤2^32")
       .and(parameters(("vp.OC.UC", Class)) === "1")
       .and(parameters(("vp.OR.UR", Class)) === "1")
-      .and(constructor("vp.OP.UP.<init>", files*).render === "≤2^32")
+      .and(constructor("vp.OP.UP.<init>", files*) === Count.Finite(BigInt(2).pow(32)))
       .and(constructor("vp.OC.UC.<init>", files*) === Count.Finite(1))
   }
 
   // An export clause defines alias members of its template (Scala 3 reference, export clauses),
   // which a subclass inherits: scalac reads `Boolean` in `O.U` as `Src.Boolean = Int` (`O.U(42).b:
   // Int`), `q` in `OQ.UQ` as `Src.q` (`x: Int`), `Flag` in `OW.UW` as `Src.Flag = Long`, and the
-  // self type's `Boolean` in `T#US` alike. The estimate does not follow a parent's exports: each is
-  // refused with the parent named, as the method side refuses it — never the builtin's 2, nor the
-  // package's `q.X = Unit` or `Flag = Unit` (1). A name the exported object lacks is no export:
-  // `Int` in `OW.UI` stays the builtin's, ≤2^32.
+  // self type's `Boolean` in `T#US` alike: ≤2^32, ≤2^32, ≤2^64 and ≤2^32, on the method side
+  // 2^32 exactly — never the builtin's 2, nor the package's `q.X = Unit` or `Flag = Unit` (1). A
+  // name the exported object lacks is no export: `Int` in `OW.UI` stays the builtin's, ≤2^32.
   def inheritedExports = {
     val files = List(
       "ex.scala" ->
@@ -420,41 +367,19 @@ class StoredScopesSpec extends Specification {
            |""".stripMargin
     )
     val found = rowsOf(files*)
-    (found(("ex.O.U", Class)) ===
-      "unresolved[inherited type member not resolved: Boolean (exports of B)]")
-      .and(
-        found(("ex.OQ.UQ", Class)) must contain(
-          "inherited term member not resolved: q (exports of BQ)"
-        )
-      )
-      .and(
-        found(("ex.OW.UW", Class)) ===
-          "unresolved[inherited type member not resolved: Flag (exports of BW)]"
-      )
-      .and(
-        found(("ex.T#US", Class)) ===
-          "unresolved[inherited type member not resolved: Boolean (exports of BE)]"
-      )
+    (found(("ex.O.U", Class)) === "≤2^32")
+      .and(found(("ex.OQ.UQ", Class)) === "≤2^32")
+      .and(found(("ex.OW.UW", Class)) === "≤2^64")
+      .and(found(("ex.T#US", Class)) === "≤2^32")
       .and(found(("ex.OW.UI", Class)) === "≤2^32")
-      .and(
-        refusedExactly(
-          constructor("ex.O.U.<init>", files*),
-          "inherited type member not resolved: Boolean (exports of B)"
-        )
-      )
-      .and(
-        refusedExactly(
-          constructor("ex.OQ.UQ.<init>", files*),
-          "inherited term member not resolved: q (exports of BQ)"
-        )
-      )
+      .and(constructor("ex.O.U.<init>", files*) === Count.Finite(BigInt(2).pow(32)))
+      .and(constructor("ex.OQ.UQ.<init>", files*) === Count.Finite(BigInt(2).pow(32)))
   }
 
-  // `zz.Base` is not supplied and may declare `type Boolean = Int`: inside `O4` the name is
-  // refused, never the builtin's 2 — at any depth below it, and for a path's first name. A parent
-  // the stdlib model knows declares no type member (`Serializable`, `RuntimeException`) passes
-  // nothing on: 2. Spelled under a wildcard over an unsupplied namespace, `Serializable` may be
-  // another declaration, which may.
+  // `zz.Base` is not supplied; its stub declares no `Boolean` and no `p`, so the compiler binds the
+  // builtin inside `O4` at any depth (2), and `p.X` the package's `Unit` (1). A parent the stdlib
+  // model knows declares no type member (`Serializable`, `RuntimeException`) passes nothing on: 2,
+  // under a wildcard over an unsupplied namespace too.
   def unsuppliedParents = {
     val found = rows(
       """|package un
@@ -472,21 +397,17 @@ class StoredScopesSpec extends Specification {
           "package zz { trait Base }\npackage foo { object Unsupplied }"
         )
     )
-    val refusal = "inherited type member not resolved: Boolean (unsupplied parent zz.Base)"
-    refusedWith(found(("un.O4.U", Class)), refusal)
-      .and(refusedWith(found(("un.O4.In.V", Class)), refusal))
-      .and(refusedWith(found(("un.O4.Q", Class)), "unsupplied parent zz.Base"))
+    (found(("un.O4.U", Class)) === "2")
+      .and(found(("un.O4.In.V", Class)) === "2")
+      .and(found(("un.O4.Q", Class)) === "1")
       .and(found(("un.M.U", Class)) === "2")
       .and(found(("un.E2#U", Class)) === "2")
-      .and(
-        refusedWith(found(("un.W.M2.U", Class)), "parent Serializable, may be imported by foo.*")
-      )
+      .and(found(("un.W.M2.U", Class)) === "2")
   }
 
-  // A parent spelled through an alias, or through a value (`h.B`, with `h: H.type`), is not read,
-  // so any name it may declare is refused (scalac reads `Int` in both); so is one whose name an
-  // unsupplied parent may bind (`Inner` inside `O5 extends zz.Base`). A path's first name an
-  // unsupplied parent may declare is a term member: `scala` in `scala.Boolean`.
+  // A parent spelled through an alias, or through a value (`h.B`, with `h: H.type`), is the class
+  // the compiler resolved: `Boolean` is its `Int` in both (as scalac reads it), ≤2^32. The stub
+  // `zz.Base` and its `Inner` declare nothing: `scala.Boolean` and `Boolean` are the builtin's, 2.
   def unreadParents = {
     val found = rows(
       """|package ir
@@ -498,28 +419,10 @@ class StoredScopesSpec extends Specification {
          |object O5 extends zz.Base { object In extends Inner { final case class U(b: Boolean) } }
          |""".stripMargin + cardinality.Compiled.withheld("package zz\ntrait Base { trait Inner }")
     )
-    refusedWith(
-      found(("ir.O.In2.U", Class)),
-      "inherited type member not resolved: Boolean (parent h.B, whose prefix is a value)"
-    )
-      .and(
-        refusedWith(
-          found(("ir.P.In.U", Class)),
-          "inherited type member not resolved: Boolean (parent BA, whose declaration is not read)"
-        )
-      )
-      .and(
-        refusedWith(
-          found(("ir.O4.V", Class)),
-          "scala.Boolean (inherited term member not resolved: scala (unsupplied parent zz.Base))"
-        )
-      )
-      .and(
-        refusedWith(
-          found(("ir.O5.In.U", Class)),
-          "inherited type member not resolved: Boolean (parent Inner, whose declaration is not resolved)"
-        )
-      )
+    (found(("ir.O.In2.U", Class)) === "≤2^32")
+      .and(found(("ir.P.In.U", Class)) === "≤2^32")
+      .and(found(("ir.O4.V", Class)) === "2")
+      .and(found(("ir.O5.In.U", Class)) === "2")
   }
 
   // `private[qp]` members are inherited: Scala binds the name to them from anywhere and rejects an
@@ -543,13 +446,13 @@ class StoredScopesSpec extends Specification {
       .and(found(("qp.O.V", Class)) === "≤2^32")
       .and(found(("qp.O.B", Class)) === "≤2^8")
       .and(constructor("qp.O.U.<init>", files*) === Count.Finite(BigInt(2).pow(32)))
-      .and(constructor("qp.O.V.<init>", files*).render === "≤2^32")
+      .and(constructor("qp.O.V.<init>", files*) === Count.Finite(BigInt(2).pow(32)))
   }
 
   // An abstract inherited member is the implementing instance's to choose (as the template's
   // own); an inherited opaque alias is outside the template that declares it (scalac rejects `o:
-  // Int` in `UsesOp`), so it is one value (rule F); a parent applied to type arguments is not read
-  // under them.
+  // Int` in `UsesOp`), so it is one value (rule F); a parent applied to type arguments is read
+  // under them: `BaseP[Int]`'s `Boolean` is `Int`, ≤2^32.
   def unreadMembers = {
     val found = rows(
       """|package um
@@ -563,18 +466,12 @@ class StoredScopesSpec extends Specification {
     )
     (found(("um.Sub#U", Class)) === "instantiation[member T]")
       .and(found(("um.UsesOp.U", Class)) === "1")
-      .and(
-        refusedWith(
-          found(("um.Applied.U", Class)),
-          "inherited type member not resolved: Boolean (type arguments of BaseP)"
-        )
-      )
+      .and(found(("um.Applied.U", Class)) === "≤2^32")
   }
 
   // The method side reads `Base`'s `Int` too, so the slot stands: `P(x: Int)` is 2^64 with `Int =
-  // Long` (the estimate's builtin 2^32 used to disagree). Under an unsupplied parent the slot is
-  // refused on both sides; the inherited path `p.X` is the estimate's ≤2^32 (the method side does
-  // not follow a path through a value, so the estimate's capacity stands, as for any such slot).
+  // Long` (the estimate's builtin 2^32 used to disagree). The inherited path `p.X` is `H.X = Int`,
+  // 2^32. The stub parent `zz.Base` declares no `Boolean`: the builtin's 2.
   def inheritedLending = {
     val files = List(
       "a.scala" ->
@@ -588,13 +485,8 @@ class StoredScopesSpec extends Specification {
       cardinality.Compiled.withheldFile("package zz\ntrait Base")
     )
     (constructor("il.O.P.<init>", files*) === Count.Finite(BigInt(2).pow(64)))
-      .and(constructor("il.O.Q.<init>", files*).render === "≤2^32")
-      .and(
-        refusedExactly(
-          constructor("il.O4.U.<init>", files*),
-          "inherited type member not resolved: Boolean (unsupplied parent zz.Base)"
-        )
-      )
+      .and(constructor("il.O.Q.<init>", files*) === Count.Finite(BigInt(2).pow(32)))
+      .and(constructor("il.O4.U.<init>", files*) === Count.Finite(2))
   }
 
   // `Id`'s representation is visible in `Ids`: `Inside(id: Id)` ≤2^32. Outside, an opaque type is
