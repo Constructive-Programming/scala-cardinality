@@ -7,7 +7,7 @@ import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.resolution.TopTypes
 import cardinality.types.Traversals
 import tastyquery.Contexts.*
-import tastyquery.Names.typeName
+import tastyquery.Names.{typeName, TypeName}
 import tastyquery.Symbols.*
 import tastyquery.Types.*
 
@@ -28,25 +28,8 @@ final private[compiled] class PathTypes(of: Shapes.Reading)(using Context) {
   // refinement fixes it or bounds it on one side. Over any other type, what the members fixed
   // change of what its members supply is not read yet.
   def refinement(refined: TypeRefinement, env: Env): Either[Unread, Shape] = {
-    val bounds = refined.refinedBounds
-    val name = refined.refinedName
-    def free(parent: Type): Boolean = parent match {
-      case inner: TypeRefinement => inner.refinedName != name && free(inner.parent)
-      case _                     =>
-        World.classNamed(parent).exists { c =>
-          (c == defn.ObjectClass || c.isTrait || c.isAbstractClass) &&
-          c.linearization.flatMap(_.getDecl(name)).forall {
-            case member: TypeMemberSymbol =>
-              member.typeDef match {
-                case TypeMemberDefinition.AbstractType(declared) => Shapes.unbounded(declared)
-                case _                                           => false
-              }
-            case _ => false
-          }
-        }
-    }
-    val satisfiable = free(refined.parent) && (bounds.isInstanceOf[TypeAlias] ||
-      bounds.low.isSameType(defn.NothingType) || bounds.high.isSameType(defn.AnyType))
+    val satisfiable = PathTypes.freeMember(refined.parent, refined.refinedName) &&
+      PathTypes.oneSided(refined.refinedBounds)
     if (!satisfiable) Left(Uncovered(s"a type: ${refined.showBasic}"))
     else
       of(refined.parent, env)
@@ -61,34 +44,9 @@ final private[compiled] class PathTypes(of: Shapes.Reading)(using Context) {
   // Another method's parameter (a capability's, a constructor's read as a field) is one path per
   // call: not read.
   def member(ref: TypeRef, env: Env): Either[Unread, Shape] = {
-    def path(prefix: Prefix): Option[(String, Type)] = prefix match {
-      case term: TermRef =>
-        term.optSymbol
-          .collect {
-            case p: TermSymbol
-                if PathTypes.methodParameter(p) && World.owners(env.site).contains(p.owner) =>
-              s"${p.owner.displayFullName}.${p.name}" -> p
-          }
-          .flatMap((id, p) =>
-            p.declaredType match {
-              case singleton: TermRef => path(singleton)
-              case _: ByNameType      => None
-              case tpe: Type          => Some(id -> tpe)
-              case _                  => None
-            }
-          )
-      case _ => None
-    }
-    // A member of kind `F[_]`, invariant and rigid as the path sees it, is the path's own rigid
-    // constructor (`Shapes.free`), applied as a type parameter of that kind is.
-    val constructor = ref.optSymbol.exists {
-      case member: TypeMemberSymbol =>
-        Shapes.free(member) && Shapes.rigidBounds(ref.bounds) &&
-        tastyquery.Variances.invariant(ref.bounds.high)
-      case _ => false
-    }
+    val constructor = PathTypes.rigid(ref)
     val atom = for {
-      (where, declared) <- path(ref.prefix)
+      (where, declared) <- path(ref.prefix, env.site)
       if ref.optAliasedType.isEmpty && (Shapes.unbounded(ref.bounds) || constructor)
       read <- of(declared, env).toOption
       if PathTypes.featureless(read)
@@ -96,6 +54,28 @@ final private[compiled] class PathTypes(of: Shapes.Reading)(using Context) {
     } yield if (constructor) Shape.Constructor(id) else Shape.Atom(id)
     atom.toRight(Uncovered(s"a type: ${ref.showBasic}"))
   }
+
+  // The parameter a path names (`p`, or `q` for a `q: p.type`) of the measured definition or of a
+  // method around `site`, with its declared type.
+  private def path(prefix: Prefix, site: Symbol): Option[(String, Type)] = prefix match {
+    case term: TermRef =>
+      term.optSymbol
+        .collect {
+          case p: TermSymbol
+              if PathTypes.methodParameter(p) && World.owners(site).contains(p.owner) =>
+            p
+        }
+        .flatMap(declared(_, site))
+    case _ => None
+  }
+
+  private def declared(p: TermSymbol, site: Symbol): Option[(String, Type)] =
+    p.declaredType match {
+      case singleton: TermRef => path(singleton, site)
+      case _: ByNameType      => None
+      case tpe: Type          => Some(s"${p.owner.displayFullName}.${p.name}" -> tpe)
+      case _                  => None
+    }
 
   /** An opaque alias of the standard library, read by the standard model under the name it spells
     * (a named tuple is its fields, `StdlibModel`); not read otherwise.
@@ -167,25 +147,63 @@ final private[compiled] class PathTypes(of: Shapes.Reading)(using Context) {
 
 private[compiled] object PathTypes {
 
+  // Whether a refinement's member `name` is new, or abstract and unbounded, in a trait or abstract
+  // class (or `Object`) it refines, through the refinements between.
+  private def freeMember(parent: Type, name: TypeName)(using Context): Boolean = parent match {
+    case inner: TypeRefinement => inner.refinedName != name && freeMember(inner.parent, name)
+    case _                     =>
+      World.classNamed(parent).exists { c =>
+        (c == defn.ObjectClass || c.isTrait || c.isAbstractClass) &&
+        c.linearization.flatMap(_.getDecl(name)).forall(unboundedAbstract)
+      }
+  }
+
+  private def unboundedAbstract(member: Symbol)(using Context): Boolean = member match {
+    case member: TypeMemberSymbol =>
+      member.typeDef match {
+        case TypeMemberDefinition.AbstractType(declared) => Shapes.unbounded(declared)
+        case _                                           => false
+      }
+    case _ => false
+  }
+
+  // Bounds a refinement fixes the member to, or bounds it by on one side.
+  private def oneSided(bounds: TypeBounds)(using Context): Boolean =
+    bounds.isInstanceOf[TypeAlias] || bounds.low.isSameType(defn.NothingType) ||
+      bounds.high.isSameType(defn.AnyType)
+
+  // A member of kind `F[_]`, invariant and rigid as the path sees it, is the path's own rigid
+  // constructor (`Shapes.free`), applied as a type parameter of that kind is.
+  private def rigid(ref: TypeRef)(using Context): Boolean = ref.optSymbol.exists {
+    case member: TypeMemberSymbol =>
+      Shapes.free(member) && Shapes.rigidBounds(ref.bounds) &&
+      tastyquery.Variances.invariant(ref.bounds.high)
+    case _ => false
+  }
+
   /** Whether a polymorphic function type is the identity's, `[A] => A => A` with `A` unbounded: its
     * one implementation (by parametricity, its only total function). Any other is not read yet.
     */
   def polyIdentity(refined: TermRefinement)(using Context): Boolean =
     (World.classNamed(refined.parent).map(_.displayFullName), refined.refinedType) match {
       case (Some("scala.PolyFunction"), poly: PolyType) =>
-        def own(tpe: TypeOrMethodic) = tpe match {
-          case ref: TypeParamRef => ref.binder eq poly
-          case _                 => false
-        }
         poly.paramNames.sizeIs == 1 && Shapes.unbounded(poly.paramTypeBounds.head) &&
-        (poly.resultType match {
-          case method: MethodType =>
-            !method.isImplicitOrContextual && method.paramTypes.sizeIs == 1 &&
-            own(method.paramTypes.head) && own(method.resultType)
-          case _ => false
-        })
+        identityArrow(poly)
       case _ => false
     }
+
+  // `A => A` over a polymorphic type's own parameter `A`.
+  private def identityArrow(poly: PolyType): Boolean = poly.resultType match {
+    case method: MethodType =>
+      !method.isImplicitOrContextual && method.paramTypes.sizeIs == 1 &&
+      ownParameter(method.paramTypes.head, poly) && ownParameter(method.resultType, poly)
+    case _ => false
+  }
+
+  private def ownParameter(tpe: TypeOrMethodic, poly: PolyType): Boolean = tpe match {
+    case ref: TypeParamRef => ref.binder eq poly
+    case _                 => false
+  }
 
   /** A type lambda that applies one constructor to its parameters in their order is that
     * constructor (`[y] =>> G[y]` is `G`, `[a, b] =>> Either[a, b]` is `Either`).
@@ -278,39 +296,46 @@ private[compiled] object PathTypes {
     */
   def trusted(matched: MatchType)(using Context): Option[Type] =
     matched.reduced.filter(_ =>
-      !empty(matched.scrutinee) && (ground(matched.scrutinee) || matched.cases.headOption.exists {
-        first =>
-          // `Any`, a binder of the case met once, or a tuple of such patterns over a tuple of the
-          // scrutinee's arity: the subtype test scalac makes succeeds whatever the parts are.
-          def binder(tpe: TypeOrWildcard) = tpe match {
-            case ref: TypeParamRef if ref.binder eq first => List(ref.paramNum)
-            case _                                        => Nil
-          }
-          def binders(pattern: TypeOrWildcard): List[Int] = pattern match {
-            case applied: AppliedType => applied.args.flatMap(binders)
-            case other                => binder(other)
-          }
-          def covers(pattern: TypeOrWildcard, scrutinee: Type): Boolean = (
-            pattern,
-            scrutinee.dealias
-          ) match {
-            case (any: Type, _) if any.isSameType(defn.AnyType) => true
-            case (ref, _) if binder(ref).nonEmpty               => true
-            case (tuple: AppliedType, applied: AppliedType)     =>
-              World
-                .classNamed(tuple)
-                .exists(_.displayFullName == s"scala.Tuple${tuple.args.size}") &&
-              World.classNamed(applied) == World.classNamed(tuple) &&
-              tuple.args.lazyZip(applied.args).forall {
-                case (part, written: Type) => covers(part, written)
-                case _                     => false
-              }
-            case _ => false
-          }
-          val bound = binders(first.pattern)
-          bound.distinct == bound && covers(first.pattern, matched.scrutinee)
-      })
+      !empty(matched.scrutinee) && (ground(matched.scrutinee) ||
+        matched.cases.headOption.exists(first => Covering(first).holds(matched.scrutinee)))
     )
+
+  // `Any`, a binder of the case met once, or a tuple of such patterns over a tuple of the
+  // scrutinee's arity: the subtype test scalac makes succeeds whatever the parts are.
+  final private class Covering(first: MatchTypeCase)(using Context) {
+
+    def holds(scrutinee: Type): Boolean = {
+      val bound = binders(first.pattern)
+      bound.distinct == bound && covers(first.pattern, scrutinee)
+    }
+
+    private def binder(tpe: TypeOrWildcard) = tpe match {
+      case ref: TypeParamRef if ref.binder eq first => List(ref.paramNum)
+      case _                                        => Nil
+    }
+
+    private def binders(pattern: TypeOrWildcard): List[Int] = pattern match {
+      case applied: AppliedType => applied.args.flatMap(binders)
+      case other                => binder(other)
+    }
+
+    private def covers(pattern: TypeOrWildcard, scrutinee: Type): Boolean =
+      (pattern, scrutinee.dealias) match {
+        case (any: Type, _) if any.isSameType(defn.AnyType) => true
+        case (ref, _) if binder(ref).nonEmpty               => true
+        case (tuple: AppliedType, applied: AppliedType)     => tuples(tuple, applied)
+        case _                                              => false
+      }
+
+    private def tuples(tuple: AppliedType, applied: AppliedType): Boolean =
+      World.classNamed(tuple).exists(_.displayFullName == s"scala.Tuple${tuple.args.size}") &&
+        World.classNamed(applied) == World.classNamed(tuple) &&
+        tuple.args.lazyZip(applied.args).forall {
+          case (part, written: Type) => covers(part, written)
+          case _                     => false
+        }
+
+  }
 
   /** Whether a scrutinee may be one scalac finds uninhabited, where it leaves the match stuck: it,
     * or a type argument in it at any depth, is below `Nothing` (`(Nothing, Int)`, an

@@ -390,7 +390,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
             .map(Shape.Sum(_))
         case Declared.Fields(_, fields) =>
           Traversals.sequence(fields.map(field)).map(Shape.Product(_))
-        case Declared.Record(abstracts, concrete) =>
+        case record: Declared.Record =>
           val refused = Shapes.unread(c.displayFullName)
           for {
             _ <- refused(!World.ownSelf(c), "with a self type")
@@ -411,7 +411,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
               },
               "with a restricted constructor"
             )
-            held <- receivers.dependency(c, abstracts, concrete, site, inside)
+            held <- receivers.dependency(c, record, site, inside)
           } yield Shape.Product(held)
       }
   }
@@ -557,7 +557,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
       case v: ValDef if v.symbol.isParamAccessor && v.symbol.isPublic => v.name
     }.toSet
     !Shapes.parameters(template.rhs.constr).forall { p =>
-      fieldNames(p.name) || fixed(c) && observers.exposed(c, template, p.symbol, site, read)
+      fieldNames(p.name) || fixed(c) && observers.exposed(template, p.symbol, site, read)
     }
   }
 
