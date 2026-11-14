@@ -1,9 +1,51 @@
 # Compiled own types: reading the module's TASTy
 
-**Status:** phases 1 to 3 implemented (2026-11-10/11). Phase 4 (the boundary, the differential
-gate, row identity) is implemented with a first slice of the TASTy front end; phases 5 and 6 are
-planned. A TASTy front end replaces the scalameta one (owner decisions, 2026-11-11, under
-"Decisions"). Where the work stands and how to continue: "Front end: design and status" at the end.
+## Status (branch `tasty-final`, 2026-11-14)
+
+The TASTy front end is the only one. On `b53f9bf` (S8) the branch merges the three spec rewrites
+(`tasty-r1`, `-r2`, `-r3`), the closed-world intersections (`tasty-f1`: `World.meet`; `UM` 3 -> 1)
+and the clean-up (`tasty-c1`: comments, signatures as written, reasons spelled as the source writes
+them), then thins the API ("Follow-up: API thinning", done): `Report.of(paths, classes:
+Option[CompiledClasses] = None)`, `Report.query(targets, targetNames, classes)`,
+`cardinality.tasty.CompiledClasses`, `TastyFrontEnd.rows(sources, classes)`, `Report.Entry`;
+`reporting.FrontEnd`, `Report.Environment`, `Report.Query` and `analysis.MethodAnalysis` are gone.
+
+- Size (`wc -l`, Scala): `core/src/main/scala` 16,187 lines, 65 files (15,872 at `b53f9bf`); main
+  sources of every module 16,532; `core/src/test/scala` 33,029 lines, 113 files. core depends on
+  cats-eo, cats-eo-generics, cats-eo-schemes, tasty-query and cats-core; scalameta and
+  scala3-compiler are Test dependencies only.
+- Tests (`core/testFull`): 2,064 examples, 0 failures, 372 pending (526 at `b53f9bf`): (a) pins old
+  behavior 3, (b) pins a refusal the compiled tree resolves 0, (c) known loss 307, rejected fixture
+  54, uncompiled support 6, count differs 0, and 2 of `ArticleCardinalitySpec`'s own targets;
+  [pending.txt](compiled-own-types/pending.txt) lists the 370 `Pending.*` examples.
+- Gates: `core/testFull`, `plugin/scripted` (5 of 5), `millPlugin/test`, `scalafmtCheckAll`,
+  `scalafixAll --check`, `scripts/check-file-metrics.sh`, CPD (25 tokens) and `coverageAll`
+  (core 94.35% statements, 90.07% branches; floor 80%) pass. `coverageAll` failed
+  to compile at `b53f9bf` already: scalac skips instrumenting `Readings.local` and `Reentry.may`
+  (over 3,000 tree nodes) with a warning -Werror made fatal; `build.sbt` silences that one message.
+- Corpora: the six frozen corpora rendered through `Report.of` at `b53f9bf` and at the head have the
+  same rows, counts and tallies (`ROWS` lines identical). 1,882 lines differ, each traced to one
+  branch by rendering `tasty-c1` and `tasty-f1` alone: 1,873 are c1's (19 signatures as written,
+  reasons spelled as the source writes them, the blocker `sealed family has local or anonymous
+  subclasses in its file`); 7 are f1's (cats-eo `S & B`: `an intersection with a part that is no
+  class`, and six blocker-summary lines that move with f1's two new blocker names); 2 are both
+  (cats-core `catsInstancesForId` and an `ArrowChoice & CommutativeArrow` reason: f1's `an
+  intersection a class outside the program may implement`, in c1's spelling).
+
+Open follow-ups:
+
+- Known losses: the 307 class (c) examples and [known-losses.txt](compiled-own-types/known-losses.txt)
+  (56 corpus rows); `TopTypesUnionSpec.shadowInherited` (pending (c)) still pins the reason
+  `unsupported intersection relationship: Red & Any`, which f1 no longer gives: derive its count
+  under `World.meet` again.
+- Uncompiled support: a source without compiled classes is refused (rule T); the 54 rejected
+  fixtures and 6 uncompiled examples wait for it.
+- Two reason classifications, owner to decide: an abstract type member reached through a path reads
+  as `member Z` (an instantiation) where the old front end said `open`: an object's own member
+  (`O.UV`, `NamespaceScopingSpec`, pending (a)) and a class's member through a constructor
+  parameter (`C#Y = x.Z`, `ReportSpec.memberAbstract`).
+- Two (a) examples are display only: `ReportHygieneSpec`'s refinement layout and an operator name
+  beside its result's colon.
 
 ## Goal
 
