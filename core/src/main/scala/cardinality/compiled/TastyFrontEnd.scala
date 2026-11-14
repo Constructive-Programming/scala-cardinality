@@ -57,8 +57,8 @@ private[cardinality] object TastyFrontEnd {
               own.distinct,
               unloaded,
               (dependencies, missed),
-              CompiledClasses.unnamed(classes.output.toList),
-              CompiledClasses.unnamed(classes.classpath.toList.distinct)
+              CompiledClasses.unnamed(classes.output),
+              CompiledClasses.unnamed(classes.classpath)
             )
             val answers =
               read(

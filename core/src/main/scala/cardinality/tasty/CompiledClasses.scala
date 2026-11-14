@@ -87,9 +87,11 @@ object CompiledClasses {
   /** The local and anonymous classes of the classes without TASTy (`Lone$1`, `Foo$$anon$1`) in
     * `paths`, the module's output or its classpath. A class with TASTy holds its own in its tree.
     */
-  private[cardinality] def unnamed(paths: List[Path]): List[ClassFile] =
+  private[cardinality] def unnamed(paths: Seq[Path]): List[ClassFile] =
     for {
-      entry <- paths.map(readable).flatMap(path => ClasspathLoaders.read(List(path)))
+      entry <- paths.toList.distinct
+        .map(readable)
+        .flatMap(path => ClasspathLoaders.read(List(path)))
       pkg <- entry.listAllPackages()
       all = pkg.listAllClassDatas()
       withTasty = all.filter(_.hasTastyFile).map(_.binaryName).toSet

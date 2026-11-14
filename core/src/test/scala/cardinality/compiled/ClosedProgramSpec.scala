@@ -42,9 +42,9 @@ class ClosedProgramSpec extends Specification {
       loaded.own,
       loaded.unloaded,
       if (dependencies) loaded.dependencies else sys.error("the dependencies are not read"),
-      cardinality.tasty.CompiledClasses.unnamed(loaded.classes.output.toList),
+      cardinality.tasty.CompiledClasses.unnamed(loaded.classes.output),
       if (dependencies)
-        cardinality.tasty.CompiledClasses.unnamed(loaded.classes.classpath.toList.distinct)
+        cardinality.tasty.CompiledClasses.unnamed(loaded.classes.classpath)
       else sys.error("the dependencies are not read")
     )
 

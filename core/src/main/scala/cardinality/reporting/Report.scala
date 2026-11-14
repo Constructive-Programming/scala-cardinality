@@ -95,7 +95,7 @@ object Report {
         case scala.util.control.NonFatal(error) =>
           Report(Nil, List(Error("", s"query acquisition failed: ${error.getClass.getSimpleName}")))
       }
-    def chosen(entry: Report.Entry) =
+    def chosen(entry: Entry) =
       targetNames.isEmpty || targetNames(entry.name)
     // A name is not found only where every source was read: a refused source may hold it.
     val missing = targetNames -- report.methods.map(_.name)
@@ -118,11 +118,11 @@ object Report {
   final case class Source(
       path: String,
       definitions: List[Definition],
-      methods: List[Report.Entry] = Nil
+      methods: List[Entry] = Nil
   )
 
   /** A method or constructor row: pure, total, parametric implementations, not stored-value
-    * cardinality. Unsupported code or an incomplete environment is a reason, never evidence of
+    * cardinality. Unsupported code or a declaration not supplied is a reason, never evidence of
     * infinity. No source code is executed.
     */
   final case class Entry(
@@ -295,13 +295,13 @@ object Report {
     s"$count $noun${if (count == 1) "" else "s"}"
 
   private val entryReasons =
-    lens[Report.Entry](_.count)
+    lens[Entry](_.count)
       .andThen(prism[Inhabitation.Count, Inhabitation.Count.Unresolved])
 
   // The generic method and constructor counts, with what stands between the report and a number
   // for the rest: the triage list a reader works down.
   private def methods(
-      models: List[(Source, Report.Entry)],
+      models: List[(Source, Entry)],
       location: String => String
   ): List[String] =
     if (models.isEmpty) Nil

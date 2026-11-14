@@ -275,12 +275,11 @@ class ReportSpec extends Specification {
     val source = "p/Pair.scala" -> code.getBytes(UTF_8)
     val binary = zipped(compiledEntries)
     val sources = zipped(List(source))
-    val environment =
-      Some(cardinality.tasty.CompiledClasses(Nil, compiled.classpath))
-    val read = Report.of(List(binary, sources), environment)
-    val alone = Report.of(List(binary), environment)
+    val dependencies = Some(cardinality.tasty.CompiledClasses(Nil, compiled.classpath))
+    val read = Report.of(List(binary, sources), dependencies)
+    val alone = Report.of(List(binary), dependencies)
     // A jar of both is its own sources jar.
-    val both = Report.of(List(zipped(source :: compiledEntries)), environment)
+    val both = Report.of(List(zipped(source :: compiledEntries)), dependencies)
     (read.errors === Nil)
       .and(read.sources.map(_.path) === List("p/Pair.scala"))
       .and(read.methods.map(m => m.name -> m.count.render) === List("p.Pair.<init>" -> "4"))

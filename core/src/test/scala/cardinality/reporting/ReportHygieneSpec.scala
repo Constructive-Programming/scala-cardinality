@@ -3,7 +3,6 @@ package cardinality.reporting
 import cardinality.Pending
 import cardinality.analysis.inhabitation.Inhabitation.Count
 import cardinality.capacity.*
-import cardinality.reporting.Report
 import java.io.FileOutputStream
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}

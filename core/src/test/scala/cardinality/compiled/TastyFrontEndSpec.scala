@@ -407,7 +407,7 @@ class TastyFrontEndSpec extends Specification {
       |final class Aliased(x: Top)
       |""".stripMargin
 
-  private lazy val input = TastyFrontEndSpec.compiled(
+  private val fixture = List(
     "Demo.scala" -> text,
     "Shapes.scala" -> shapes,
     "Types.scala" -> types,
@@ -415,7 +415,8 @@ class TastyFrontEndSpec extends Specification {
     "Built.scala" -> built
   )
 
-  private lazy val rows = TastyFrontEnd.rows(input._1, Some(input._2))
+  private lazy val classes = TastyFrontEndSpec.compiled(fixture*)
+  private lazy val rows = TastyFrontEnd.rows(fixture, Some(classes))
   private lazy val source = rows.sources.collect { case Right(source) => source }.head
 
   private def count(name: String): Count = {
@@ -808,7 +809,7 @@ class TastyFrontEndSpec extends Specification {
 
   // Every definition moved by one character: no name is where the classes say it is.
   private def stale = {
-    TastyFrontEnd.rows(List("Demo.scala" -> (" " + text)), Some(input._2)).sources must beLike {
+    TastyFrontEnd.rows(List("Demo.scala" -> (" " + text)), Some(classes)).sources must beLike {
       case List(Left(error)) => error.message must startWith("compiled classes do not match")
     }
   }
@@ -816,12 +817,12 @@ class TastyFrontEndSpec extends Specification {
   // A source that defines nothing has no classes and no rows; a top-level definition of two names
   // is a definition row and a method row per name.
   private def sources = {
-    val (module, classes) = TastyFrontEndSpec
-      .compiled(
+    TastyFrontEndSpec
+      .rows(
         "Empty.scala" -> "package demo\nimport scala.util.Try\n",
         "Two.scala" -> "val a, b = true\n"
       )
-    TastyFrontEnd.rows(module, Some(classes)).sources must beLike {
+      .sources must beLike {
       case List(Right(empty), Right(two)) =>
         ((empty.methods, empty.definitions) must_== (Nil, Nil))
           .and(two.definitions.map(_.name) must_== List("a", "b"))
@@ -854,15 +855,11 @@ object TastyFrontEndSpec {
   }
 
   /** The rows of `sources`, compiled as `compiled` compiles them. */
-  def rows(sources: (String, String)*): TastyFrontEnd.Rows = {
-    val (module, classes) = compiled(sources*)
-    TastyFrontEnd.rows(module, Some(classes))
-  }
+  def rows(sources: (String, String)*): TastyFrontEnd.Rows =
+    TastyFrontEnd.rows(sources.toList, Some(compiled(sources*)))
 
-  /** `sources` compiled in-process against the Scala library, as a build hands a module over: the
-    * sources and their compiled classes.
-    */
-  def compiled(sources: (String, String)*): (List[(String, String)], CompiledClasses) = {
+  /** `sources` compiled in-process against the Scala library, as a build hands a module over. */
+  private def compiled(sources: (String, String)*): CompiledClasses = {
     val root = Compiled.temporary("compiled-module")
     val classes = Files.createDirectories(root.resolve("classes"))
     val files = sources.map { (path, text) =>
@@ -883,7 +880,7 @@ object TastyFrontEndSpec {
     val reporter = new dotty.tools.dotc.reporting.StoreReporter()
     if (dotty.tools.dotc.Main.process(arguments.toArray, reporter).hasErrors)
       sys.error(s"fixture does not compile: ${reporter.allErrors.map(_.message).mkString("; ")}")
-    (sources.toList, CompiledClasses(List(classes), libraries.map(Path.of(_))))
+    CompiledClasses(List(classes), libraries.map(Path.of(_)))
   }
 
 }
