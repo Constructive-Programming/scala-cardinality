@@ -1,9 +1,7 @@
 package cardinality.capacity
 
-/** Why the stored-value fixed point (`Fixpoint`, read by `compiled.Stored`) gives a definition on a
-  * cycle no count: a lazy cycle the ν completion did not finish (its μ value counts the finite
-  * values only), or a recursion through a type member read off a value (`x: q.X`), which is read
-  * over an earlier solve and never iterated.
+/** Why the stored-value fixed point (`Fixpoint`) gives a definition on a cycle no count: a lazy
+  * cycle the ν completion did not finish, or a recursion through a type member read off a value.
   */
 private[cardinality] enum Blocked(val reason: String) {
   case Lazy extends Blocked("lazy cycle not completed")

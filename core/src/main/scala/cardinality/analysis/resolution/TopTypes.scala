@@ -10,13 +10,10 @@ import Inhabitation.Shape
   * The contract excludes every operation Scala offers on a value of a top type — universal equality
   * and hashing, `toString`, `getClass`, type tests and casts, `eq`, `synchronized` — so the code
   * receiving one observes nothing of it: in an arrow's input it is `1`, always inhabited, by `()`.
-  * In an arrow's output it is ω: the code that builds it may return any value. A constructor
-  * position reads it differently on purpose: its stored-value estimate keeps `Any` as every value
-  * (ω), so the position is read through this model before the estimate is asked.
+  * In an arrow's output it is ω: the code that builds it may return any value.
   */
 private[cardinality] object TopTypes {
 
-  // The top types' classes, by their fully qualified names (`AnyRef` is `java.lang.Object`).
   private val classes = Set("scala.Any", "java.lang.Object", "scala.Matchable", "scala.AnyVal")
 
   /** A top type before its position is known: one value, which `polarized` keeps in an input (the
