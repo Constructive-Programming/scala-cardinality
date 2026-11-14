@@ -60,15 +60,10 @@ object Inhabitation {
     val id: String = s"∀$member:$name"
   }
 
-  /** The head of an application: a rigid binder, a declared or builtin type (a key's head), or —
-    * inside an operator's key — a type lambda and its parameters, numbered so that α-equivalent
-    * lambdas get one key.
-    */
+  /** The head of an application: a rigid binder, or a declared or builtin type (a key's head). */
   enum Head {
     case Rigid(binder: String)
     case Nominal(declaration: String)
-    case Lambda(id: Int, arity: Int)
-    case Bound(id: Int, index: Int)
   }
 
   object Shape {

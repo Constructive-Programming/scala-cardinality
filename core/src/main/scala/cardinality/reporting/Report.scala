@@ -17,12 +17,11 @@ import java.util.zip.ZipFile
   * every definition holds, and — for the ones the calculator could not bound — which type names
   * stopped it.
   *
-  * The sources can be a project's, or the published `-sources.jar` of a library, which is what
-  * makes a dependency's types measurable from outside. `locations` holds where `Report.of` placed
-  * each source it read below its input; a report assembled from sources alone places them below the
-  * directory they share (`Report.locations`). `warnings` lists the dependency declarations and the
-  * compiled types that could not be read: their names stay unsupplied and their members untyped,
-  * which only refuses more.
+  * The sources can be a project's, or the published `-sources.jar` of a library beside its binary
+  * jar, which is what makes a dependency's types measurable from outside. `locations` holds where
+  * `Report.of` placed each source it read below its input; a report assembled from sources alone
+  * places them below the directory they share (`Report.locations`). `warnings` lists the compiled
+  * classes that could not be read, which only refuses more.
   */
 final case class Report(
     sources: List[Report.Source],
@@ -131,7 +130,7 @@ object Report {
       methods: List[MethodAnalysis.Entry] = Nil
   )
 
-  /** A source the report could not read or parse, and what went wrong. */
+  /** A source the report could not read, and what went wrong. */
   final case class Error(path: String, message: String)
 
   /** One stored-value row as the report reads it: the size cell — `?` for a row with reasons, `—`

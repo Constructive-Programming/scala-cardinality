@@ -524,8 +524,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
     receivers.flatMap { tree =>
       if (Receivers.split(tree.symbol)) List(Receivers.whole(tree.symbol))
       else
-        // An anonymous contextual parameter is named by its class and position, as the old front
-        // end names it (`ContextualEvidence.key`, which this front end may not import).
+        // An anonymous contextual parameter is named by its class and position.
         Shapes.parameters(tree.rhs.constr).zipWithIndex.map { (p, index) =>
           if (Readings.anonymous(p)) s"<using#$index@${tree.symbol.displayFullName}>"
           else p.name.toString

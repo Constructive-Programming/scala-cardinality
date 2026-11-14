@@ -19,8 +19,8 @@
 # one that two recorded paths name fails the build.
 #
 # Nothing here checks that the two jars are the same build: they are fetched by the same
-# coordinates. The measurement shows whether the compiled types reach the sources (its `TYPES`
-# line), which they do not when a source moved.
+# coordinates. A source at another path than its TASTy records is refused by the report ("no
+# compiled classes for this source").
 #
 # Needs coursier (`coursier`, or `cs` where that name is coursier's), `unzip`, `strings` and GNU
 # `find`.

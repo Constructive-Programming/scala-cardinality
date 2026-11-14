@@ -2,11 +2,10 @@ package cardinality.capacity
 
 import scala.annotation.tailrec
 
-// The fixed point both front ends solve a system of stored-size equations by: Kleene iteration
-// with widening, and the coinductive completion of lazy cycles (docs/type-arithmetic.md §8). It
-// knows definitions only as keys `K` and their values only through a store `S`; what a definition
-// is, and how its fields are classified, is each front end's: `Solver` over the sources' syntax,
-// `compiled.Stored` (its recursion) over the compiled trees.
+// The fixed point a system of stored-size equations is solved by: Kleene iteration with widening,
+// and the coinductive completion of lazy cycles (docs/type-arithmetic.md §8). It knows definitions
+// only as keys `K` and their values only through a store `S`; what a definition is, and how its
+// fields are classified, is `compiled.Stored`'s (its recursion) over the compiled trees.
 
 /** Where a system's values are kept: read, written, and the definitions marked blocked. */
 private[cardinality] trait Store[K, S] {

@@ -142,7 +142,7 @@ final private[compiled] class DependencyClasses(
 
 private[compiled] object DependencyClasses {
 
-  /** How the refusals start; the first is the scalameta reading's for the same classes. */
+  /** How the refusals start. */
   val HiddenState = "open class with hidden constructor state"
   val SealedJava = "a sealed Java class's permitted classes are not read"
   val UnnamedChild = "a sealed class with a child no declaration stands for"

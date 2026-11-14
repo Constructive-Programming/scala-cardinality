@@ -1,7 +1,5 @@
 package cardinality.capacity
 
-import cardinality.types.TypeName
-
 /** One named definition a source introduces, as the report sees it: a name qualified by package and
   * enclosing definitions (`data.Affine.Miss`), the cardinality a reference to it holds (no size of
   * its own for abstractions), and the reasons the calculator could not bound it.
@@ -36,10 +34,7 @@ object Definition {
 
     case Unknown(name: String)
 
-    /** A name a clause binds that the estimate does not follow, and which clause (`provenance`). */
-    case Imported(name: String, provenance: String)
-
-    /** Syntax the calculator does not model yet: a match type, a type lambda, a refinement. */
+    /** A form the calculator does not model: a type constructor where a type is expected. */
     case Syntax(what: String)
 
     /** A declaration of the sources the estimate read but refuses to count whole (a family it does
@@ -49,46 +44,20 @@ object Definition {
 
     /** How the kind reads in a row: a name, or what kind of syntax it is. */
     def render: String = this match {
-      case Parameter(name)            => name
-      case HigherKinded(name, arity)  => s"$name[${List.fill(arity)("_").mkString(", ")}]"
-      case Member(name)               => s"member $name"
-      case Open(name)                 => name
-      case Unknown(name)              => name
-      case Imported(name, provenance) => s"$name ($provenance)"
-      case Syntax(what)               => what
-      case Refusal(what)              => what
-    }
-
-    /** What the reason is about, without the word `render` gives its kind: the name or syntax an
-      * artifact puts after the reason's `tag` (`member:M`, not `member:member M`).
-      */
-    def subject: String = this match {
-      case Member(name) => name
-      case other        => other.render
-    }
-
-    /** The kind as a machine-readable artifact tags a reason (`unknown:Schema`, `param:F[_]`). */
-    def tag: String = this match {
-      case _: (Parameter | HigherKinded) => "param"
-      case _: Member                     => "member"
-      case _: Open                       => "open"
-      case _: Unknown                    => "unknown"
-      case _: Imported                   => "imported"
-      case _: Syntax                     => "syntax"
-      case _: Refusal                    => "refusal"
-    }
-
-    /** The same reason for a name a clause renamed (`import a.{N as M}` binds `M`). */
-    def renamed(name: TypeName): Unbound = this match {
-      case Imported(_, provenance) => Imported(name.value, provenance)
-      case other                   => other
+      case Parameter(name)           => name
+      case HigherKinded(name, arity) => s"$name[${List.fill(arity)("_").mkString(", ")}]"
+      case Member(name)              => s"member $name"
+      case Open(name)                => name
+      case Unknown(name)             => name
+      case Syntax(what)              => what
+      case Refusal(what)             => what
     }
 
     /** Which class of gap the reason is. */
     def group: Gap = this match {
-      case _: (Parameter | HigherKinded | Member)     => Gap.Instantiation
-      case _: Open                                    => Gap.Open
-      case _: (Unknown | Imported | Syntax | Refusal) => Gap.Unresolved
+      case _: (Parameter | HigherKinded | Member) => Gap.Instantiation
+      case _: Open                                => Gap.Open
+      case _: (Unknown | Syntax | Refusal)        => Gap.Unresolved
     }
 
   }

@@ -1,6 +1,5 @@
 package cardinality.compiled
 
-import cardinality.types.ListedNamespaces
 import tastyquery.Contexts.*
 import tastyquery.Modifiers.Visibility
 import tastyquery.Names.nme
@@ -132,8 +131,8 @@ private[compiled] object World {
 
   /** Whether a symbol is declared in the standard library or the JDK's `java` packages, which the
     * standard model reads: the `scala` package and the subpackages the standard library declares (a
-    * library's own namespace beside them, such as scalameta's, is a dependency like any other, as
-    * the stubs have it). Another JDK namespace (`javax`) is read like a Java dependency.
+    * library's own namespace beside them is a dependency like any other). Another JDK namespace
+    * (`javax`) is read like a Java dependency.
     */
   def standard(symbol: Symbol): Boolean =
     owners(symbol).collectFirst {
@@ -141,9 +140,31 @@ private[compiled] object World {
     } match {
       case Some("java" :: _)                => true
       case Some("scala" :: Nil)             => true
-      case Some("scala" :: subpackage :: _) => ListedNamespaces.scalaPackages.contains(subpackage)
+      case Some("scala" :: subpackage :: _) => ScalaPackages.contains(subpackage)
       case _                                => false
     }
+
+  // The `scala` package's subpackages: the `scala/*/` directories of scala-library 3.9.0 and
+  // scala3-library 3.9.0.
+  private val ScalaPackages: Set[String] = Set(
+    "annotation",
+    "beans",
+    "caps",
+    "collection",
+    "compat",
+    "compiletime",
+    "concurrent",
+    "deriving",
+    "io",
+    "jdk",
+    "math",
+    "quoted",
+    "ref",
+    "reflect",
+    "runtime",
+    "sys",
+    "util"
+  )
 
   /** A symbol and everything around it, innermost first. */
   def owners(symbol: Symbol): List[Symbol] =

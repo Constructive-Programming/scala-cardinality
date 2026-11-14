@@ -34,9 +34,9 @@ lazy val root = (project in file("."))
     publish / skip := true
   )
 
-// The cardinality calculator itself: a pure library (scalameta parsing + the
-// Size algebra) with no sbt types anywhere, so every behavior is testable with
-// plain specs2.
+// The cardinality calculator itself: a pure library (the compiled classes read with tasty-query,
+// and the Size algebra) with no sbt types anywhere, so every behavior is testable with plain
+// specs2.
 lazy val core = project
   .settings(
     name := "scala-cardinality",
@@ -45,14 +45,15 @@ lazy val core = project
       "dev.constructive" %% "cats-eo" % "1.2.1",
       "dev.constructive" %% "cats-eo-generics" % "1.2.1",
       "dev.constructive" %% "cats-eo-schemes" % "1.2.1",
-      "org.scalameta" %% "scalameta" % "4.17.4",
       // Compiled dependency declarations (TASTy); 1.9.0 is the release built on Scala 3.9.0.
       "ch.epfl.scala" %% "tasty-query" % "1.9.0",
-      // Parallel measurement (Measuring): kyo 1.0.0-RC7 is built on Scala 3.9.0.
-      "io.getkyo" %% "kyo-core" % "1.0.0-RC7",
       "org.typelevel" %% "cats-core" % "2.13.0",
       "org.specs2" %% "specs2-core" % "4.23.0" % Test,
       "org.specs2" %% "specs2-cats" % "4.23.0" % Test,
+      // Test only, and not for reading code: a compiled library whose jars specs read as a
+      // dependency (`DependencyRowsSpec`, `DependencyClassesSpec`, `ProgramRowsSpec`), and the
+      // parser `Overriders` writes a fixture's overriders with.
+      "org.scalameta" %% "scalameta" % "4.17.4" % Test,
       // Test fixtures are compiled in-process (`cardinality.Compiled`), as the build plugins compile
       // a module before reading it: the compiler's types are the only inferred types (rule T).
       "org.scala-lang" %% "scala3-compiler" % scalaVersion.value % Test
@@ -212,7 +213,7 @@ addCommandAlias("mutationAll", "core/stryker")
 // Two deviations from `eo`'s setup, both forced by sbt 2: its `sbt-typelevel-site`
 // plugin has no sbt 2 build, so the render step lives in `project/SiteRenderer.scala`
 // instead of a plugin; and `sbt-mdoc` cannot be used here at all, because it puts
-// `scalameta_2.13` on the classpath of a project that depends on `scalameta_3` (see
+// `scalameta_2.13` on the classpath of a project whose tests use `scalameta_3` (see
 // `project/plugins.sbt`). Docs examples are therefore pinned by the test suite rather
 // than compiled from the pages.
 // `siteRender` is declared at the build level so `sbt siteRender` resolves, but only the

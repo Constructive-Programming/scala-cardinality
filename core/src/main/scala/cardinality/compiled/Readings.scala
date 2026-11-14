@@ -941,10 +941,8 @@ private[compiled] object Readings {
   /** The solver's depth budget, the same for every row; its state budget is its own default. */
   val Depth = 64
 
-  /** The solver's step budget for one row: ten times the old front end's for one target
-    * (`Measuring.TargetWork`), which refuses rows this front end measured unbudgeted; with none, a
-    * few rows run for many minutes. The old reading's work counter is reused so a refusal reads as
-    * its own does ("target budget exhausted at …").
+  /** The solver's step budget for one row; with none, a few rows run for many minutes. A row that
+    * spends it reads "target budget exhausted at …".
     */
   val Work = 3000000L
 
@@ -952,8 +950,7 @@ private[compiled] object Readings {
     * the budget named.
     */
   def count(bindings: List[Binding], result: Shape): Count = {
-    val work = new AnalysisWork(0, Int.MaxValue, counting = false)
-    work.target(Work)
+    val work = new AnalysisWork(Work)
     try Inhabitation.count(bindings, result, inspect = work.step, maxDepth = Depth)
     catch { case stop: AnalysisWork.Exhausted => Count.Unresolved(List(stop.getMessage)) }
   }

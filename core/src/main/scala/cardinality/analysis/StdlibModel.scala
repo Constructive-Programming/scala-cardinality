@@ -3,7 +3,6 @@ package cardinality.analysis
 import cardinality.analysis.inhabitation.{Card, ClosedSpaces, Inhabitation}
 import cardinality.analysis.resolution.TopTypes
 import cardinality.capacity.BaseTypes
-import cardinality.types.ListedNamespaces
 
 import Inhabitation.Shape
 
@@ -33,21 +32,10 @@ import Inhabitation.Shape
   * is an ω transparent value, as `String` is; so is an arbitrary-precision number (`BigInt`,
   * `BigDecimal`): countably many finite values, each a literal of a total equality. An unmodelled
   * entry is a class or interface whose members the model does not hold (`Product`,
-  * `java.lang.CharSequence`). The table answers where Scala's root imports would, after every
-  * binding of the sources, and lists the parents whose members it knows (Scala 3.9.0).
+  * `java.lang.CharSequence`). The table answers for a declaration's fully qualified name (Scala
+  * 3.9.0).
   */
 private[cardinality] object StdlibModel {
-
-  /** The anchor segment of an absolute path. */
-  val RootPackage = "_root_"
-
-  /** The table's version: Scala 3.9.0's library API, on 2.13 collections (`Seq` is
-    * `immutable.Seq`). A reason naming it says what the table does not hold.
-    */
-  val version = "stdlib-model/1"
-
-  /** How a reason says a name is declared nowhere this reading looks. */
-  val undeclared = s"not declared in the sources or $version"
 
   /** How the model reads an entry. */
   enum Reading {
@@ -246,25 +234,15 @@ private[cardinality] object StdlibModel {
     "scala.deriving.Mirror.SumOf" -> 1
   )
 
-  // The root imports, weakest first: `java.lang.*`, `scala.*` (with the `scala` package's aliases)
-  // and `Predef.*`. Each binds a simple name and may be spelled through its own fully qualified
-  // prefix — never a relative one: a top-level package `Predef` outranks `scala.Predef` (Scala
-  // 3.9.0 fixture).
-  private enum Root(val prefix: String) {
-    case JavaLang extends Root("java.lang.")
-    case ScalaPackage extends Root("scala.")
-    case Predef extends Root("scala.Predef.")
-  }
+  // The `scala.quoted` types and their arity (scala3-library 3.9.0).
+  private val Quoted: List[(String, Int)] =
+    List("Expr" -> 1, "ExprMap" -> 0, "FromExpr" -> 1, "Quotes" -> 0, "ToExpr" -> 1, "Type" -> 1)
 
-  // The throwables the root imports bind, with the import that binds each: the `scala` package
-  // aliases all but `IllegalStateException`, and `NoSuchElementException` to `java.util`'s (Scala
-  // 3.9.0 fixtures). Their API and why it reads as data: docs/research/pure-code.md §3.
-  private val Exceptions: List[(String, Root)] =
-    BaseTypes.throwables.values.toList
-      .sortBy(_.fqn)
-      .map(t => t.fqn -> (if (t.scalaAlias) Root.ScalaPackage else Root.JavaLang))
+  // The throwables the root imports bind. Their API and why it reads as data:
+  // docs/research/pure-code.md §3.
+  private val Exceptions: List[String] = BaseTypes.throwables.values.toList.sorted
 
-  // The `scala` package aliases both.
+  // The arbitrary-precision numbers.
   private val Numbers = List("scala.math.BigInt", "scala.math.BigDecimal")
 
   private val entries: List[Entry] =
@@ -309,178 +287,15 @@ private[cardinality] object StdlibModel {
         bytes("java.io.InputStream"),
         excluded(Collected)("java.lang.ref.WeakReference", 1),
         excluded(Collected)("java.lang.ref.ReferenceQueue", 1)
-      ) ++ ListedNamespaces.quoted.map((name, arity) =>
-        excluded(Reflection)(s"scala.quoted.$name", arity)
-      ) ++
+      ) ++ Quoted.map((name, arity) => excluded(Reflection)(s"scala.quoted.$name", arity)) ++
       Revealed.map((fqn, arity) => excluded(Revealing)(fqn, arity)) ++
-      (Exceptions.map(_._1) ++ Numbers).map(transparent) ++
+      (Exceptions ++ Numbers).map(transparent) ++
       List("scala.Product", "scala.Equals", "java.lang.CharSequence").map(unmodelled)
 
   private val byName: Map[String, Entry] = entries.map(entry => entry.fqn -> entry).toMap
 
-  /** The root-imported terms whose type is a singleton: `p.type`'s only value is `p` itself (the
-    * draft specification ch. 3's stable identifier types). The library's two parameterless
-    * root-imported objects are `scala.None` and `scala.Nil` (scala-library 3.9.0); both spellings
-    * of one object — simple and `scala.`-prefixed — denote the same value, so the table keys by
-    * every spelling and gives one canonical identity. A source binding of the name outranks the
-    * table, as for the type entries.
-    */
-  private val singletonTerms: Map[String, String] = Map(
-    "None" -> "scala.None",
-    "scala.None" -> "scala.None",
-    "Nil" -> "scala.Nil",
-    "scala.Nil" -> "scala.Nil"
-  )
-
-  /** The canonical singleton term a written stable path names, if it is one of the table's. */
-  def singletonTerm(spelling: String): Option[String] = singletonTerms.get(spelling)
-
-  // Each name under the root import that binds it, and under that import's own prefix.
-  private def spelledBy(bindings: List[(String, String, Root)]): Map[String, String] =
-    bindings.flatMap((name, fqn, root) => List(name -> fqn, s"${root.prefix}$name" -> fqn)).toMap
-
-  // Simple names the root imports bind to entries, with the root that binds them: the `scala`
-  // package's own members, then its aliases and `Predef`'s.
-  private val spellings: List[(String, String, Root)] =
-    entries.map(_.fqn).collect {
-      case fqn if fqn.startsWith(Root.ScalaPackage.prefix) && !simple(fqn).contains('.') =>
-        (simple(fqn), fqn, Root.ScalaPackage)
-    } ++ List(
-      ("Either", "scala.util.Either", Root.ScalaPackage),
-      ("Left", "scala.util.Left", Root.ScalaPackage),
-      ("Right", "scala.util.Right", Root.ScalaPackage),
-      ("List", "scala.collection.immutable.List", Root.ScalaPackage),
-      ("Vector", "scala.collection.immutable.Vector", Root.ScalaPackage),
-      ("IndexedSeq", "scala.collection.immutable.IndexedSeq", Root.ScalaPackage),
-      ("Seq", "scala.collection.immutable.Seq", Root.ScalaPackage),
-      ("Iterator", "scala.collection.Iterator", Root.ScalaPackage),
-      ("IterableOnce", "scala.collection.IterableOnce", Root.ScalaPackage),
-      ("Iterable", "scala.collection.Iterable", Root.ScalaPackage),
-      ("Map", "scala.collection.immutable.Map", Root.Predef),
-      ("Set", "scala.collection.immutable.Set", Root.Predef),
-      ("Integer", "java.lang.Integer", Root.JavaLang),
-      ("CharSequence", "java.lang.CharSequence", Root.JavaLang)
-    ) ++ (Exceptions ++ Numbers.map(_ -> Root.ScalaPackage)).map((fqn, root) =>
-      (fqn.split('.').last, fqn, root)
-    )
-
-  private def simple(fqn: String): String = fqn.stripPrefix(Root.ScalaPackage.prefix)
-
-  private val spelled: Map[String, String] = spelledBy(spellings)
-
-  /** The simple names the root imports bind to entries: what an import or export could rebind. */
-  val rootNames: Set[String] = spellings.map(_._1).toSet
-
-  /** The root packages, whose paths name library declarations unless a source package rebinds them.
-    */
-  val roots: Set[String] = ListedNamespaces.roots
-
-  /** How a spelling may name a declaration of the root imports: through them (a simple name, or a
-    * path from a root package, `_root_`-anchored or not), relative to a root import
-    * (`Predef.String`, `util.Either` — a top-level package of its first name outside the sources
-    * outranks the root import, Scala 3.9.0 fixture), or as an anchored simple name, which is a
-    * top-level declaration.
-    */
-  enum Spelling {
-    case Rooted(name: String, anchored: Boolean)
-    case Relative(name: String, head: String)
-    case TopLevel(name: String)
-  }
-
-  object Spelling {
-
-    def of(written: String): Spelling = {
-      val name = written.stripPrefix(s"$RootPackage.")
-      (written != name, name.takeWhile(_ != '.')) match {
-        case (true, head) if head == name                                => TopLevel(name)
-        case (anchored, head) if anchored || head == name || roots(head) => Rooted(name, anchored)
-        case (_, head)                                                   => Relative(name, head)
-      }
-    }
-
-    /** An import's target path, whose `_root_` anchor the import reading drops: a simple one could
-      * only be written anchored.
-      */
-    def imported(path: String): Spelling = if (path.contains('.')) of(path) else TopLevel(path)
-
-  }
-
-  // The path a spelling names through the root imports, if it names one.
-  private def rooted(name: String): Option[String] = Spelling.of(name) match {
-    case Spelling.Rooted(path, _) => Some(path)
-    case _                        => None
-  }
-
-  /** The entry a spelling denotes once no declaration of the sources answers it: a root-import
-    * name, or a qualified one through the root imports' own prefixes or the entry's fully qualified
-    * name, `_root_`-anchored or not.
-    */
-  /** Whether the model reads the declaration of this fully qualified name: a table entry, a root or
-    * marker type, or a parent whose members it lists (`java.io.Serializable`).
-    */
-  def holds(fqn: String): Boolean =
-    byName.contains(fqn) || parents.contains(fqn) || witnesses.valuesIterator.exists(
-      _.contains(fqn)
-    )
-
-  def entry(name: String): Option[Entry] =
-    rooted(name).flatMap(path => spelled.get(path).flatMap(byName.get).orElse(byName.get(path)))
-
-  /** The canonical name of an entry's spelling: one name per declaration. */
-  def canonical(name: String): Option[String] = entry(name).map(_.fqn)
-
-  // The standard-library types with a value for every argument, and the spellings each is read
-  // through: the top types (`()`, `0`, `""`), the marker traits a string or `None` extends,
-  // `BigInt(0)`, a comparison that finds every two values equal (`Ordering`, `Equiv`,
-  // `Comparable`), the throwables the root imports bind (`new Exception`, register D26), and the
-  // containers with an empty one. The stored side's witnessed reading (`ValueRows`) resolves its
-  // spellings here; the method side's own readings list neither the top types nor `BigInt` or the
-  // comparisons, so this registry is the one table for both readers.
-  private val witnesses: Map[String, List[String]] = Map(
-    "Any" -> List("scala.Any"),
-    "AnyRef" -> List("scala.AnyRef"),
-    "AnyVal" -> List("scala.AnyVal"),
-    "Matchable" -> List("scala.Matchable"),
-    "Object" -> List("java.lang.Object"),
-    "String" -> List("java.lang.String", "scala.Predef.String"),
-    "CharSequence" -> List("java.lang.CharSequence"),
-    "Comparable" -> List("java.lang.Comparable"),
-    "Product" -> List("scala.Product"),
-    "Equals" -> List("scala.Equals"),
-    "Serializable" -> List("scala.Serializable", "java.io.Serializable"),
-    "BigInt" -> List("scala.BigInt", "scala.math.BigInt"),
-    "BigDecimal" -> List("scala.BigDecimal", "scala.math.BigDecimal"),
-    "Ordering" -> List("scala.Ordering", "scala.math.Ordering"),
-    "Equiv" -> List("scala.Equiv", "scala.math.Equiv"),
-    "Option" -> List("scala.Option"),
-    "List" -> List("scala.List", "scala.collection.immutable.List"),
-    "Seq" -> List("scala.Seq", "scala.collection.immutable.Seq"),
-    "IndexedSeq" -> List("scala.IndexedSeq", "scala.collection.immutable.IndexedSeq"),
-    "Vector" -> List("scala.Vector", "scala.collection.immutable.Vector"),
-    "Iterable" -> List(
-      "scala.Iterable",
-      "scala.collection.Iterable",
-      "scala.collection.immutable.Iterable"
-    ),
-    "Iterator" -> List("scala.Iterator", "scala.collection.Iterator"),
-    "LazyList" -> List("scala.LazyList", "scala.collection.immutable.LazyList"),
-    "Map" -> List("scala.Predef.Map", "scala.collection.immutable.Map"),
-    "Set" -> List("scala.Predef.Set", "scala.collection.immutable.Set"),
-    "Array" -> List("scala.Array"),
-    "PartialFunction" -> List("scala.PartialFunction"),
-  ) ++ BaseTypes.throwables.map((name, t) =>
-    name -> (t.fqn :: Option.when(t.scalaAlias)(s"scala.$name").toList)
-  )
-
-  /** The number of type arguments an entry the model reads takes, or why it does not hold them: an
-    * unmodelled class is recorded by name alone, and an excluded entry's parameters are not read
-    * (`scala.quoted.Type[T <: AnyKind]` takes a constructor as well).
-    */
-  def arity(entry: Entry): Either[String, Int] = entry.reading match {
-    case _: (Structural | Sequence | Tabulated) | Transparent => Right(entry.parameters.size)
-    // The reason the reading refuses an entry it does not read, whatever the arguments.
-    case _ => read(entry, Nil).map(_ => entry.parameters.size)
-  }
+  /** The entry of a fully qualified name. */
+  def entry(name: String): Option[Entry] = byName.get(name)
 
   private def outside(entry: Entry, why: String): String =
     s"outside the counting model: ${entry.fqn} ($why)"
@@ -528,59 +343,6 @@ private[cardinality] object StdlibModel {
     case Shape.Existential(_, opened)      => rigid(opened)
     case Shape.Singleton(_, Some(widened)) => rigid(widened)
     case _                                 => false
-  }
-
-  /** A stdlib parent the model knows declares no type member, with the term members a subclass must
-    * implement and the concrete ones it may override — or, when `listed` is false, term members the
-    * model does not hold.
-    */
-  final case class Summary(abstracts: Set[String], overridable: Set[String], listed: Boolean)
-
-  /** A stdlib parent the model knows, spelled through the root imports. Root and marker types
-    * declare no member a count reads (their universal members are outside the contract).
-    */
-  def parent(name: String): Option[Summary] =
-    rooted(name).flatMap(path =>
-      parents.get(canonical(path).orElse(markerSpelled.get(path)).getOrElse(path))
-    )
-
-  /** What a sealed leaf's subclass may override of a stdlib parent (nothing of a marker). */
-  def leafParent(name: String): Option[Set[String]] =
-    parent(name).map(summary => if (summary.listed) summary.overridable else Set.empty)
-
-  // The root and marker types that are not entries, by the root import that binds each:
-  // `java.io.Serializable` only by its own path.
-  private val markers: List[(String, String, Root)] =
-    List("Any", "AnyRef", "Matchable", "AnyVal", "Serializable", "Dynamic").map(name =>
-      (name, s"scala.$name", Root.ScalaPackage)
-    ) :+ ("Object", "java.lang.Object", Root.JavaLang)
-
-  // `java.lang.Comparable[T]` (JDK 25, read with javap): one abstract `compareTo(T): Int`. The
-  // stored side reads it as a witnessed comparison (`witnesses`), so no JDK stub renders it.
-  private val comparable = "java.lang.Comparable"
-
-  private val markerSpelled: Map[String, String] =
-    spelledBy(markers :+ ("Comparable", comparable, Root.JavaLang))
-
-  private val observations: Set[String] = Set("getMessage", "getLocalizedMessage", "getCause")
-
-  private val parents: Map[String, Summary] = {
-    val memberless = Summary(Set.empty, Set.empty, listed = true)
-    // `Product` and `Equals` declare only reflection over a value's fields (`productArity`,
-    // `productElement`, `productElementName(s)`, `productIterator`, `productPrefix`) and an equality
-    // test (`canEqual`): outside the model like `Any`'s universal members, so they declare none.
-    ("java.io.Serializable" :: "scala.Product" :: "scala.Equals" :: markers.map(_._2))
-      .map(_ -> memberless)
-      .toMap ++
-      // A throwable's members a subclass may override and the model reads (the rest are outside it).
-      Exceptions.map(_._1 -> Summary(Set.empty, observations, listed = true)) +
-      // `IterableOnce` (scala-library 2.13, read with javap): abstract `iterator`, default
-      // `knownSize` and `stepper`.
-      ("scala.collection.IterableOnce" -> Summary(
-        Set("iterator"),
-        Set("knownSize", "stepper"),
-        listed = true
-      )) + (comparable -> Summary(Set("compareTo"), Set.empty, listed = true))
   }
 
 }

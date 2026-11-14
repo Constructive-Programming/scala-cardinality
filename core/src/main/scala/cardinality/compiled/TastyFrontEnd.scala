@@ -16,9 +16,9 @@ import tastyquery.Trees.ClassDef
   * and no syntax: docs/plans/compiled-own-types.md, "Front end: design and status".
   *
   * It answers every row the classes hold. A row no slice reads yet is `?` with `Uncovered` and what
-  * it needs, never measured another way: this front end calls nothing of the scalameta one.
+  * it needs, never measured another way.
   */
-private[cardinality] object TastyFrontEnd extends FrontEnd {
+private[cardinality] object TastyFrontEnd {
 
   /** How a row says that the compiled front end does not read it yet. */
   val Uncovered = "not read from compiled classes yet"

@@ -89,7 +89,7 @@ private[compiled] object Algebra {
 
   // The throwables the root imports bind, by fully qualified name: the name a row gives each.
   private val Throwables: Map[String, String] =
-    BaseTypes.throwables.map((simple, throwable) => throwable.fqn -> simple)
+    BaseTypes.throwables.map((simple, fqn) => fqn -> simple)
 
   private val Sequences: Set[String] =
     Set("List", "Vector", "Seq", "IndexedSeq").map(

@@ -1,78 +1,21 @@
 package cardinality.analysis
 
-/** Logical work accounting for an opt-in request. Each target receives fuel before measurement;
-  * unused fuel is not transferred to another target.
-  */
-final private[cardinality] class AnalysisWork(
-    indexLimit: Long,
-    depthLimit: Int,
-    counting: Boolean = true
-) {
-  import AnalysisWork.*
+/** Step fuel for one count: each solver step costs one, and a count with none left stops. */
+final private[cardinality] class AnalysisWork(quota: Long) {
 
-  private var indexing = true
-  private var remaining = indexLimit
-  private var depth = 0
-  private var used = 0L
-  // One counter per operation, bumped on every step: mutable, copied out only when read.
-  private val counts = scala.collection.mutable.HashMap.empty[String, Long]
-
-  def counters: Map[String, Long] = counts.toMap
-  def consumed: Long = used
-
-  def target(quota: Long): Unit = {
-    indexing = false
-    remaining = quota
-    depth = 0
-    used = 0L
-  }
+  private var remaining = quota
 
   def step(operation: String): Unit = {
-    if (remaining == 0)
-      throw Exhausted.Fuel(if (indexing) Budget.Index else Budget.Target, operation)
+    if (remaining == 0) throw AnalysisWork.Exhausted(operation)
     remaining -= 1
-    used += 1
-    if (counting) counts(operation) = counts.getOrElse(operation, 0L) + 1
-  }
-
-  def expanding[A](operation: String)(read: => A): A = {
-    step(operation)
-    if (depth >= depthLimit)
-      throw Exhausted.ResolutionDepth(operation)
-    depth += 1
-    try read
-    finally depth -= 1
   }
 
 }
 
 private[cardinality] object AnalysisWork {
 
-  /** The step-fuel budgets: indexing drains one tank, each measured target another. */
-  enum Budget {
-    case Index
-    case Target
-
-    def render: String = this match {
-      case Budget.Index  => "index"
-      case Budget.Target => "target"
-    }
-
-  }
-
-  /** A work stop. A sum, not a budget × frontier product: a syntax-depth stop reports the source
-    * path while every other stop reports the operation name, so the product admitted combinations
-    * no stop can produce. Message text is unchanged — tests and reports read the same strings.
-    */
-  enum Exhausted(message: String) extends RuntimeException(message) {
-
-    case Fuel(budget: AnalysisWork.Budget, operation: String)
-        extends Exhausted(s"${budget.render} budget exhausted at $operation")
-
-    case ResolutionDepth(operation: String)
-        extends Exhausted(s"resolution depth budget exhausted at $operation")
-
-    case SyntaxDepth(path: String) extends Exhausted(s"syntax depth budget exhausted at $path")
-  }
+  /** The stop when the fuel runs out, at the step that found none. */
+  final case class Exhausted(operation: String)
+      extends RuntimeException(s"target budget exhausted at $operation")
 
 }

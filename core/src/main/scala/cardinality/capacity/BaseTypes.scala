@@ -1,7 +1,5 @@
 package cardinality.capacity
 
-import scala.meta.Type
-
 /** The base types the algebra models: the names it resolves without the sources, and what each is
   * worth.
   *
@@ -11,25 +9,14 @@ import scala.meta.Type
   */
 private[cardinality] object BaseTypes {
 
-  /** A modelled base type, as a pattern: `case BaseTypes(size) => size` on a `Type`. */
-  def unapply(tpe: Type): Option[Size] = tpe match {
-    case named: Type.Name => get(named.value)
-    case _                => None
-  }
-
-  /** The same table, for a caller that is not matching on it. */
+  /** A modelled base type's size, by its name. */
   def get(name: String): Option[Size] = sizes.get(name)
 
-  /** A throwable the root imports bind: its fully qualified name, and whether the `scala` package
-    * aliases it (every one but `IllegalStateException`, which only `java.lang` binds).
+  /** The throwables the root imports bind, by simple name, with their fully qualified names. Each
+    * is an open class: a value of one may be of any subclass, so the estimate leaves it to its
+    * implementations rather than guess a size — the method side reads them as data (register D26).
     */
-  final case class RootThrowable(fqn: String, scalaAlias: Boolean)
-
-  /** The throwables the root imports bind, by simple name. Each is an open class: a value of one
-    * may be of any subclass, so the estimate leaves it to its implementations rather than guess a
-    * size — the method side reads them as data (register D26).
-    */
-  val throwables: Map[String, RootThrowable] =
+  val throwables: Map[String, String] =
     (List(
       "Throwable",
       "Exception",
@@ -41,9 +28,9 @@ private[cardinality] object BaseTypes {
       "UnsupportedOperationException",
       "IllegalArgumentException",
       "NumberFormatException"
-    ).map(name => name -> RootThrowable(s"java.lang.$name", scalaAlias = true)) ++ List(
-      "IllegalStateException" -> RootThrowable("java.lang.IllegalStateException", false),
-      "NoSuchElementException" -> RootThrowable("java.util.NoSuchElementException", true)
+    ).map(name => name -> s"java.lang.$name") ++ List(
+      "IllegalStateException" -> "java.lang.IllegalStateException",
+      "NoSuchElementException" -> "java.util.NoSuchElementException"
     )).toMap
 
   private val sizes: Map[String, Size] = Map(

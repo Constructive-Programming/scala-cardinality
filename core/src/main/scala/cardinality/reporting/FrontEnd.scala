@@ -1,13 +1,6 @@
 package cardinality.reporting
 
-/** What `Report.of` reads its rows from (docs/plans/compiled-own-types.md, phase 4): loading a
-  * program, resolving its names and building each target's environment and goal sit behind it.
-  * `Report.query` still calls the scalameta pipeline's own steps.
-  */
-private[cardinality] trait FrontEnd {
-  def rows(module: FrontEnd.Module): FrontEnd.Rows
-}
-
+/** What `Report.of` hands the front end (`TastyFrontEnd`), and what it answers. */
 private[cardinality] object FrontEnd {
 
   /** Each source's path and text, and what the build supplies beside them. */

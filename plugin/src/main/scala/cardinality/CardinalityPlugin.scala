@@ -52,7 +52,10 @@ object CardinalityPlugin extends AutoPlugin {
 
   import autoImport.*
 
-  override def projectSettings: Seq[Setting[?]] = dependencySettings ++ Seq(
+  override def projectSettings: Seq[Setting[?]] = Seq(
+    // The project's own Compile dependencies, never `fullClasspath`: dependency paths stay explicit.
+    // sbt 2 hands out content-addressed jars, so each entry goes through the file converter.
+    cardinalityDependencyClasspath := (Compile / dependencyClasspath).value.map(_.data),
     cardinalityReportFile := target.value / "cardinality" / "report.txt",
     // Seeding is a repository-level act: the default lands beside the other agent instructions
     // at the build's root, wherever the task is run from.
@@ -107,12 +110,13 @@ object CardinalityPlugin extends AutoPlugin {
             Report.Environment(compiled.value)
           )
         )
-        val output = cardinalityReportFile.value
-        IO.write(output, found.render)
-        streams.value.log.info(found.render)
-        streams.value.log.info(s"report written to $output")
-        if (found.report.errors.nonEmpty)
-          sys.error(s"${found.report.errors.size} selected report error(s)")
+        written(
+          streams.value.log,
+          found.render,
+          found.report.errors.size,
+          "selected report error(s)",
+          cardinalityReportFile.value
+        )
       }
     },
   )
@@ -137,22 +141,17 @@ object CardinalityPlugin extends AutoPlugin {
     CompiledTypes.Classes(Nil, cardinalityDependencyClasspath.value.map(fileConverter.value.toPath))
   }
 
-  // The project's own Compile dependencies, never `fullClasspath`: dependency paths stay explicit.
-  // sbt 2 hands out content-addressed jars, so each entry goes through the file converter.
-  private def dependencySettings: Seq[Setting[?]] = Seq(
-    cardinalityDependencyClasspath := (Compile / dependencyClasspath).value.map(_.data)
-  )
+  // Writes the report under `target/`, logs it, and fails the task when a source could not be read:
+  // a report over sources the calculator could not read is incomplete, and failing quietly would
+  // present the numbers it did find as the whole story.
+  private def report(log: Logger, found: Report, output: File): Unit =
+    written(log, found.render, found.errors.size, "source(s) could not be read", output)
 
-  // Writes the report under `target/`, logs it, and fails the task when a source could not be read
-  // or parsed: a report over sources the calculator could not read is incomplete, and failing
-  // quietly would present the numbers it did find as the whole story. M3's report-then-fail, one
-  // milestone early.
-  private def report(log: Logger, found: Report, output: File): Unit = {
-    IO.write(output, found.render)
-    log.info(found.render)
+  private def written(log: Logger, text: String, errors: Int, what: String, output: File): Unit = {
+    IO.write(output, text)
+    log.info(text)
     log.info(s"report written to $output")
-    if (found.errors.nonEmpty)
-      sys.error(s"${found.errors.size} source(s) could not be read or parsed")
+    if (errors > 0) sys.error(s"$errors $what")
   }
 
   // Writes the reduction skill this repository's agents use, parameterized by the build, so a

@@ -321,7 +321,7 @@ private[compiled] object Constructors {
     case Unbound.Syntax(what)  => Some(what)
     case Unbound.Refusal(what) => Some(what)
     // A type parameter or an abstract member is what the instance chooses, no reason of a row.
-    case _: (Unbound.Parameter | Unbound.HigherKinded | Unbound.Member | Unbound.Imported) => None
+    case _: (Unbound.Parameter | Unbound.HigherKinded | Unbound.Member) => None
   }
 
   // Whether the estimate agrees with the value space (`ClosedSpaces.agrees`): infinite against

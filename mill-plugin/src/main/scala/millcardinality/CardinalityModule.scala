@@ -78,11 +78,11 @@ trait CardinalityModule extends ScalaModule {
     }
   }
 
-  // Fails the command when a source could not be read or parsed: a report over sources the
+  // Fails the command when a source could not be read: a report over sources the
   // calculator could not read is incomplete, and failing quietly would present the numbers it did
   // find as the whole story.
   private def report(found: Report)(using mill.api.TaskCtx): Result[PathRef] =
-    written(found.render, found.errors.size, "source(s) could not be read or parsed")
+    written(found.render, found.errors.size, "source(s) could not be read")
 
   private def written(text: String, errors: Int, what: String)(using
       mill.api.TaskCtx

@@ -46,12 +46,6 @@ private[cardinality] object StuckProjections {
       .map(index => parts.size -> (index + 1))
   }
 
-  /** Whether an atom may stand for any type a caller picks: a projection atom does not (nested
-    * stuck projections are not read), and a bounded binder's choices are constrained.
-    */
-  def instantiable(id: String, bounded: String => Boolean): Boolean =
-    Projection.unapply(id).isEmpty && !bounded(id)
-
   /** Why the projections of one signature's shapes have no common reducing instantiation, if they
     * have none, given the proofs of its binders' bounds.
     */

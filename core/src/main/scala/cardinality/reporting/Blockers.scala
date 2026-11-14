@@ -1,6 +1,6 @@
 package cardinality.reporting
 
-import cardinality.types.Spelling
+import scala.util.matching.Regex
 
 /** The category a reason counts under when a report tallies what blocked its rows.
   *
@@ -28,7 +28,7 @@ object Blockers {
   // The category and its detail, cut at the first separator: a `: ` outside brackets and literals
   // whose colon ends no operator name.
   private def split(reason: String): (String, String) = {
-    val scanned = Spelling.masked(reason)
+    val scanned = masked(reason)
     val separator = scanned.indices.foldLeft((0, Option.empty[Int])) {
       case (found @ (_, Some(_)), _) => found
       case ((depth, None), i)        =>
@@ -47,13 +47,13 @@ object Blockers {
   // After a letter, a digit, `_`, a bracket or a quote it is the separator: `Missing_: …` is the
   // name `Missing_` and its detail, as a producer that writes a name before the separator means.
   private def operator(scanned: String, colon: Int): Boolean =
-    colon > 0 && Spelling.operatorCharacter(scanned(colon - 1))
+    colon > 0 && operatorCharacter(scanned(colon - 1))
 
   // The category's prose, each maximal run of code words in it replaced by `_`. Words are read off
   // the masked text, so a literal with spaces is one word, and a word inside brackets or braces —
   // a keyword of a refinement, a lower-case type argument — is code.
   private def abstracted(head: String): String = {
-    val scanned = Spelling.masked(head)
+    val scanned = masked(head)
     val words = Word
       .findAllMatchIn(scanned)
       .toList
@@ -87,7 +87,7 @@ object Blockers {
   private val Closing = "]}"
 
   private def literal(masked: String): Boolean =
-    masked.contains('"') || masked.contains(Spelling.Blank)
+    masked.contains('"') || masked.contains(Blank)
 
   // A run of code keeps the punctuation of the prose around it: a parenthesis it closes or opens
   // without its partner, and a comma after it.
@@ -112,5 +112,36 @@ object Blockers {
   }
 
   private val CodeMarks = "[]{}()|&#.=<>*$_`^?:"
+
+  // Scanning a reason without cutting inside a literal or a backquoted name.
+
+  // A one-line literal or backquoted name, kept whole. A raw string that spans lines cannot stay
+  // on one line as written, so its line breaks collapse with the rest of the layout.
+  private val Literal = """"(?:[^"\\\n]|\\.)*"|`[^`\n]+`|'(?:[^'\\\n]|\\.)'"""
+
+  private val Literals = Literal.r
+
+  /** `text` with the inside of every literal and backquoted name blanked out, character for
+    * character: a scan of the result cuts the original at the same index, never inside a literal.
+    */
+  private def masked(text: String): String =
+    Literals.replaceAllIn(
+      text,
+      found => {
+        val quoted = found.matched
+        val inside = Blank.toString * (quoted.length - 2)
+        Regex.quoteReplacement(s"${quoted.head}$inside${quoted.last}")
+      }
+    )
+
+  /** What `masked` writes inside a literal: no bracket, separator, quote or whitespace. */
+  private val Blank: Char = '\u0001'
+
+  /** A character an operator name is made of (Scala's `opchar`, Unicode math and other symbols). */
+  private def operatorCharacter(c: Char): Boolean =
+    OperatorCharacters.contains(c) || Character.getType(c) == Character.MATH_SYMBOL ||
+      Character.getType(c) == Character.OTHER_SYMBOL
+
+  private val OperatorCharacters = "!#%&*+-/:<=>?@\\^|~"
 
 }
