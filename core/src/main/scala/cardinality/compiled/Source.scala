@@ -47,15 +47,7 @@ final private[compiled] class Source(val path: String, text: String) {
     */
   def signature(tree: ValOrDefDef | ClassDef): String = {
     val point = tree.pos.pointOffset
-    val (head, name, declared) = tree match {
-      case v: ValDef if v.symbol.isGivenOrUsing => ("given ", v.name.toString, Some(v.tpt))
-      case d: DefDef if d.symbol.isGivenOrUsing => ("given ", d.name.toString, Some(d.resultTpt))
-      case v: ValDef => (if (v.symbol.kind == Var) "var " else "val ", v.name.toString, Some(v.tpt))
-      // A secondary constructor is written `this`, with no result.
-      case d: DefDef if d.name.toString == "<init>" => ("", "this", None)
-      case d: DefDef                                => ("", d.name.toString, Some(d.resultTpt))
-      case c: ClassDef                              => ("", c.name.toString, None)
-    }
+    val (head, name, declared) = parts(tree)
     // A name in backticks placed after its opening tick starts at the tick.
     val from = if (point > 0 && text.charAt(point - 1) == '`') point - 1 else point
     val result = declared.map(_.pos).filter(p => !p.isUnknown && !p.isZeroExtent)
@@ -65,6 +57,23 @@ final private[compiled] class Source(val path: String, text: String) {
     // An anonymous given is written as its type alone.
     if (head == "given " && result.exists(_.startOffset == from)) s"given: $written"
     else head + written
+  }
+
+  // The keyword a definition is written after, its name and its declared result.
+  private def parts(tree: ValOrDefDef | ClassDef): (String, String, Option[TypeTree]) =
+    tree match {
+      case v: ValDef => (keyword(v), v.name.toString, Some(v.tpt))
+      // A secondary constructor is written `this`, with no result.
+      case d: DefDef if d.name.toString == "<init>" && !d.symbol.isGivenOrUsing =>
+        ("", "this", None)
+      case d: DefDef   => (keyword(d), d.name.toString, Some(d.resultTpt))
+      case c: ClassDef => ("", c.name.toString, None)
+    }
+
+  private def keyword(definition: ValOrDefDef): String = definition match {
+    case _ if definition.symbol.isGivenOrUsing => "given "
+    case v: ValDef                             => if (v.symbol.kind == Var) "var " else "val "
+    case _                                     => ""
   }
 
   private val Var = tastyquery.Modifiers.TermSymbolKind.Var
@@ -170,93 +179,131 @@ private[compiled] object Source {
     * A)`); a line break before a member of a refinement or a case `; `; a match type's braceless
     * cases in braces; a trailing comma dropped.
     */
-  private[compiled] def line(written: String): String = {
-    val out = new StringBuilder
-    // The braces open at each point, `true` for the ones a braceless match type implies.
-    var braces = List.empty[Boolean]
-    var at = 0
-    def copy(until: Int) = { out ++= written.substring(at, until.min(written.length)); at = until }
-    while (at < written.length) written.charAt(at) match {
-      case '"' | '\'' | '`' => copy(literal(written, at))
-      case c if c.isWhitespace || written.startsWith("//", at) || written.startsWith("/*", at) =>
-        val next = blank(written, at)
-        val broken = written.substring(at, next).contains('\n')
-        val before = out.lastOption.getOrElse('(')
-        val after = if (next == written.length) ')' else written.charAt(next)
-        if (broken && member(written, next, "case") && out.toString.endsWith("match")) {
-          out ++= " { "
-          braces = true :: braces
-        } else if (
-          broken && braces.nonEmpty && Members.exists(member(written, next, _)) &&
-          !"{;".contains(before)
-        )
-          out ++= "; "
-        else if (
-          !"([".contains(before) && !")],".contains(after) &&
-          !(")]".contains(before) && "([".contains(after))
-        ) out += ' '
-        at = next
-      case ',' if ")]".exists(written.lift(blank(written, at + 1)).contains) => at += 1
-      case '{'                                                               =>
-        braces = false :: braces
-        copy(at + 1)
-      case '}' =>
-        val (implied, rest) = braces.span(identity)
-        implied.foreach(_ => out ++= " }")
-        braces = rest.drop(1)
-        copy(at + 1)
-      case _ => copy(at + 1)
-    }
-    braces.filter(identity).foreach(_ => out ++= " }")
-    out.toString
-  }
+  private[compiled] def line(written: String): String = new Spacing(written).line
 
   // The keywords that start a refinement's member or a match type's case.
   private val Members = List("def", "val", "var", "type", "given", "case")
 
-  private def member(written: String, at: Int, keyword: String): Boolean =
-    written.startsWith(keyword, at) &&
-      !written.lift(at + keyword.length).exists(c => c.isLetterOrDigit || c == '_')
+  // One pass of `line` over `written`, copied to `out` up to `at`.
+  final private class Spacing(written: String) {
+    private val out = new StringBuilder
+    // The braces open at each point, `true` for the ones a braceless match type implies.
+    private var braces = List.empty[Boolean]
+    private var at = 0
 
-  // Where the whitespace and comments from `at` end.
-  @scala.annotation.tailrec
-  private def blank(written: String, at: Int): Int =
-    if (at >= written.length) written.length
-    else if (written.charAt(at).isWhitespace) blank(written, at + 1)
-    else if (written.startsWith("//", at))
-      blank(written, Some(written.indexOf('\n', at)).filter(_ >= 0).getOrElse(written.length))
-    else if (written.startsWith("/*", at))
-      blank(written, Some(written.indexOf("*/", at + 2)).filter(_ >= 0).fold(written.length)(_ + 2))
-    else at
-
-  // Where the literal or backticked name at `at` ends: a string (an escape, and in an interpolated
-  // one `$"`, kept inside it), a character, or one quote mark of a symbol or a quote (`'{`).
-  private def literal(written: String, at: Int): Int = {
-    def from(i: Int) = i.min(written.length)
-    written.charAt(at) match {
-      case '`' =>
-        from(Some(written.indexOf('`', at + 1)).filter(_ >= 0).fold(written.length)(_ + 1))
-      case '"' if written.startsWith("\"\"\"", at) =>
-        from(Some(written.indexOf("\"\"\"", at + 3)).filter(_ >= 0).fold(written.length)(_ + 3))
-      case '"' =>
-        val interpolated = at > 0 && written.charAt(at - 1).isLetter
-        @scala.annotation.tailrec
-        def close(i: Int): Int =
-          if (i >= written.length) written.length
-          else if (written.charAt(i) == '\\') close(i + 2)
-          else if (
-            interpolated && written
-              .charAt(i) == '$' && written.lift(i + 1).exists("\"$".contains(_))
-          )
-            close(i + 2)
-          else if (written.charAt(i) == '"') i + 1
-          else close(i + 1)
-        close(at + 1)
-      case _ if written.lift(at + 1).contains('\\') =>
-        from(Some(written.indexOf('\'', at + 2)).filter(_ >= 0).fold(written.length)(_ + 1))
-      case _ if written.lift(at + 2).contains('\'') => from(at + 3)
-      case _                                        => at + 1
+    def line: String = {
+      while (at < written.length) step()
+      braces.filter(identity).foreach(_ => out ++= " }")
+      out.toString
     }
+
+    private def step(): Unit = {
+      val next = blank(at)
+      if (next > at) spacing(next)
+      else
+        written.charAt(at) match {
+          case '"' | '\'' | '`'                                         => copy(literal(at))
+          case ',' if ")]".exists(written.lift(blank(at + 1)).contains) => at += 1
+          case '{'                                                      =>
+            braces = false :: braces
+            copy(at + 1)
+          case '}' => close()
+          case _   => copy(at + 1)
+        }
+    }
+
+    private def copy(until: Int): Unit = {
+      out ++= written.substring(at, until.min(written.length))
+      at = until
+    }
+
+    // A run of whitespace or comments up to `next`.
+    private def spacing(next: Int): Unit = {
+      val broken = written.substring(at, next).contains('\n')
+      if (broken && opensCases(next)) {
+        out ++= " { "
+        braces = true :: braces
+      } else if (broken && separates(next)) out ++= "; "
+      else if (spaced(next)) out += ' '
+      at = next
+    }
+
+    // A match type's braceless cases start at `next`.
+    private def opensCases(next: Int): Boolean =
+      member(next, "case") && out.toString.endsWith("match")
+
+    // A member of a refinement or a case starts at `next`, after another.
+    private def separates(next: Int): Boolean =
+      braces.nonEmpty && Members.exists(member(next, _)) && !"{;".contains(before)
+
+    // A space, but none after an opening bracket, before a closing one or a comma, or between
+    // clauses.
+    private def spaced(next: Int): Boolean = {
+      val after = if (next == written.length) ')' else written.charAt(next)
+      !"([".contains(before) && !")],".contains(after) &&
+      !(")]".contains(before) && "([".contains(after))
+    }
+
+    private def before: Char = out.lastOption.getOrElse('(')
+
+    private def close(): Unit = {
+      val (implied, rest) = braces.span(identity)
+      implied.foreach(_ => out ++= " }")
+      braces = rest.drop(1)
+      copy(at + 1)
+    }
+
+    private def member(at: Int, keyword: String): Boolean =
+      written.startsWith(keyword, at) &&
+        !written.lift(at + keyword.length).exists(c => c.isLetterOrDigit || c == '_')
+
+    // Where the whitespace and comments from `at` end.
+    @scala.annotation.tailrec
+    private def blank(at: Int): Int =
+      if (at >= written.length) written.length
+      else if (written.charAt(at).isWhitespace) blank(at + 1)
+      else if (written.startsWith("//", at)) blank(past("\n", at))
+      else if (written.startsWith("/*", at)) blank(past("*/", at + 2))
+      else at
+
+    // Where the first `token` from `from` ends (the text's end when none does).
+    private def past(token: String, from: Int): Int = {
+      val found = written.indexOf(token, from)
+      if (found < 0) written.length else found + token.length
+    }
+
+    // Where the literal or backticked name at `at` ends: a string, a character, or one quote mark
+    // of a symbol or a quote (`'{`).
+    private def literal(at: Int): Int = written.charAt(at) match {
+      case '`'                                     => past("`", at + 1)
+      case '"' if written.startsWith("\"\"\"", at) => past("\"\"\"", at + 3)
+      case '"'                                     => string(at)
+      case _                                       => quote(at)
+    }
+
+    // Where the string at `at` ends: an escape, and in an interpolated one `$"`, kept inside it.
+    private def string(at: Int): Int = {
+      val interpolated = at > 0 && written.charAt(at - 1).isLetter
+      @scala.annotation.tailrec
+      def end(i: Int): Int =
+        if (i >= written.length) written.length
+        else if (written.charAt(i) == '\\') end(i + 2)
+        else if (interpolated && dollar(i)) end(i + 2)
+        else if (written.charAt(i) == '"') i + 1
+        else end(i + 1)
+      end(at + 1)
+    }
+
+    // An interpolated string's `$"` or `$$`.
+    private def dollar(i: Int): Boolean =
+      written.charAt(i) == '$' && written.lift(i + 1).exists("\"$".contains(_))
+
+    // Where a character literal at `at` ends, or one quote mark of a symbol or a quote.
+    private def quote(at: Int): Int =
+      if (written.lift(at + 1).contains('\\')) past("'", at + 2)
+      else if (written.lift(at + 2).contains('\'')) (at + 3).min(written.length)
+      else at + 1
+
   }
 
 }
