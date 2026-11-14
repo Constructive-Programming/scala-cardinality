@@ -1,7 +1,7 @@
 package inferredfixtures
 
 // Members written without a result type, each in its own object so nothing else is in reach.
-// CompiledTypesSpec reads their compiled types back from this file's TASTy.
+// CompiledClassesSpec reads their compiled types back from this file's TASTy.
 
 object Flags {
   val flag = !true

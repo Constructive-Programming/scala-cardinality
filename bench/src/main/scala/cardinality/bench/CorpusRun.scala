@@ -8,7 +8,7 @@ import java.util.Locale
 import scala.jdk.CollectionConverters.*
 
 import cardinality.reporting.Report
-import cardinality.tasty.CompiledTypes
+import cardinality.tasty.CompiledClasses
 
 /** One `Report.of` over a frozen corpus (scripts/measure-corpus.sh runs this in a fresh JVM). A
   * corpus directory holds the sources, each at a path that ends with the one its TASTy records;
@@ -33,7 +33,7 @@ object CorpusRun {
       .map(_.trim)
       .filter(_.nonEmpty)
       .map(Path.of(_))
-    val classes = CompiledTypes.Classes(List(root.resolve("classes")), classpath)
+    val classes = CompiledClasses(List(root.resolve("classes")), classpath)
     val os = ManagementFactory.getOperatingSystemMXBean
       .asInstanceOf[com.sun.management.OperatingSystemMXBean]
     val heaps = ManagementFactory.getMemoryPoolMXBeans.asScala.filter(_.getType == MemoryType.HEAP)
@@ -42,8 +42,7 @@ object CorpusRun {
     val gcBefore = collectors.map(_.getCollectionTime).sum
     val cpuBefore = os.getProcessCpuTime
     val start = System.nanoTime
-    val report =
-      Report.of(List(root), Report.Environment(Some(classes)))
+    val report = Report.of(List(root), Some(classes))
     val wall = (System.nanoTime - start) / 1e9
     val cpu = (os.getProcessCpuTime - cpuBefore) / 1e9
     val gc = (collectors.map(_.getCollectionTime).sum - gcBefore) / 1e3

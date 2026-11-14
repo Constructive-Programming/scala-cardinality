@@ -1,8 +1,8 @@
 package cardinality.analysis.resolution
 
 import cardinality.Pending
-import cardinality.analysis.*
 import cardinality.analysis.inhabitation.*
+import cardinality.reporting.Report
 import org.specs2.Specification
 
 class SingletonIntersectionMethodSpec extends Specification {
@@ -33,7 +33,7 @@ class SingletonIntersectionMethodSpec extends Specification {
     )}
   """
 
-  private def entry(code: String, name: String = "pick"): MethodAnalysis.Entry =
+  private def entry(code: String, name: String = "pick"): Report.Entry =
     cardinality.Compiled
       .analyze(
         cardinality.Compiled.inputs("Singletons.scala" -> code)

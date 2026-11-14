@@ -1,7 +1,7 @@
 package cardinality.compiled
 
 import cardinality.compiled.DependencyClasses.Declared
-import cardinality.tasty.CompiledTypes
+import cardinality.tasty.CompiledClasses
 import org.specs2.Specification
 import tastyquery.Contexts.*
 
@@ -33,7 +33,7 @@ class DependencyClassesSpec extends Specification {
 
   private def of(name: String): Either[String, Declared] = {
     given Context = loaded.context
-    new DependencyClasses(CompiledTypes.javaFacts(loaded.classes)).of(ctx.findStaticClass(name))
+    new DependencyClasses(CompiledClasses.javaFacts(loaded.classes)).of(ctx.findStaticClass(name))
   }
 
   private def names(symbols: List[tastyquery.Symbols.Symbol]): List[String] =

@@ -2640,7 +2640,7 @@ Gate times: cats-kernel 15.5 s, cats-core 19.2 s. `compiled/` is 9,721 lines. Ro
 
 | Piece | Where | What it is |
 | --- | --- | --- |
-| Boundary | `reporting/FrontEnd.scala` | `FrontEnd.rows(Module): Rows`. In: each source's path and text, and the `Report.Environment`. Out: one answer per source in order, its `Entry` and `Definition` rows or a `Report.Error`. |
+| Boundary | `reporting/FrontEnd.scala` (since the API thinning, `TastyFrontEnd.rows(sources, classes): TastyFrontEnd.Rows`) | `FrontEnd.rows(Module): Rows`. In: each source's path and text, and the `Report.Environment` (now `classes: Option[CompiledClasses]`). Out: one answer per source in order, its `Entry` and `Definition` rows or a `Report.Error`. |
 | Old front end | `reporting/ScalametaFrontEnd.scala` | The pipeline `Report.of` had inline, moved unchanged; the only one `Report.of` calls. `Report.query` calls its steps directly. |
 | New front end | `compiled/TastyFrontEnd.scala`, `Targets.scala`, `Readings.scala`, `Shapes.scala`, `Sums.scala`, `Stored.scala`, `Constructors.scala`, `Bodies.scala`, `World.scala`, `Source.scala` (2,157 lines) | Reads the compiled classes through tasty-query. |
 | Gate | `core/src/test/scala/cardinality/compiled/Differential.scala` | See "The gate". |

@@ -4,7 +4,7 @@ import scala.collection.mutable
 import scala.reflect.NameTransformer
 import scala.util.control.NonFatal
 
-import cardinality.tasty.CompiledTypes
+import cardinality.tasty.CompiledClasses
 import tastyquery.Contexts.*
 import tastyquery.Exceptions.MemberNotFoundException
 import tastyquery.Modifiers.OpenLevel
@@ -35,7 +35,7 @@ import tastyquery.Symbols.*
   *   - the JDK is not listed, so a class of it is closed only where it is written `final`;
   *   - a class without TASTy (Java, Scala 2) has local and anonymous classes no symbol stands for
   *     (`Lone$1`). `ownFiles` and `classpathFiles` list them from their class files
-  *     (`CompiledTypes.unnamed`), for the module's output and its classpath: the classes each
+  *     (`CompiledClasses.unnamed`), for the module's output and its classpath: the classes each
   *     extends, by binary name, and the methods it declares. One of them under a class is a
   *     subclass of it that overrides the members it declares, by name. Where a parent of one does
   *     not resolve, it may extend anything.
@@ -44,8 +44,8 @@ final private[compiled] class ClosedProgram(
     own: List[ClassSymbol],
     unloaded: List[String],
     dependencies: => (List[ClassSymbol], List[String]),
-    ownFiles: => List[CompiledTypes.ClassFile],
-    classpathFiles: => List[CompiledTypes.ClassFile]
+    ownFiles: => List[CompiledClasses.ClassFile],
+    classpathFiles: => List[CompiledClasses.ClassFile]
 )(using Context) {
   import ClosedProgram.*
 
@@ -77,7 +77,7 @@ final private[compiled] class ClosedProgram(
 
   // The classes no symbol stands for in a part of the program, and whether every parent of each
   // resolved. One that extends another has that one's parents and declares its methods too.
-  private def indexed(files: List[CompiledTypes.ClassFile]): (List[Unnamed], Boolean) = {
+  private def indexed(files: List[CompiledClasses.ClassFile]): (List[Unnamed], Boolean) = {
     val byName = files.map(file => file.binary -> file).toMap
     def resolved(binary: String, seen: Set[String]): List[(Option[ClassSymbol], List[String])] =
       byName.get(binary) match {

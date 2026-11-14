@@ -1,8 +1,8 @@
 package cardinality.analysis.resolution
 
 import cardinality.Pending
-import cardinality.analysis.*
 import cardinality.analysis.inhabitation.*
+import cardinality.reporting.Report
 import org.specs2.Specification
 
 class GeneralInfixApplicationSpec extends Specification {
@@ -23,7 +23,7 @@ class GeneralInfixApplicationSpec extends Specification {
       reads an infix source trait as the record prefix syntax reads        $effectRepresentation
   """
 
-  private def entries(code: String): List[MethodAnalysis.Entry] =
+  private def entries(code: String): List[Report.Entry] =
     cardinality.Compiled.analyze(cardinality.Compiled.inputs("Infix.scala" -> code))
 
   private def count(definitions: String, result: String, support: String = ""): Count =

@@ -1,6 +1,6 @@
 package cardinality.analysis.inhabitation
 
-import cardinality.analysis.*
+import cardinality.reporting.Report
 import org.specs2.Specification
 
 class RepeatedParameterFragmentSpec extends Specification {
@@ -29,7 +29,7 @@ class RepeatedParameterFragmentSpec extends Specification {
   private val unit = Product(Nil)
   private val nothing = Sum(Nil)
 
-  private def entry(code: String, name: String): MethodAnalysis.Entry = {
+  private def entry(code: String, name: String): Report.Entry = {
     cardinality.Compiled
       .analyze(cardinality.Compiled.inputs("Repeated.scala" -> code))
       .find(_.name == name)

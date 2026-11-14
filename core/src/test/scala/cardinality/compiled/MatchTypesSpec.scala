@@ -87,8 +87,7 @@ class MatchTypesSpec extends Specification {
       |final case class HoldsPick(p: Pick[Int, Boolean])
       |""".stripMargin
 
-  private lazy val input = TastyFrontEndSpec.compiled("MatchTypes.scala" -> text)
-  private lazy val rows = TastyFrontEnd.rows(input)
+  private lazy val rows = TastyFrontEndSpec.rows("MatchTypes.scala" -> text)
 
   // A definition row as the report shows it: its size, or its first reason.
   private def stored(name: String): String = {

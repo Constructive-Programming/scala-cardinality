@@ -29,8 +29,7 @@ class NamesSpec extends Specification {
       |object Make { def pair(m: Pair): Pair = new Pair { def pick(b: Boolean): Boolean = m.pick(b) } }
       |""".stripMargin
 
-  private lazy val input = TastyFrontEndSpec.compiled("Names.scala" -> text)
-  private lazy val rows = TastyFrontEnd.rows(input)
+  private lazy val rows = TastyFrontEndSpec.rows("Names.scala" -> text)
 
   // The last row of a name: an overload taking parameters is written after the member.
   private def count(name: String): Count =

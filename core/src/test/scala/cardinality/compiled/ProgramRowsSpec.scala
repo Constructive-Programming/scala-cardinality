@@ -1,8 +1,8 @@
 package cardinality.compiled
 
 import cardinality.analysis.inhabitation.Inhabitation.Count
-import cardinality.reporting.{FrontEnd, Report}
-import cardinality.tasty.CompiledTypes
+import cardinality.reporting.Report
+import cardinality.tasty.CompiledClasses
 import java.nio.file.Path
 import org.specs2.Specification
 
@@ -69,11 +69,10 @@ class ProgramRowsSpec extends Specification {
   ): List[Report.Source] = {
     val classes = Programs.compiled(code, classpath)
     val libraries = read.getOrElse(classpath) ++ Programs.libraries
-    val module = FrontEnd.Module(
-      List("Example.scala" -> code),
-      Report.Environment(Some(CompiledTypes.Classes(List(classes), libraries)))
-    )
-    TastyFrontEnd.rows(module).sources.flatMap(_.toOption)
+    TastyFrontEnd
+      .rows(List("Example.scala" -> code), Some(CompiledClasses(List(classes), libraries)))
+      .sources
+      .flatMap(_.toOption)
   }
 
   // Each definition of `code`, compiled and read as `rows` reads it, with its size as rendered.

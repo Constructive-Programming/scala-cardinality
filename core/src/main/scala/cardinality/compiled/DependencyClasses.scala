@@ -15,7 +15,7 @@ import tastyquery.Symbols.*
   * signatures do not say refuses.
   *
   * `classFile` answers what a Java class's class file holds and its symbol does not: the names of
-  * its enum constants, and whether it is sealed (`CompiledTypes.javaFacts`).
+  * its enum constants, and whether it is sealed (`CompiledClasses.javaFacts`).
   */
 final private[compiled] class DependencyClasses(
     classFile: ClassSymbol => (List[String], Boolean)

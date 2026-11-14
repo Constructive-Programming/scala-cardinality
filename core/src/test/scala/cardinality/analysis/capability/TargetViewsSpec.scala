@@ -1,8 +1,8 @@
 package cardinality.analysis.capability
 
 import cardinality.Pending
-import cardinality.analysis.*
 import cardinality.analysis.inhabitation.*
+import cardinality.reporting.Report
 import org.specs2.Specification
 import org.specs2.execute.Result
 
@@ -89,7 +89,7 @@ class TargetViewsSpec extends Specification {
     )}
   """
 
-  private def entries(code: String): List[MethodAnalysis.Entry] =
+  private def entries(code: String): List[Report.Entry] =
     cardinality.Compiled.analyze(
       cardinality.Overriders.opened(cardinality.Compiled.inputs("Views.scala" -> code))
     )

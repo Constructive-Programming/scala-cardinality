@@ -2,11 +2,10 @@ package cardinality.reporting
 
 import scala.jdk.CollectionConverters.*
 
-import cardinality.analysis.MethodAnalysis
 import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.capacity.*
 import cardinality.compiled.TastyFrontEnd
-import cardinality.tasty.CompiledTypes
+import cardinality.tasty.CompiledClasses
 import dev.constructive.eo.generics.{lens, prism}
 import java.io.IOException
 import java.nio.charset.StandardCharsets.UTF_8
@@ -32,7 +31,7 @@ final case class Report(
 
   def definitions: List[Definition] = sources.flatMap(_.definitions)
 
-  def methods: List[MethodAnalysis.Entry] = sources.flatMap(_.methods)
+  def methods: List[Report.Entry] = sources.flatMap(_.methods)
 
   /** The stored-value rows, source by source, each as the estimate table reads it. */
   def definitionRows: List[Report.DefinitionRow] =
@@ -61,7 +60,7 @@ final case class Report(
   }
 
   // The method and constructor rows, ordered by file so a reader can walk the sources.
-  private def models: List[(Report.Source, MethodAnalysis.Entry)] =
+  private def models: List[(Report.Source, Report.Entry)] =
     sources
       .flatMap(source => source.methods.map(method => (source, method)))
       .sortBy(entry => (entry._1.path, entry._2.line, entry._2.name))
@@ -69,21 +68,6 @@ final case class Report(
 }
 
 object Report {
-
-  /** A selected report: the method rows of `targets`' report whose qualified name is one of
-    * `targetNames` (all of them when none is given), without the stored-value estimates.
-    */
-  final case class Query(
-      targets: Seq[Path],
-      targetNames: Set[String] = Set.empty,
-      environment: Environment = Environment()
-  )
-
-  /** What a report reads beside its sources: `classes`, the sources' own compiled output and the
-    * dependency classpath it is read against. A source without compiled classes is refused; the
-    * output may be empty where only the classpath is given, for a binary jar among the paths.
-    */
-  final case class Environment(classes: Option[CompiledTypes.Classes] = None)
 
   final case class QueryResult(report: Report) {
 
@@ -95,19 +79,26 @@ object Report {
 
   }
 
-  /** The targets' report, its method rows filtered by qualified name. */
-  def query(request: Query): QueryResult = {
+  /** A selected report: the method rows of `targets`' report whose qualified name is one of
+    * `targetNames` (all of them when none is given), without the stored-value estimates. `classes`
+    * is read as `of` reads it.
+    */
+  def query(
+      targets: Seq[Path],
+      targetNames: Set[String],
+      classes: Option[CompiledClasses]
+  ): QueryResult = {
     val report =
-      try of(request.targets, request.environment)
+      try of(targets, classes)
       catch {
         // A query that failed before any row was measured: what was thrown, by its class alone.
         case scala.util.control.NonFatal(error) =>
           Report(Nil, List(Error("", s"query acquisition failed: ${error.getClass.getSimpleName}")))
       }
-    def chosen(entry: MethodAnalysis.Entry) =
-      request.targetNames.isEmpty || request.targetNames(entry.name)
+    def chosen(entry: Report.Entry) =
+      targetNames.isEmpty || targetNames(entry.name)
     // A name is not found only where every source was read: a refused source may hold it.
-    val missing = request.targetNames -- report.methods.map(_.name)
+    val missing = targetNames -- report.methods.map(_.name)
     val notFound =
       Option.when(missing.nonEmpty && report.errors.isEmpty)(
         Error("", s"selected targets not found: ${missing.toList.sorted.mkString(", ")}")
@@ -127,7 +118,21 @@ object Report {
   final case class Source(
       path: String,
       definitions: List[Definition],
-      methods: List[MethodAnalysis.Entry] = Nil
+      methods: List[Report.Entry] = Nil
+  )
+
+  /** A method or constructor row: pure, total, parametric implementations, not stored-value
+    * cardinality. Unsupported code or an incomplete environment is a reason, never evidence of
+    * infinity. No source code is executed.
+    */
+  final case class Entry(
+      path: String,
+      name: String,
+      signature: String,
+      line: Int,
+      kind: String,
+      count: Inhabitation.Count,
+      captures: List[String]
   )
 
   /** A source the report could not read, and what went wrong. */
@@ -150,29 +155,30 @@ object Report {
   }
 
   /** Reads every Scala source under `paths` — a file, a directory walked recursively, or a jar such
-    * as the `-sources.jar` a library publishes — and measures the definitions it finds, in
-    * `environment`. A jar of compiled classes among `paths` (a library's binary jar) joins
-    * `environment.classes`' output, read against its classpath; the sources still name and place
-    * the rows.
+    * as the `-sources.jar` a library publishes — and measures the definitions it finds from
+    * `classes`: the sources' own compiled output and the dependency classpath it is read against. A
+    * source without compiled classes is refused (with `None`, every source). A jar of compiled
+    * classes among `paths` (a library's binary jar) joins `classes`' output, which may then be
+    * empty; the sources still name and place the rows.
     */
-  def of(paths: Seq[Path], environment: Environment = Environment()): Report = {
+  def of(paths: Seq[Path], classes: Option[CompiledClasses] = None): Report = {
     val listed = paths.toList.distinct
     val binaries = listed.flatMap(path => compiledEntries(path).map(path -> _)).toMap
     // A binary jar that holds no sources is not read, nor placed, as sources.
     val found = listed.filterNot(binaries.get(_).contains(false)).map(path => path -> read(path))
     val sources = found.flatMap(_._2.toOption).flatten
-    val classes =
-      if (binaries.isEmpty) environment.classes
+    val joined =
+      if (binaries.isEmpty) classes
       else {
-        val module = environment.classes.getOrElse(CompiledTypes.Classes(Nil))
+        val module = classes.getOrElse(CompiledClasses(Nil))
         Some(module.copy(output = module.output ++ listed.filter(binaries.contains)))
       }
-    val rows = TastyFrontEnd.rows(FrontEnd.Module(sources, Environment(classes)))
+    val rows = TastyFrontEnd.rows(sources, joined)
     // The front end answers each source in order; a path that could not be read stands where it
     // was listed.
     val answers = rows.sources.iterator
     // No compiled classes of the sources' own at all: a sources jar's are missing, not some.
-    val unclassed = binaries.isEmpty && environment.classes.forall(_.output.isEmpty)
+    val unclassed = binaries.isEmpty && classes.forall(_.output.isEmpty)
     val answered = found.flatMap {
       case (_, Left(error))       => List(Left(error))
       case (path, Right(sources)) =>
@@ -289,13 +295,13 @@ object Report {
     s"$count $noun${if (count == 1) "" else "s"}"
 
   private val entryReasons =
-    lens[MethodAnalysis.Entry](_.count)
+    lens[Report.Entry](_.count)
       .andThen(prism[Inhabitation.Count, Inhabitation.Count.Unresolved])
 
   // The generic method and constructor counts, with what stands between the report and a number
   // for the rest: the triage list a reader works down.
   private def methods(
-      models: List[(Source, MethodAnalysis.Entry)],
+      models: List[(Source, Report.Entry)],
       location: String => String
   ): List[String] =
     if (models.isEmpty) Nil

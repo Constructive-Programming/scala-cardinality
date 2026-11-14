@@ -1,6 +1,7 @@
 package cardinality.analysis
 
 import cardinality.analysis.inhabitation.*
+import cardinality.reporting.Report
 import org.specs2.Specification
 
 /** Reduced relevant scopes from the pinned EO archive. These tests check the ledger's derivations,
@@ -22,7 +23,7 @@ class EoCaseLedgerSpec extends Specification {
       an additional result producer changes replace's count      $capturedFallback
   """
 
-  private def entries(code: String): Map[String, MethodAnalysis.Entry] =
+  private def entries(code: String): Map[String, Report.Entry] =
     cardinality.Compiled
       .analyze(List(cardinality.Compiled.Input("Ledger.scala", code)))
       .map(entry => entry.name -> entry)

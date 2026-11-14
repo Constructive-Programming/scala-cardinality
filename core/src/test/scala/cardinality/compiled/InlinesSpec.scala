@@ -1,6 +1,6 @@
 package cardinality.compiled
 
-import cardinality.tasty.CompiledTypes
+import cardinality.tasty.CompiledClasses
 import java.nio.file.{Files, Path}
 import org.specs2.Specification
 import org.specs2.execute.Result
@@ -80,13 +80,13 @@ class InlinesSpec extends Specification {
       classpath: List[Path] = Nil,
       read: Option[List[Path]] = None
   ): Map[String, Option[String]] = {
-    val classes = CompiledTypes.Classes(
+    val classes = CompiledClasses(
       List(compiled(code, classpath)),
       read.getOrElse(classpath) ++ libraries
     )
-    val (context, own, _) = CompiledTypes.loaded(classes)
+    val (context, own, _) = CompiledClasses.loaded(classes)
     given Context = context
-    val inlines = new Inlines(own.toSet, CompiledTypes.dependencies(classes)._1)
+    val inlines = new Inlines(own.toSet, CompiledClasses.dependencies(classes)._1)
     val found = List.newBuilder[(String, Option[String])]
     own.distinct.flatMap(_.tree).foreach { top =>
       new TreeTraverser {

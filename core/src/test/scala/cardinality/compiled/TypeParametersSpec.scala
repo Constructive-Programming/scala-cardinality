@@ -122,8 +122,7 @@ class TypeParametersSpec extends Specification {
       |}
       |""".stripMargin
 
-  private lazy val input = TastyFrontEndSpec.compiled("TypeParameters.scala" -> text)
-  private lazy val rows = TastyFrontEnd.rows(input)
+  private lazy val rows = TastyFrontEndSpec.rows("TypeParameters.scala" -> text)
 
   private def count(name: String): Count =
     rows.sources

@@ -103,8 +103,7 @@ class ContextualSpec extends Specification {
       |final class Sec(using Pv, Rv) { def this()(using Qv, Qv) = this(using Pv(true), Rv(true)) }
       |""".stripMargin
 
-  private lazy val input = TastyFrontEndSpec.compiled("Contextual.scala" -> text)
-  private lazy val rows = TastyFrontEnd.rows(input)
+  private lazy val rows = TastyFrontEndSpec.rows("Contextual.scala" -> text)
 
   private def count(name: String): Count =
     rows.sources

@@ -1,6 +1,7 @@
 package cardinality.analysis
 
 import cardinality.analysis.inhabitation.*
+import cardinality.reporting.Report
 import org.specs2.matcher.{MatchResult, MustMatchers}
 
 /** Source-to-row helpers of the method-side specs: every row of a fixture by name. A single source
@@ -15,7 +16,7 @@ trait InventoryFixtures extends MustMatchers {
   protected def counts(sources: (String, String)*): Map[String, Count] =
     cardinality.Compiled.analyze(inputs(sources*)).map(e => e.name -> e.count).toMap
 
-  protected def entries(code: String): List[MethodAnalysis.Entry] =
+  protected def entries(code: String): List[Report.Entry] =
     cardinality.Compiled.analyze(inputs("Example.scala" -> code))
 
   protected def rows(code: String): Map[String, Count] =

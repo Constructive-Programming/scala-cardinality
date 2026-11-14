@@ -3,6 +3,7 @@ package cardinality.analysis
 import cardinality.Pending
 import cardinality.analysis.inhabitation.*
 import cardinality.capacity.EffectiveOmega
+import cardinality.reporting.Report
 import org.specs2.Specification
 
 class MethodAnalysisSpec extends Specification with InventoryFixtures {
@@ -66,7 +67,7 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       read a package-private product from a sibling file          $packagePrivateProduct
   """
 
-  private def entry(code: String, name: String): MethodAnalysis.Entry =
+  private def entry(code: String, name: String): Report.Entry =
     cardinality.Compiled.analyze(inputs("Example.scala" -> code)).find(_.name == name).get
 
   def choose =

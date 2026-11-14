@@ -1,10 +1,9 @@
 package cardinality
 
-import cardinality.analysis.MethodAnalysis
 import cardinality.capacity.Definition
 import cardinality.compiled.TastyFrontEnd
-import cardinality.reporting.{FrontEnd, Report}
-import cardinality.tasty.CompiledTypes
+import cardinality.reporting.Report
+import cardinality.tasty.CompiledClasses
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
 import java.security.MessageDigest
@@ -160,10 +159,8 @@ object Compiled {
     )
     val classpath = supplied(inputs, found.output.head, dependencies)
     val answered = TastyFrontEnd.rows(
-      FrontEnd.Module(
-        module.map(input => input.path -> input.text),
-        Report.Environment(classes = Some(found.copy(classpath = classpath)))
-      )
+      module.map(input => input.path -> input.text),
+      Some(found.copy(classpath = classpath))
     )
     if (answered.warnings.nonEmpty) throw new AssertionError(answered.warnings.mkString("; "))
     Report(
@@ -195,7 +192,7 @@ object Compiled {
   /** A source set's compiled classes and the classpath a build hands with them (the set's own units
     * and the Scala library), for a caller that writes the files itself.
     */
-  def classesOf(files: (String, String)*): CompiledTypes.Classes =
+  def classesOf(files: (String, String)*): CompiledClasses =
     classes(inputs(files*)).getOrElse(
       throw new AssertionError("no compiled classes: scalac rejects this fixture")
     )
@@ -243,7 +240,7 @@ object Compiled {
   private def classes(
       inputs: List[Input],
       dependencies: List[Path] = Nil
-  ): Option[CompiledTypes.Classes] = {
+  ): Option[CompiledClasses] = {
     val sources = inputs // every source, support and units included
     val key =
       digest(
@@ -271,7 +268,7 @@ object Compiled {
     // withheld declaration is written by its name, which the analysis then does not resolve.
     out.map { dir =>
       val support = List(dir.resolveSibling("support")).filter(Files.isDirectory(_))
-      CompiledTypes.Classes(List(dir), supplied(inputs, dir, dependencies ++ support))
+      CompiledClasses(List(dir), supplied(inputs, dir, dependencies ++ support))
     }
   }
 
@@ -300,7 +297,7 @@ object Compiled {
   }
 
   /** The method rows of a source set. */
-  def analyze(inputs: List[Input]): List[MethodAnalysis.Entry] = read(inputs).methods
+  def analyze(inputs: List[Input]): List[Report.Entry] = read(inputs).methods
 
   // What every fixture is compiled with, beside its output and classpath. `-Xkind-projector` reads
   // the `F[A, *]` placeholder some fixtures spell, as the libraries that write it compile.

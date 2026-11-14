@@ -1,7 +1,7 @@
 package cardinality
 
 import cardinality.reporting.{Report, Skill}
-import cardinality.tasty.CompiledTypes
+import cardinality.tasty.CompiledClasses
 import sbt.*
 import sbt.Keys.*
 import sbt.util.CacheImplicits.given
@@ -76,7 +76,7 @@ object CardinalityPlugin extends AutoPlugin {
       val scalaSources = (Compile / sources).value
       report(
         log,
-        Report.of(scalaSources.map(_.toPath), Report.Environment(compiled.value)),
+        Report.of(scalaSources.map(_.toPath), compiled.value),
         cardinalityReportFile.value
       )
     },
@@ -91,10 +91,7 @@ object CardinalityPlugin extends AutoPlugin {
       Def.uncached {
         report(
           log,
-          Report.of(
-            paths.map(path => file(path).toPath),
-            Report.Environment(Some(libraryClasses.value))
-          ),
+          Report.of(paths.map(path => file(path).toPath), Some(libraryClasses.value)),
           cardinalityReportFile.value
         )
       }
@@ -103,13 +100,8 @@ object CardinalityPlugin extends AutoPlugin {
       val names = Def.spaceDelimited("<qualified-method-name>...").parsed
       Def.uncached {
         if (names.isEmpty) sys.error("provide at least one qualified method name")
-        val found = Report.query(
-          Report.Query(
-            (Compile / sources).value.map(_.toPath),
-            names.toSet,
-            Report.Environment(compiled.value)
-          )
-        )
+        val found =
+          Report.query((Compile / sources).value.map(_.toPath), names.toSet, compiled.value)
         written(
           streams.value.log,
           found.render,
@@ -129,7 +121,7 @@ object CardinalityPlugin extends AutoPlugin {
     val classpath = cardinalityDependencyClasspath.value.map(converter.toPath)
     (Compile / exportedProducts).result.value.toEither match {
       case Right(products) =>
-        Some(CompiledTypes.Classes(products.map(entry => converter.toPath(entry.data)), classpath))
+        Some(CompiledClasses(products.map(entry => converter.toPath(entry.data)), classpath))
       case Left(_) =>
         streams.value.log.warn("sources do not compile: the report reads none of them")
         None
@@ -138,7 +130,7 @@ object CardinalityPlugin extends AutoPlugin {
 
   // What a binary jar given to `cardinalityReportOf` is read against: the project's dependencies.
   private val libraryClasses = Def.task {
-    CompiledTypes.Classes(Nil, cardinalityDependencyClasspath.value.map(fileConverter.value.toPath))
+    CompiledClasses(Nil, cardinalityDependencyClasspath.value.map(fileConverter.value.toPath))
   }
 
   // Writes the report under `target/`, logs it, and fails the task when a source could not be read:

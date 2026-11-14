@@ -12,15 +12,15 @@ import tastyquery.Names.{termName, ObjectClassTypeName, PackageFullName}
 import tastyquery.Symbols.*
 import tastyquery.jdk.ClasspathLoaders
 
+/** The module's compiled output, and the classpath its types are read against. */
+final case class CompiledClasses(output: Seq[Path], classpath: Seq[Path] = Nil)
+
 /** The module's compiled classes and its dependencies' (docs/plans/compiled-own-types.md), read
   * with tasty-query: Scala 3 (TASTy), Scala 2 (pickle) and Java (`.class`) classes, the running
   * JDK's among them. The TASTy front end reads its symbols and trees from the context `loaded`
   * makes.
   */
-object CompiledTypes {
-
-  /** The module's compiled output, and the classpath its types are read against. */
-  final case class Classes(output: Seq[Path], classpath: Seq[Path] = Nil)
+object CompiledClasses {
 
   // The running JDK's classes, read and indexed once: each read starts from them, and a class a
   // later entry declares again is not seen (`firstLoaded`).
@@ -37,7 +37,9 @@ object CompiledTypes {
   /** The module's own top-level classes, in a context over the JDK, its output and its classpath,
     * with why each class that does not load fails.
     */
-  private[cardinality] def loaded(classes: Classes): (Context, List[ClassSymbol], List[String]) = {
+  private[cardinality] def loaded(
+      classes: CompiledClasses
+  ): (Context, List[ClassSymbol], List[String]) = {
     val (jdkEntries, jdkNames) = jdk
     val output = classes.output.toList.map(readable)
     val own = output.flatMap(path => ClasspathLoaders.read(List(path)))
@@ -59,7 +61,7 @@ object CompiledTypes {
     * read as it is listed, so this is asked only where a reading needs every one of them.
     */
   private[cardinality] def dependencies(
-      classes: Classes
+      classes: CompiledClasses
   )(using Context): (List[ClassSymbol], List[String]) =
     classesOf(firstLoaded(classpath(classes), jdk._2))
 
@@ -67,7 +69,9 @@ object CompiledTypes {
     * the module's classpath: the names of its enum constants, in order, and whether it is sealed. A
     * class file that is not found or read is sealed with no constants.
     */
-  private[cardinality] def javaFacts(classes: Classes): ClassSymbol => (List[String], Boolean) = {
+  private[cardinality] def javaFacts(
+      classes: CompiledClasses
+  ): ClassSymbol => (List[String], Boolean) = {
     val read = javaClassfiles(jdk._1 ++ classpath(classes))
     c => {
       val file = read(c)
@@ -80,12 +84,10 @@ object CompiledTypes {
     */
   final case class ClassFile(binary: String, parents: List[String], methods: List[String])
 
-  /** The local and anonymous classes of the classes without TASTy (`Lone$1`, `Foo$$anon$1`) in the
-    * module's output (`ofModule`) or on its classpath. A class with TASTy holds its own in its
-    * tree.
+  /** The local and anonymous classes of the classes without TASTy (`Lone$1`, `Foo$$anon$1`) in
+    * `paths`, the module's output or its classpath. A class with TASTy holds its own in its tree.
     */
-  private[cardinality] def unnamed(classes: Classes, ofModule: Boolean): List[ClassFile] = {
-    val paths = if (ofModule) classes.output.toList else classes.classpath.toList.distinct
+  private[cardinality] def unnamed(paths: List[Path]): List[ClassFile] =
     for {
       entry <- paths.map(readable).flatMap(path => ClasspathLoaders.read(List(path)))
       pkg <- entry.listAllPackages()
@@ -101,9 +103,8 @@ object CompiledTypes {
         if (pkg.dotSeparatedName.isEmpty) "" else pkg.dotSeparatedName.replace('.', '/') + "/"
       ClassFile(prefix + name, file.parents, file.methods)
     }
-  }
 
-  private def classpath(classes: Classes): List[ClasspathEntry] =
+  private def classpath(classes: CompiledClasses): List[ClasspathEntry] =
     classes.classpath.toList.distinct
       .map(readable)
       .flatMap(path => ClasspathLoaders.read(List(path)))

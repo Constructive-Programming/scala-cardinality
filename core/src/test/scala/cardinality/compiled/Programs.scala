@@ -3,7 +3,7 @@ package cardinality.compiled
 import scala.jdk.CollectionConverters.*
 
 import cardinality.Compiled
-import cardinality.tasty.CompiledTypes
+import cardinality.tasty.CompiledClasses
 import java.nio.file.{FileSystems, Files, Path}
 import tastyquery.Contexts.*
 import tastyquery.Symbols.ClassSymbol
@@ -43,18 +43,18 @@ private[cardinality] object Programs {
   }
 
   /** A module's classes loaded: its top-level classes, why any did not load, and what
-    * `CompiledTypes.dependencies` is asked with.
+    * `CompiledClasses.dependencies` is asked with.
     */
   final class Loaded(
       val context: Context,
       val own: List[ClassSymbol],
       val unloaded: List[String],
-      val classes: CompiledTypes.Classes
+      val classes: CompiledClasses
   ) {
 
     /** The classes of the dependency classpath, and why any did not load. */
     def dependencies: (List[ClassSymbol], List[String]) =
-      CompiledTypes.dependencies(classes)(using context)
+      CompiledClasses.dependencies(classes)(using context)
 
     /** The closed world over the module and its classpath. */
     def closed: ClosedProgram = {
@@ -63,8 +63,8 @@ private[cardinality] object Programs {
         own,
         unloaded,
         dependencies,
-        CompiledTypes.unnamed(classes, ofModule = true),
-        CompiledTypes.unnamed(classes, ofModule = false)
+        CompiledClasses.unnamed(classes.output.toList),
+        CompiledClasses.unnamed(classes.classpath.toList.distinct)
       )
     }
 
@@ -75,8 +75,8 @@ private[cardinality] object Programs {
     */
   def loaded(code: String, classpath: List[Path] = Nil, read: Option[List[Path]] = None): Loaded = {
     val classes =
-      CompiledTypes.Classes(List(compiled(code, classpath)), read.getOrElse(classpath) ++ libraries)
-    val (context, own, unloaded) = CompiledTypes.loaded(classes)
+      CompiledClasses(List(compiled(code, classpath)), read.getOrElse(classpath) ++ libraries)
+    val (context, own, unloaded) = CompiledClasses.loaded(classes)
     new Loaded(context, own.distinct, unloaded, classes)
   }
 

@@ -186,8 +186,7 @@ class RecordsSpec extends Specification {
       |}
       |""".stripMargin
 
-  private lazy val input = TastyFrontEndSpec.compiled("Records.scala" -> text)
-  private lazy val rows = TastyFrontEnd.rows(input)
+  private lazy val rows = TastyFrontEndSpec.rows("Records.scala" -> text)
 
   private def count(name: String): Count =
     rows.sources

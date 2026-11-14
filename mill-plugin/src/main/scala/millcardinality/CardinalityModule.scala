@@ -1,7 +1,7 @@
 package millcardinality
 
 import cardinality.reporting.{Report, Skill}
-import cardinality.tasty.CompiledTypes
+import cardinality.tasty.CompiledClasses
 import mainargs.Leftover
 import mill.*
 import mill.api.{BuildCtx, Result}
@@ -21,15 +21,12 @@ trait CardinalityModule extends ScalaModule {
 
   // This module's compiled classes and the classpath their types refer to: the report reads them.
   private def compiled = Task.Anon {
-    CompiledTypes.Classes(
-      Seq(compile().classes.path.toNIO),
-      dependencyJars()
-    )
+    CompiledClasses(Seq(compile().classes.path.toNIO), dependencyJars())
   }
 
   /** Report the cardinality of this module's sources. */
   def cardinalityReport(): Command[PathRef] = Task.Command {
-    report(Report.of(allSourceFiles().map(_.path.toNIO), Report.Environment(Some(compiled()))))
+    report(Report.of(allSourceFiles().map(_.path.toNIO), Some(compiled())))
   }
 
   /** Report the cardinality of the Scala sources at the given paths: files, directories, or a
@@ -40,7 +37,7 @@ trait CardinalityModule extends ScalaModule {
     report(
       Report.of(
         paths.value.map(os.Path(_, mill.api.BuildCtx.workspaceRoot).toNIO),
-        Report.Environment(Some(CompiledTypes.Classes(Nil, dependencyJars())))
+        Some(CompiledClasses(Nil, dependencyJars()))
       )
     )
   }
@@ -48,13 +45,8 @@ trait CardinalityModule extends ScalaModule {
   /** The implementation report of the given qualified method names alone. */
   def cardinalityReportSelected(names: Leftover[String]): Command[PathRef] = Task.Command {
     if (names.value.isEmpty) Task.fail("provide at least one qualified method name")
-    val found = Report.query(
-      Report.Query(
-        allSourceFiles().map(_.path.toNIO),
-        names.value.toSet,
-        Report.Environment(Some(compiled()))
-      )
-    )
+    val found =
+      Report.query(allSourceFiles().map(_.path.toNIO), names.value.toSet, Some(compiled()))
     written(found.render, found.report.errors.size, "selected report error(s)")
   }
 

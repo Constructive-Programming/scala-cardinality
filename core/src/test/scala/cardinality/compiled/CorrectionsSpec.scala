@@ -101,9 +101,8 @@ class CorrectionsSpec extends Specification {
       |}
       |""".stripMargin
 
-  private lazy val input = TastyFrontEndSpec.compiled("Fix.scala" -> text)
-
-  private lazy val rows: List[Report.Source] = TastyFrontEnd.rows(input).sources.flatMap(_.toOption)
+  private lazy val rows: List[Report.Source] =
+    TastyFrontEndSpec.rows("Fix.scala" -> text).sources.flatMap(_.toOption)
 
   // A row's field.
   private def field[R, A](of: Report.Source => List[R], name: R => String, field: R => A)(

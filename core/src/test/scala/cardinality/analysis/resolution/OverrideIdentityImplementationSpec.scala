@@ -1,8 +1,8 @@
 package cardinality.analysis.resolution
 
 import cardinality.Pending
-import cardinality.analysis.*
 import cardinality.analysis.inhabitation.*
+import cardinality.reporting.Report
 import org.specs2.Specification
 
 class OverrideIdentityImplementationSpec extends Specification {
@@ -29,7 +29,7 @@ class OverrideIdentityImplementationSpec extends Specification {
       ignores parameter annotations when identifying the target slot     $annotated
   """
 
-  private def analyze(files: (String, String)*): List[MethodAnalysis.Entry] =
+  private def analyze(files: (String, String)*): List[Report.Entry] =
     cardinality.Compiled.analyze(cardinality.Compiled.inputs(files*))
 
   private def count(source: String): Count =

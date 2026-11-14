@@ -2,11 +2,11 @@ package cardinality.compiled
 
 import scala.util.control.NonFatal
 
-import cardinality.analysis.MethodAnalysis.Entry
 import cardinality.analysis.inhabitation.Inhabitation.Count
 import cardinality.capacity.Definition
-import cardinality.reporting.{FrontEnd, Report}
-import cardinality.tasty.CompiledTypes
+import cardinality.reporting.Report
+import cardinality.reporting.Report.Entry
+import cardinality.tasty.CompiledClasses
 import tastyquery.Contexts.*
 import tastyquery.Exceptions.MemberNotFoundException
 import tastyquery.Symbols.ClassSymbol
@@ -26,12 +26,18 @@ private[cardinality] object TastyFrontEnd {
   /** Why a source that defines something and has no compiled classes is not read. */
   val Uncompiled = "no compiled classes for this source"
 
-  def rows(module: FrontEnd.Module): FrontEnd.Rows =
-    module.environment.classes match {
-      case None          => refused(module.sources, "no compiled classes supplied")
+  /** One answer per source, in the order given: its rows, or why it could not be read. `warnings`
+    * lists what of the compiled classes could not be read.
+    */
+  final case class Rows(sources: List[Either[Report.Error, Report.Source]], warnings: List[String])
+
+  /** The rows of each source (its path and text), read from `classes`. */
+  def rows(sources: List[(String, String)], classes: Option[CompiledClasses]): Rows =
+    classes match {
+      case None          => refused(sources, "no compiled classes supplied")
       case Some(classes) =>
         loaded(classes) match {
-          case Left(why)                       => refused(module.sources, why)
+          case Left(why)                       => refused(sources, why)
           case Right((context, own, unloaded)) =>
             given Context = context
             // The classpath's classes are listed only where a reading needs them (an inline body
@@ -39,7 +45,7 @@ private[cardinality] object TastyFrontEnd {
             // `ClosedProgram`): a class that does not load then is a warning of the report.
             var missed = List.empty[String]
             lazy val dependencies = {
-              val (found, failed) = CompiledTypes.dependencies(classes)
+              val (found, failed) = CompiledClasses.dependencies(classes)
               // A class tasty-query refuses to enter twice (a second jar of the standard library
               // declaring `scala.caps` again) is the class the context already holds: not lost.
               missed = failed.filterNot(_.contains("trying to add a second entry"))
@@ -51,34 +57,34 @@ private[cardinality] object TastyFrontEnd {
               own.distinct,
               unloaded,
               (dependencies, missed),
-              CompiledTypes.unnamed(classes, ofModule = true),
-              CompiledTypes.unnamed(classes, ofModule = false)
+              CompiledClasses.unnamed(classes.output.toList),
+              CompiledClasses.unnamed(classes.classpath.toList.distinct)
             )
-            val sources =
+            val answers =
               read(
-                module.sources,
+                sources,
                 own,
                 new Inlines(own.toSet, dependencies),
                 closed,
                 // A class file is read only for a class without TASTy that a type names.
                 {
-                  lazy val facts = CompiledTypes.javaFacts(classes)
+                  lazy val facts = CompiledClasses.javaFacts(classes)
                   new DependencyClasses(c => facts(c))
                 }
               )
-            FrontEnd.Rows(
-              sources,
+            Rows(
+              answers,
               (unloaded ++ missed).map(why => s"compiled class not read: $why")
             )
         }
     }
 
-  private def loaded(classes: CompiledTypes.Classes) =
-    try Right(CompiledTypes.loaded(classes))
+  private def loaded(classes: CompiledClasses) =
+    try Right(CompiledClasses.loaded(classes))
     catch { case NonFatal(error) => Left(s"compiled classes not read: $error") }
 
-  private def refused(sources: List[(String, String)], why: String): FrontEnd.Rows =
-    FrontEnd.Rows(sources.map((path, _) => Left(Report.Error(path, why))), Nil)
+  private def refused(sources: List[(String, String)], why: String): Rows =
+    Rows(sources.map((path, _) => Left(Report.Error(path, why))), Nil)
 
   private def read(
       sources: List[(String, String)],

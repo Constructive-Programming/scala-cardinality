@@ -3,6 +3,7 @@ package cardinality.analysis
 import cardinality.Pending
 import cardinality.analysis.inhabitation.*
 import cardinality.capacity.EffectiveOmega
+import cardinality.reporting.Report
 import org.specs2.Specification
 
 /** Top types read by their place in their own arrow, goals with one value, and unions read as
@@ -136,7 +137,7 @@ class TopTypesUnionSpec extends Specification {
     )}
   """
 
-  private def entry(code: String, name: String): MethodAnalysis.Entry =
+  private def entry(code: String, name: String): Report.Entry =
     cardinality.Compiled
       .analyze(cardinality.Compiled.inputs("Top.scala" -> code))
       .find(_.name == name)

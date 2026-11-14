@@ -68,8 +68,7 @@ class PathTypesSpec extends Specification {
       |}
       |""".stripMargin
 
-  private lazy val input = TastyFrontEndSpec.compiled("Paths.scala" -> text)
-  private lazy val rows = TastyFrontEnd.rows(input)
+  private lazy val rows = TastyFrontEndSpec.rows("Paths.scala" -> text)
 
   private def count(name: String): Count =
     rows.sources

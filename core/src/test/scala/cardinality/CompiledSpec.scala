@@ -3,8 +3,8 @@ package cardinality
 import scala.meta.*
 import scala.meta.dialects.Scala3
 
-import cardinality.analysis.MethodAnalysis
 import cardinality.analysis.inhabitation.Inhabitation.Count
+import cardinality.reporting.Report
 import org.specs2.mutable.Specification
 
 /** The fixture harness's withheld support (`Compiled.withheld`): a declaration the fixture names is
@@ -22,7 +22,7 @@ class CompiledSpec extends Specification {
   private val user = "U.scala" ->
     "import ext.Schema\nobject U { def keep(s: Schema): Schema = s; val made = ext.Make.one }"
 
-  private def rows(sources: (String, String)*): List[MethodAnalysis.Entry] =
+  private def rows(sources: (String, String)*): List[Report.Entry] =
     Compiled.analyze(Compiled.inputs(sources*))
 
   private lazy val withheld = rows(user._1 -> (user._2 + Compiled.withheld(schema)))

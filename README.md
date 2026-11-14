@@ -324,7 +324,7 @@ methods; a Java class's constructor state, a sealed Java type's subclasses and a
 read, so a reading through them refuses. A class that cannot be read is listed as `compiled class
 not read` and refuses more, never differently. Choose the dependencies with
 `cardinalityDependencyClasspath`; in the library,
-`Report.of(paths, Report.Environment(Some(CompiledTypes.Classes(output, classpath))))`.
+`Report.of(paths, Some(CompiledClasses(output, classpath)))` (`cardinality.tasty.CompiledClasses`).
 
 `sbt "cardinalityReportOf <path>..."` runs the same report over a library the build does not
 compile itself: its binary jar, which carries its TASTy, read against the project's dependency
@@ -437,7 +437,7 @@ sbt 'cardinalityReportSelected example.Accessor.get'
 
 The module's report, its method rows filtered by qualified name (every matching overload), without
 the stored-value estimates. A name no row has fails the task, unless a source could not be read.
-The library entry point is `Report.query(Report.Query(targets, targetNames, environment))` with
+The library entry point is `Report.query(targets, targetNames, classes)` with
 `cardinality.reporting.Report`.
 
 ## Quality toolchain

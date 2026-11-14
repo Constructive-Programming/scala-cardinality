@@ -276,7 +276,7 @@ class ReportSpec extends Specification {
     val binary = zipped(compiledEntries)
     val sources = zipped(List(source))
     val environment =
-      Report.Environment(Some(cardinality.tasty.CompiledTypes.Classes(Nil, compiled.classpath)))
+      Some(cardinality.tasty.CompiledClasses(Nil, compiled.classpath))
     val read = Report.of(List(binary, sources), environment)
     val alone = Report.of(List(binary), environment)
     // A jar of both is its own sources jar.

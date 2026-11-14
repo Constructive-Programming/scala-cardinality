@@ -163,8 +163,7 @@ class TypeFormsSpec extends Specification {
       |}
       |""".stripMargin
 
-  private lazy val input = TastyFrontEndSpec.compiled("Forms.scala" -> text)
-  private lazy val rows = TastyFrontEnd.rows(input)
+  private lazy val rows = TastyFrontEndSpec.rows("Forms.scala" -> text)
 
   private def count(name: String): Count =
     rows.sources

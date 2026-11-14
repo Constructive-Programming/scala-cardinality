@@ -1,9 +1,9 @@
 package cardinality.reporting
 
 import cardinality.Pending
-import cardinality.analysis.MethodAnalysis
 import cardinality.analysis.inhabitation.Inhabitation.Count
 import cardinality.capacity.*
+import cardinality.reporting.Report
 import java.io.FileOutputStream
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
@@ -60,10 +60,10 @@ class ReportHygieneSpec extends Specification with AfterAll {
       an exact count prints its digits                      $exactRow
     """
 
-  private def entries(code: String): List[MethodAnalysis.Entry] =
+  private def entries(code: String): List[Report.Entry] =
     cardinality.Compiled.analyze(cardinality.Compiled.inputs("Example.scala" -> code))
 
-  private def reasons(entry: MethodAnalysis.Entry): List[String] = entry.count match {
+  private def reasons(entry: Report.Entry): List[String] = entry.count match {
     case Count.Unresolved(found) => found
     case _                       => Nil
   }
@@ -441,7 +441,7 @@ class ReportHygieneSpec extends Specification with AfterAll {
 
   def tally = {
     def blocked(name: String, reason: String) =
-      MethodAnalysis.Entry(
+      Report.Entry(
         "p/A.scala",
         name,
         s"$name: Unit",

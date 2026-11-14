@@ -5,7 +5,7 @@ import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 import org.specs2.matcher.MatchResult
 
-/** Inferred results are the compiler's (rule T, `CompiledTypes`): every fixture is compiled first
+/** Inferred results are the compiler's (rule T, `CompiledClasses`): every fixture is compiled first
   * (`cardinality.Compiled`), and a member written without a type reads the type scalac gave it. A
   * fixture the compiler rejects (a name outside the sources is the point) is read as written: its
   * untyped members refuse, the compiler's inference is not imitated. Each expected number is

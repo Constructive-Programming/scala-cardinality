@@ -184,8 +184,7 @@ class ReceiversSpec extends Specification {
       |}
       |""".stripMargin
 
-  private lazy val input = TastyFrontEndSpec.compiled("Receivers.scala" -> text)
-  private lazy val rows = TastyFrontEnd.rows(input)
+  private lazy val rows = TastyFrontEndSpec.rows("Receivers.scala" -> text)
 
   private def entry(name: String) =
     rows.sources.flatMap(_.toOption.toList.flatMap(_.methods)).find(_.name == name).get

@@ -80,8 +80,7 @@ class ConstructionSpec extends Specification {
       |object Rose { val boom: Int = ??? }
       |""".stripMargin
 
-  private lazy val input = TastyFrontEndSpec.compiled("Construction.scala" -> text)
-  private lazy val rows = TastyFrontEnd.rows(input)
+  private lazy val rows = TastyFrontEndSpec.rows("Construction.scala" -> text)
 
   private def count(name: String): Count = counts(name).head
 

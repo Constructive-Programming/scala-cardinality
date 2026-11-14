@@ -204,7 +204,7 @@ class StoredRecursionSpec extends Specification {
       |""".stripMargin
 
   private lazy val rows =
-    TastyFrontEnd.rows(TastyFrontEndSpec.compiled("Rec.scala" -> text))
+    TastyFrontEndSpec.rows("Rec.scala" -> text)
 
   // A definition row as the report shows it: its size, or its first reason up to what it names.
   private def definition(name: String): String = {

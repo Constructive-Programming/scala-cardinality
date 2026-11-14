@@ -1,6 +1,6 @@
 package cardinality.reporting
 
-import cardinality.tasty.CompiledTypes
+import cardinality.tasty.CompiledClasses
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.Files
 import java.util.zip.{ZipEntry, ZipOutputStream}
@@ -16,7 +16,7 @@ class SourcesJarSpec extends Specification {
     Beside compiled classes, a sources jar's source without classes keeps its own error $beside
   """
 
-  private val uncompiled = Report.Environment(Some(CompiledTypes.Classes(Nil)))
+  private val uncompiled = Some(CompiledClasses(Nil))
 
   private def sourcesJar() = {
     val jar = Files.createTempFile(cardinality.Compiled.temporary("sources"), "lib", "-sources.jar")
@@ -43,9 +43,7 @@ class SourcesJarSpec extends Specification {
   }
 
   def beside = {
-    val output = Report.Environment(
-      Some(CompiledTypes.Classes(List(cardinality.Compiled.temporary("classes"))))
-    )
+    val output = Some(CompiledClasses(List(cardinality.Compiled.temporary("classes"))))
     Report.of(List(sourcesJar()), output).errors.map(_.message) ===
       List.fill(2)("no compiled classes for this source")
   }

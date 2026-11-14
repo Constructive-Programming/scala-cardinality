@@ -1,6 +1,7 @@
 package cardinality.analysis
 
 import cardinality.analysis.inhabitation.*
+import cardinality.reporting.Report
 import org.specs2.Specification
 
 class MethodUnionNullabilitySpec extends Specification {
@@ -22,7 +23,7 @@ class MethodUnionNullabilitySpec extends Specification {
       respect a source declaration shadowing Null                    $shadowedNull
   """
 
-  private def entry(code: String, name: String = "pick"): MethodAnalysis.Entry =
+  private def entry(code: String, name: String = "pick"): Report.Entry =
     cardinality.Compiled
       .analyze(List(cardinality.Compiled.Input("Union.scala", code)))
       .find(_.name == name)

@@ -700,7 +700,12 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       |object Local { def make(): Unit = { final case class Loc() extends L; () } }
       |object UseL { def makeL(): L = ??? }""".stripMargin)
     refused(found("UseS.makeS"), "sealed subtype is an inner or local class: In")
-      .and(refused(found("UseL.makeL"), "sealed family has local or anonymous subclasses in its file: L"))
+      .and(
+        refused(
+          found("UseL.makeL"),
+          "sealed family has local or anonymous subclasses in its file: L"
+        )
+      )
   }
 
   // A child declared in a val, lazy val, given, lambda, if arm or top-level val block is a class per
