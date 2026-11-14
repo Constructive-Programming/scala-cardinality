@@ -38,14 +38,14 @@ final private[compiled] class Matches(using Context) {
 
   def apply(tree: Tree): List[Tree] = tree match {
     case _: Match | Apply(Select(_, _), _) | Select(_, _) =>
-      val found = built.get(tree)
-      if (found != null) found
-      else {
-        val calls = Try(inserted(tree)(using tree.pos)).getOrElse(Nil)
-        if (calls.nonEmpty) built.put(tree, calls): Unit
-        calls
-      }
+      Option(built.get(tree)).getOrElse(build(tree))
     case _ => Nil
+  }
+
+  private def build(tree: Tree): List[Tree] = {
+    val calls = Try(inserted(tree)(using tree.pos)).getOrElse(Nil)
+    if (calls.nonEmpty) built.put(tree, calls): Unit
+    calls
   }
 
   private def inserted(tree: Tree)(using SourcePosition): List[Tree] = tree match {
@@ -76,35 +76,52 @@ final private[compiled] class Matches(using Context) {
         !ofAny(m, "==") && typed.exists(takes(m, _))
       ))
         .map(Apply(_, List(scrutinee))(at))
-    case Unapply(fun, implicits, patterns) =>
-      val applied = Apply(fun, List(scrutinee))(at)
-      val result = if (implicits.isEmpty) applied else Apply(applied, implicits)(at)
-      val sequence =
-        World.named(Reentry.unapplied(fun)._1).exists(_.name.toString == "unapplySeq")
-      val product = products(result)
-      // What the match selects, and what each pattern is matched against.
-      val (selected, values) =
-        if (!sequence && product.sizeIs == patterns.size && patterns.nonEmpty)
-          (product, product.map(List(_)))
-        else {
-          val got = select(result, "get", parameterless = true)
-          val base = got.headOption.getOrElse(result)
-          val (read, yielded) =
-            if (sequence) elements(base, patterns.size)
-            else if (got.isEmpty || patterns.sizeIs == 1) (Nil, patterns.map(_ => got))
-            else (selectors(base), selectors(base).map(List(_)))
-          (
-            Option
-              .when(got.nonEmpty)(select(result, "isEmpty", parameterless = true))
-              .toList
-              .flatten
-              ++ got ++ read,
-            yielded
-          )
-        }
-      result :: selected ++ values.flatten ++
-        patterns.lazyZip(values).flatMap((inner, value) => value.flatMap(matched(inner, _)))
-    case _ => Nil
+    case Unapply(fun, implicits, patterns) => extracted(fun, implicits, patterns, scrutinee)
+    case _                                 => Nil
+  }
+
+  private def extracted(
+      fun: TermTree,
+      implicits: List[TermTree],
+      patterns: List[PatternTree],
+      scrutinee: TermTree
+  )(using at: SourcePosition): List[Tree] = {
+    val applied = Apply(fun, List(scrutinee))(at)
+    val result = if (implicits.isEmpty) applied else Apply(applied, implicits)(at)
+    val sequence =
+      World.named(Reentry.unapplied(fun)._1).exists(_.name.toString == "unapplySeq")
+    val product = products(result)
+    // What the match selects, and what each pattern is matched against.
+    val (selected, values) =
+      if (!sequence && tupled(product, patterns)) (product, product.map(List(_)))
+      else optional(result, patterns.size, sequence)
+    result :: selected ++ values.flatten ++
+      patterns.lazyZip(values).flatMap((inner, value) => value.flatMap(matched(inner, _)))
+  }
+
+  // Whether an extractor's result is a `Product` of as many as the patterns.
+  private def tupled(product: List[TermTree], patterns: List[PatternTree]): Boolean =
+    product.sizeIs == patterns.size && patterns.nonEmpty
+
+  // An extractor's result read through `isEmpty` and `get`, for `count` patterns: what is selected,
+  // and what each pattern is matched against.
+  private def optional(result: TermTree, count: Int, sequence: Boolean)(using
+      SourcePosition
+  ): (List[TermTree], List[List[TermTree]]) = {
+    val got = select(result, "get", parameterless = true)
+    val base = got.headOption.getOrElse(result)
+    val (read, yielded) =
+      if (sequence) elements(base, count)
+      else if (got.isEmpty || count == 1) (Nil, List.fill(count)(got))
+      else (selectors(base), selectors(base).map(List(_)))
+    (
+      Option
+        .when(got.nonEmpty)(select(result, "isEmpty", parameterless = true))
+        .toList
+        .flatten
+        ++ got ++ read,
+      yielded
+    )
   }
 
   // A sequence read for `count` patterns: what is selected, and what each pattern is matched against.
