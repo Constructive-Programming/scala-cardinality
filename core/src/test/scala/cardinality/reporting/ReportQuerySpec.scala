@@ -64,6 +64,9 @@ class ReportQuerySpec extends Specification {
     val found = Report.query(query).report
     val missing = Report.query(query.copy(targetNames = Set("p.get", "p.missing"))).report
     val uncompiled = Report.query(query.copy(environment = query.environment.copy(classes = None)))
+    // A support source may override what the targets call: not in the compiled module, it is
+    // refused rather than left out of the closed world.
+    val supported = Report.query(query.copy(support = Seq(main))).report
     (found.errors === Nil)
       .and(found.methods.map(m => m.name -> m.count) === List("p.get" -> Count.Finite(1)))
       .and(found.definitions === Nil)
@@ -73,6 +76,8 @@ class ReportQuerySpec extends Specification {
           Report.Error(main.toString, "no compiled classes supplied")
         )
       )
+      .and(supported.errors === List(Report.Error("", Report.SupportUnread)))
+      .and(supported.methods === Nil)
   }
 
   def incomplete = {

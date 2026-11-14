@@ -152,13 +152,17 @@ object Report {
   // A selected report from the compiled classes: the targets' report, its method rows filtered by
   // qualified name (all of them when no name is given). The support is compiled with the module,
   // so its classes are already read and its sources are not needed; the limits and budgets bound
-  // the syntax search only and have no counterpart here.
+  // the syntax search only and have no counterpart here. Support sources outside the module are
+  // refused: an overrider there would be missing from the closed world, the count wrong.
   private def selected(request: Query): QueryResult = {
     val report =
-      try of(request.targets, request.environment)
-      catch {
-        case scala.util.control.NonFatal(error) => acquisitionFailed(error)
-      }
+      if (request.support.nonEmpty)
+        Report(Nil, List(Error("", Report.SupportUnread)))
+      else
+        try of(request.targets, request.environment)
+        catch {
+          case scala.util.control.NonFatal(error) => acquisitionFailed(error)
+        }
     def chosen(entry: MethodAnalysis.Entry) =
       request.targetNames.isEmpty || request.targetNames(entry.name)
     // A name is not found only where every source was read: a refused source may hold it.
@@ -255,6 +259,10 @@ object Report {
 
   /** A source the report could not read or parse, and what went wrong. */
   final case class Error(path: String, message: String)
+
+  /** Why a selected report under the TASTy front end refuses support sources. */
+  val SupportUnread: String =
+    "support sources are not read by the TASTy front end: compile them into the module"
 
   /** One stored-value row as the report reads it: the size cell — `?` for a row with reasons, `—`
     * for a definition with no size of its own — and the summary class the row counts under.

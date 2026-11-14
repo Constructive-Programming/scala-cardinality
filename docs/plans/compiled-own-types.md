@@ -2276,6 +2276,33 @@ re-entry counted (`Use.same` 2^256 where it is refused), each fixed with a regre
 verbatim to `Openings.scala` (no behavior change). No row moved; the table is m3's above. Gate
 times: cats-kernel 15.7 s, cats-core 19.2 s. `compiled/` is 9,719 lines.
 
+Then `tasty-switch` (`2a6dbab`, from `b977b40`). Conflict only in this plan's decision table: the
+porting rounds' D5 (throwing constructions) and D6 (re-entry through another instance) keep their
+numbers, and the switch's D5 to D9 are D7 to D11 here (every reference in the switch's sections
+renumbered). The atom and root-package hand move touches no file the integration side changed
+since `b977b40`, and the merge's code diff equals the switch's. The review found one wrong number,
+the switch's: a selected report under the TASTy front end dropped its support sources, so an
+overrider in one was missing from the closed world (`p.T.f` 2 where the scalameta front end, with
+the support read, says 4). `Report.selected` now refuses support sources ("support sources are not
+read by the TASTy front end: compile them into the module", `ReportQuerySpec.tasty`); the default
+is empty and the scripted `selected` test clears it. Left, recorded: under the TASTy front end an
+error in an unrelated source fails a selected report and hides "selected targets not found" (no
+count changes). `sbt plugin/scripted` and `millPlugin/test` pass. Three new fixtures (the switch's
+specs) are identical; no row moved.
+
+| input | identical | better | worse | uncovered | old numeric uncovered | past old-unsound |
+|---|---|---|---|---|---|---|
+| core | 2,889 | 29 | 0 | 1,082 | 2 (2) | 2 (2) |
+| cats-core | 2,809 | 393 | 72 | 4,377 | 18 (19) | 16 (16) |
+| cats-kernel | 664 | 23 | 0 | 1,098 | 4 (4) | 2 (2) |
+| cats-eo | 329 | 12 | 0 | 356 | 2 (2) | 2 (2) |
+| cats-eo-generics | 42 | 0 | 0 | 38 | 0 (0) | 0 (0) |
+| cats-eo-schemes | 5 | 0 | 0 | 14 | 0 (0) | 0 (0) |
+| fixtures | 5,812 | 287 | 11 | 659 | 96 (104) | 30 (32) |
+
+Gate times: cats-kernel 47.2 s, cats-core 101.6 s (the old front end's rows recomputed in the same
+JVM run after the build hash changed; the machine shared). `compiled/` is 9,719 lines.
+
 ### What exists
 
 | Piece | Where | What it is |
