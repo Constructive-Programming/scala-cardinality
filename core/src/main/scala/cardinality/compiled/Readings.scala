@@ -370,241 +370,246 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
     } match {
       case None       => Right(Local.Plain)
       case Some(root) =>
-        // A scope open at a point: the definition it is of, if any, the names it binds (a self
-        // alias among them), and what it holds that the definition may read through. A block's
-        // names count over the whole block.
-        final case class Scope(
-            of: Option[Symbol],
-            names: Set[String],
-            holders: List[Tree] = Nil,
-            // What else may bind a holder's name there: a member a template inherits, or an
-            // import of the scope.
-            shadows: String => Boolean = _ => false,
-            // Whether a search from inside it may meet a given it declares, imports or inherits.
-            offers: Boolean = false,
-            // The names an import of the scope may bind that are not read (`importing`).
-            unsure: String => Boolean = _ => false,
-            // Whether it is a template's body, whose parents' fields `this` selects.
-            template: Boolean = false
-        )
-        val primary = Readings.primary(tree.symbol)
-        var scopes = List.empty[Scope]
-        var cases = List.empty[CaseDef]
-        var seen = Option.empty[(List[Scope], List[CaseDef])]
-        var generators = Set.empty[Symbol]
-        def within(scope: Scope)(body: => Unit): Unit = {
-          val saved = scopes
-          scopes = scope :: scopes
-          body
-          scopes = saved
-        }
-        def named(stats: List[Tree]) = stats.collect {
-          case d: ValOrDefDef => d.name.toString
-        }.toSet
-        // The term names the imports among statements written before the definition bind, and
-        // the names that is not read for: every name where a position is not known or a
-        // wildcard's qualifier's class is not, else a wildcard's members of restricted access,
-        // imported only where accessible. A wildcard binds the public members that are no given
-        // and that no other selector of its import names. A capture of such a name cannot be
-        // named past the import (Scala refers to neither, an ambiguity, where both bind it).
-        def importing(stats: List[Tree]): (Set[String], String => Boolean) = {
-          def qualifier(i: Import) = i.expr.tpe.widenTermRef match {
-            case tpe: Type => World.classNamed(tpe)
-            case _         => None
-          }
-          def terms(c: ClassSymbol) = c.linearization.flatMap(_.declarations).collect {
-            case m: TermSymbol => m
-          }
-          def wildcard(i: Import) = {
-            val named = i.selectors.filterNot(_.isWildcard).map(_.name.toString).toSet
-            qualifier(i).map { c =>
-              val members =
-                terms(c).filter(m => !m.isGivenOrUsing && !named(m.name.toString))
-              // A private member is imported inside its class or companion, where it is accessible.
-              val inside =
-                World.owners(tree.symbol).exists(o => o == c || c.companionClass.contains(o))
-              val (public, other) = members.partition(_.isPublic)
-              val (secret, restricted) = other.partition(m =>
-                m.visibility == Visibility.Private || m.visibility == Visibility.PrivateThis
-              )
-              val bound = if (inside) public ++ secret else public
-              (bound.map(_.name.toString).toSet, restricted.map(_.name.toString).toSet)
-            }
-          }
-          // A selector binds a term only where its qualifier has one of its name (a type of that
-          // name leaves the term to an outer scope); unsure where the qualifier is not read.
-          def explicit(i: Import, name: String, rename: String) = qualifier(i) match {
-            case Some(c) if terms(c).exists(_.name.toString == name) =>
-              Some(Set(rename) -> Set.empty)
-            case Some(_) => Some(Set.empty[String] -> Set.empty[String])
-            case None    => Some(Set.empty[String] -> Set(rename))
-          }
-          val read = stats.collect { case i: Import => i }.map { i =>
-            if (i.pos.isUnknown || tree.pos.isUnknown) None
-            else if (i.pos.startOffset > tree.pos.startOffset) Some(Set.empty[String] -> Set.empty)
-            else
-              i.selectors
-                // A wildcard is spelled `_` too; a selector renamed to `_` binds nothing.
-                .filterNot(s => s.isGiven || !s.isWildcard && s.rename.toString == "_")
-                .foldLeft(Option(Set.empty[String] -> Set.empty[String])) { (sofar, s) =>
-                  sofar
-                    .zip(
-                      if (s.isWildcard) wildcard(i)
-                      else explicit(i, s.name.toString, s.rename.toString)
-                    )
-                    .map { case ((a, b), (c, d)) => (a ++ c, b ++ d) }
-                }
-          }
-          val names = read.flatten.flatMap(_._1).toSet
-          val unsure = read.flatten.flatMap(_._2).toSet
-          (names, name => read.contains(None) || unsure(name))
-        }
-        def opened(
-            names: Set[String],
-            stats: List[Tree],
-            holders: List[Tree],
-            shadows: String => Boolean,
-            template: Boolean,
-            offers: Boolean
-        ) = {
-          val (imported, unsure) = importing(stats)
-          Scope(None, names ++ imported, holders, shadows, offers, unsure, template)
-        }
-        // What of a scope's statements may hold a value: its definitions. An expression statement
-        // has no effect and no name, so nothing reads what it computes.
-        def defined(stats: List[Tree]) = stats.filter {
-          case _: (ValOrDefDef | ClassDef) => true
-          case _                           => false
-        }
-        new Traversers.TreeTraverser {
-          override def traverse(node: Tree): Unit = node match {
-            case clause: CaseDef =>
-              cases = clause :: cases
-              super.traverse(clause)
-              cases = cases.tail
-            case call: Apply =>
-              generators ++= Readings.generators(call)
-              super.traverse(call)
-            case block: Block =>
-              val imports = block.stats.exists(_.isInstanceOf[Import])
-              val givens = block.stats.exists {
-                case d: ValOrDefDef => Readings.contextual(d.symbol)
-                case _              => false
-              }
-              within(
-                opened(
-                  named(block.stats),
-                  block.stats,
-                  defined(block.stats),
-                  _ => imports,
-                  false,
-                  imports || givens
-                )
-              )(super.traverse(block))
-            case template: ClassDef =>
-              // A constructor is called where its class is written, with its own parameters: its
-              // positions' values are the caller's, not what the class body names.
-              if (template.symbol == tree.symbol.owner && primary) {
-                val own = Scope(Some(tree.symbol), named(Shapes.parameters(template.rhs.constr)))
-                seen = Some((own :: scopes) -> cases)
-              }
-              val body = template.rhs.body
-              val alias = template.rhs.self.map(_.name.toString)
-              val imports = body.exists(_.isInstanceOf[Import])
-              val inherited = template.symbol.linearization.tail.flatMap(_.declarations)
-              val names = inherited.map(_.name.toString).toSet
-              val shadows = (name: String) => imports || names(name)
-              // An inherited member hides a name of a scope around the template.
-              val members = inherited.collect {
-                case member: TermSymbol if !member.isPrivate && !World.isConstructor(member) =>
-                  member.name.toString
-              }
-              val givens = template.symbol.linearization.exists(_.declarations.exists {
-                case term: TermSymbol => Readings.contextual(term)
-                case _                => false
-              })
-              val holders = template.rhs.parents ++ defined(body)
-              val offers = imports || givens || !World.ownSelf(template.symbol)
-              within(opened(named(body) ++ alias ++ members, body, holders, shadows, true, offers))(
-                super.traverse(template)
-              )
-            case definition: ValOrDefDef =>
-              val own = definition match {
-                case method: DefDef => Shapes.parameters(method).map(_.name.toString).toSet
-                case _: ValDef      => Set.empty[String]
-              }
-              within(Scope(Some(definition.symbol), own)) {
-                if (definition.symbol == tree.symbol && !primary) seen = Some(scopes -> cases)
-                super.traverse(definition)
-              }
-            case other => super.traverse(other)
-          }
-        }.traverse(root)
-        seen match {
-          case None                 => Left("a definition not found in the method around it")
-          case Some((open, around)) =>
-            // A template the definition is in holds it: its members are read one by one.
-            val path = World.owners(tree.symbol).toSet
-            def inside(method: DefDef) = open.takeWhile(!_.of.contains(method.symbol))
-            val held = methods.flatMap { method =>
-              val nearer = inside(method)
-              val names = nearer.flatMap(_.names).toSet
-              // Each holder, and whether the definition can name it: no scope nearer than its own
-              // binds its name again or may.
-              val holders = nearer.zipWithIndex.flatMap { (scope, i) =>
-                def again(name: String) =
-                  nearer.take(i).exists(s => s.names(name) || s.shadows(name))
-                // A function literal the definition is in has no name: the definition cannot call
-                // it, so what else it reads holds nothing for it.
-                scope.holders
-                  .filterNot {
-                    case d: DefDef => path(d.symbol) && d.name.toString.startsWith("$anonfun")
-                    case _         => false
-                  }
-                  .collect {
-                    case d: ValOrDefDef                 => d -> !again(d.name.toString)
-                    case c: ClassDef if !path(c.symbol) => c -> false
-                    // A parent call holds what it passes in fields `this` selects where no
-                    // template is nearer.
-                    case other if !other.isInstanceOf[ClassDef] =>
-                      other -> (scope.template && !nearer.take(i).exists(_.template))
-                  }
-              }
-              // An anonymous contextual parameter has no name to hide.
-              Readings
-                .taken(method)
-                .filter(p => !Readings.anonymous(p) && names(p.name.toString))
-                .map(p => p -> kept(p, holders, tree.symbol))
-            }
-            // A search from the definition meets a given a scope between it and a method around it
-            // offers before that method's anonymous parameter.
-            val offered = methods.collectFirst {
-              case m
-                  if Readings.taken(m).exists(Readings.anonymous) &&
-                    inside(m).exists(_.offers) =>
-                s"an anonymous contextual parameter beside a scope that may offer a given: ${m.name}"
-            }
-            val unknown = methods.exists { method =>
-              Readings.taken(method).exists(p => inside(method).exists(_.unsure(p.name.toString)))
-            }
-            val blocked = Option
-              .when(methods.exists(m => generators(m.symbol)))(
-                "a binder of an enclosing for-comprehension"
-              )
-              .orElse(offered)
-              .orElse(Option.when(unknown)("a capture an import not read may hide"))
-              .orElse(around.flatMap(patterned(_, tree.symbol)).headOption)
-              .orElse(held.collectFirst {
-                case (p, _) if Readings.contextual(p.symbol) =>
-                  s"a contextual capture a nearer scope binds again: ${p.name}"
-              })
-              .orElse(held.collectFirst {
-                case (p, None) =>
-                  s"a capture a nearer scope binds again, held by other code: ${p.name}"
-              })
-            Right(Local(held.collect { case (p, Some(false)) => p.symbol }.toSet, blocked))
-        }
+        scopesAt(tree, root)
+          .map((open, around, generators) => leftBy(tree, methods, open, around, generators))
+          .toRight("a definition not found in the method around it")
     }
+
+  // Walks `root` to the definition: the scopes open there, innermost first, the case clauses
+  // around it and the function literals a `for` comprehension's generators made anywhere in
+  // `root`; none where the definition is not found.
+  private def scopesAt(
+      tree: ValOrDefDef,
+      root: Tree
+  ): Option[(List[Readings.Scope], List[CaseDef], Set[Symbol])] = {
+    import Readings.Scope
+    val primary = Readings.primary(tree.symbol)
+    var scopes = List.empty[Scope]
+    var cases = List.empty[CaseDef]
+    var seen = Option.empty[(List[Scope], List[CaseDef])]
+    var generators = Set.empty[Symbol]
+    def within(scope: Scope)(body: => Unit): Unit = {
+      val saved = scopes
+      scopes = scope :: scopes
+      body
+      scopes = saved
+    }
+    def named(stats: List[Tree]) = stats.collect {
+      case d: ValOrDefDef => d.name.toString
+    }.toSet
+    def opened(
+        names: Set[String],
+        stats: List[Tree],
+        holders: List[Tree],
+        shadows: String => Boolean,
+        template: Boolean,
+        offers: Boolean
+    ) = {
+      val (imported, unsure) = importing(tree, stats)
+      Scope(None, names ++ imported, holders, shadows, offers, unsure, template)
+    }
+    // What of a scope's statements may hold a value: its definitions. An expression statement
+    // has no effect and no name, so nothing reads what it computes.
+    def defined(stats: List[Tree]) = stats.filter {
+      case _: (ValOrDefDef | ClassDef) => true
+      case _                           => false
+    }
+    new Traversers.TreeTraverser {
+      override def traverse(node: Tree): Unit = node match {
+        case clause: CaseDef =>
+          cases = clause :: cases
+          super.traverse(clause)
+          cases = cases.tail
+        case call: Apply =>
+          generators ++= Readings.generators(call)
+          super.traverse(call)
+        case block: Block =>
+          val imports = block.stats.exists(_.isInstanceOf[Import])
+          val givens = block.stats.exists {
+            case d: ValOrDefDef => Readings.contextual(d.symbol)
+            case _              => false
+          }
+          within(
+            opened(
+              named(block.stats),
+              block.stats,
+              defined(block.stats),
+              _ => imports,
+              false,
+              imports || givens
+            )
+          )(super.traverse(block))
+        case template: ClassDef =>
+          // A constructor is called where its class is written, with its own parameters: its
+          // positions' values are the caller's, not what the class body names.
+          if (template.symbol == tree.symbol.owner && primary) {
+            val own = Scope(Some(tree.symbol), named(Shapes.parameters(template.rhs.constr)))
+            seen = Some((own :: scopes) -> cases)
+          }
+          val body = template.rhs.body
+          val alias = template.rhs.self.map(_.name.toString)
+          val imports = body.exists(_.isInstanceOf[Import])
+          val inherited = template.symbol.linearization.tail.flatMap(_.declarations)
+          val names = inherited.map(_.name.toString).toSet
+          val shadows = (name: String) => imports || names(name)
+          // An inherited member hides a name of a scope around the template.
+          val members = inherited.collect {
+            case member: TermSymbol if !member.isPrivate && !World.isConstructor(member) =>
+              member.name.toString
+          }
+          val givens = template.symbol.linearization.exists(_.declarations.exists {
+            case term: TermSymbol => Readings.contextual(term)
+            case _                => false
+          })
+          val holders = template.rhs.parents ++ defined(body)
+          val offers = imports || givens || !World.ownSelf(template.symbol)
+          within(opened(named(body) ++ alias ++ members, body, holders, shadows, true, offers))(
+            super.traverse(template)
+          )
+        case definition: ValOrDefDef =>
+          val own = definition match {
+            case method: DefDef => Shapes.parameters(method).map(_.name.toString).toSet
+            case _: ValDef      => Set.empty[String]
+          }
+          within(Scope(Some(definition.symbol), own)) {
+            if (definition.symbol == tree.symbol && !primary) seen = Some(scopes -> cases)
+            super.traverse(definition)
+          }
+        case other => super.traverse(other)
+      }
+    }.traverse(root)
+    seen.map((open, around) => (open, around, generators))
+  }
+
+  // The term names the imports among statements written before the definition bind, and
+  // the names that is not read for: every name where a position is not known or a
+  // wildcard's qualifier's class is not, else a wildcard's members of restricted access,
+  // imported only where accessible. A wildcard binds the public members that are no given
+  // and that no other selector of its import names. A capture of such a name cannot be
+  // named past the import (Scala refers to neither, an ambiguity, where both bind it).
+  private def importing(tree: ValOrDefDef, stats: List[Tree]): (Set[String], String => Boolean) = {
+    def qualifier(i: Import) = i.expr.tpe.widenTermRef match {
+      case tpe: Type => World.classNamed(tpe)
+      case _         => None
+    }
+    def terms(c: ClassSymbol) = c.linearization.flatMap(_.declarations).collect {
+      case m: TermSymbol => m
+    }
+    def wildcard(i: Import) = {
+      val named = i.selectors.filterNot(_.isWildcard).map(_.name.toString).toSet
+      qualifier(i).map { c =>
+        val members =
+          terms(c).filter(m => !m.isGivenOrUsing && !named(m.name.toString))
+        // A private member is imported inside its class or companion, where it is accessible.
+        val inside =
+          World.owners(tree.symbol).exists(o => o == c || c.companionClass.contains(o))
+        val (public, other) = members.partition(_.isPublic)
+        val (secret, restricted) = other.partition(m =>
+          m.visibility == Visibility.Private || m.visibility == Visibility.PrivateThis
+        )
+        val bound = if (inside) public ++ secret else public
+        (bound.map(_.name.toString).toSet, restricted.map(_.name.toString).toSet)
+      }
+    }
+    // A selector binds a term only where its qualifier has one of its name (a type of that
+    // name leaves the term to an outer scope); unsure where the qualifier is not read.
+    def explicit(i: Import, name: String, rename: String) = qualifier(i) match {
+      case Some(c) if terms(c).exists(_.name.toString == name) =>
+        Some(Set(rename) -> Set.empty)
+      case Some(_) => Some(Set.empty[String] -> Set.empty[String])
+      case None    => Some(Set.empty[String] -> Set(rename))
+    }
+    val read = stats.collect { case i: Import => i }.map { i =>
+      if (i.pos.isUnknown || tree.pos.isUnknown) None
+      else if (i.pos.startOffset > tree.pos.startOffset) Some(Set.empty[String] -> Set.empty)
+      else
+        i.selectors
+          // A wildcard is spelled `_` too; a selector renamed to `_` binds nothing.
+          .filterNot(s => s.isGiven || !s.isWildcard && s.rename.toString == "_")
+          .foldLeft(Option(Set.empty[String] -> Set.empty[String])) { (sofar, s) =>
+            sofar
+              .zip(
+                if (s.isWildcard) wildcard(i)
+                else explicit(i, s.name.toString, s.rename.toString)
+              )
+              .map { case ((a, b), (c, d)) => (a ++ c, b ++ d) }
+          }
+    }
+    val names = read.flatten.flatMap(_._1).toSet
+    val unsure = read.flatten.flatMap(_._2).toSet
+    (names, name => read.contains(None) || unsure(name))
+  }
+
+  // What the scopes `open` at the definition, innermost first, and the case clauses `around` it
+  // leave of the methods it is written in (`local`).
+  private def leftBy(
+      tree: ValOrDefDef,
+      methods: List[DefDef],
+      open: List[Readings.Scope],
+      around: List[CaseDef],
+      generators: Set[Symbol]
+  ): Local = {
+    // A template the definition is in holds it: its members are read one by one.
+    val path = World.owners(tree.symbol).toSet
+    def inside(method: DefDef) = open.takeWhile(!_.of.contains(method.symbol))
+    val held = methods.flatMap { method =>
+      val nearer = inside(method)
+      val names = nearer.flatMap(_.names).toSet
+      // Each holder, and whether the definition can name it: no scope nearer than its own
+      // binds its name again or may.
+      val holders = nearer.zipWithIndex.flatMap { (scope, i) =>
+        def again(name: String) =
+          nearer.take(i).exists(s => s.names(name) || s.shadows(name))
+        // A function literal the definition is in has no name: the definition cannot call
+        // it, so what else it reads holds nothing for it.
+        scope.holders
+          .filterNot {
+            case d: DefDef => path(d.symbol) && d.name.toString.startsWith("$anonfun")
+            case _         => false
+          }
+          .collect {
+            case d: ValOrDefDef                 => d -> !again(d.name.toString)
+            case c: ClassDef if !path(c.symbol) => c -> false
+            // A parent call holds what it passes in fields `this` selects where no
+            // template is nearer.
+            case other if !other.isInstanceOf[ClassDef] =>
+              other -> (scope.template && !nearer.take(i).exists(_.template))
+          }
+      }
+      // An anonymous contextual parameter has no name to hide.
+      Readings
+        .taken(method)
+        .filter(p => !Readings.anonymous(p) && names(p.name.toString))
+        .map(p => p -> kept(p, holders, tree.symbol))
+    }
+    // A search from the definition meets a given a scope between it and a method around it
+    // offers before that method's anonymous parameter.
+    val offered = methods.collectFirst {
+      case m
+          if Readings.taken(m).exists(Readings.anonymous) &&
+            inside(m).exists(_.offers) =>
+        s"an anonymous contextual parameter beside a scope that may offer a given: ${m.name}"
+    }
+    val unknown = methods.exists { method =>
+      Readings.taken(method).exists(p => inside(method).exists(_.unsure(p.name.toString)))
+    }
+    val blocked = Option
+      .when(methods.exists(m => generators(m.symbol)))(
+        "a binder of an enclosing for-comprehension"
+      )
+      .orElse(offered)
+      .orElse(Option.when(unknown)("a capture an import not read may hide"))
+      .orElse(around.flatMap(patterned(_, tree.symbol)).headOption)
+      .orElse(held.collectFirst {
+        case (p, _) if Readings.contextual(p.symbol) =>
+          s"a contextual capture a nearer scope binds again: ${p.name}"
+      })
+      .orElse(held.collectFirst {
+        case (p, None) =>
+          s"a capture a nearer scope binds again, held by other code: ${p.name}"
+      })
+    Local(held.collect { case (p, Some(false)) => p.symbol }.toSet, blocked)
+  }
 
   // Whether a parent's constructor call reads a parameter only as the argument of a public field
   // that nothing overrides, whose type as the call sees it `holds`: the parameter's type, where the
@@ -807,6 +812,24 @@ private[compiled] object Readings {
   object Local {
     val Plain: Local = Local(Set.empty, None)
   }
+
+  // A scope open at a point (`scopesAt`): the definition it is of, if any, the names it binds (a
+  // self alias among them), and what it holds that the definition may read through. A block's
+  // names count over the whole block.
+  final private case class Scope(
+      of: Option[Symbol],
+      names: Set[String],
+      holders: List[Tree] = Nil,
+      // What else may bind a holder's name there: a member a template inherits, or an import of
+      // the scope.
+      shadows: String => Boolean = _ => false,
+      // Whether a search from inside it may meet a given it declares, imports or inherits.
+      offers: Boolean = false,
+      // The names an import of the scope may bind that are not read (`importing`).
+      unsure: String => Boolean = _ => false,
+      // Whether it is a template's body, whose parents' fields `this` selects.
+      template: Boolean = false
+  )
 
   /** Whether a class is a context function's, which also answers searches for its result. */
   def function(c: ClassSymbol): Boolean = c.displayFullName.startsWith("scala.ContextFunction")

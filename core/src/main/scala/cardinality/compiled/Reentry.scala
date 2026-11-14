@@ -54,7 +54,18 @@ import tastyquery.Types.{
   */
 final private[compiled] class Reentry(world: World)(using Context) {
 
-  def may(c: ClassSymbol, member: TermSymbol, measured: TermSymbol, instance: Boolean): Boolean = {
+  def may(c: ClassSymbol, member: TermSymbol, measured: TermSymbol, instance: Boolean): Boolean =
+    new Search(c, member, measured, instance).reenters
+
+  // One search of `may`: whether `member` of `c` may call `measured`, on the site's own instance
+  // or (`instance` false) on another one. Its members are the search's state and the ways a call
+  // may reach the measured member; `reenters` decides.
+  final private class Search(
+      c: ClassSymbol,
+      member: TermSymbol,
+      measured: TermSymbol,
+      instance: Boolean
+  ) {
     val seen = mutable.Set.empty[Symbol]
     // The class the measured member runs in (a local method's enclosing one).
     val home = World.owners(measured.owner).collectFirst { case k: ClassSymbol => k }
@@ -390,20 +401,23 @@ final private[compiled] class Reentry(world: World)(using Context) {
     // member (`callersOf`) does not reach it, whatever the search says. A measured strict field
     // runs when its class is built, which no reference names: not read so. A behavior that is a
     // field runs in its class's body, so it is a caller where that body is.
-    val field = !measured.isMethod && measured.kind != TermSymbolKind.LazyVal
-    val callers = Option.when(!instance && !field && !external)(callersOf(measured)).flatten
-    val found = callers.forall { set =>
-      behaviors(c, member, m => set(m) || (!m.isMethod && set(m.owner)))
-    } && (if (instance) behaviors(c, member, reaches)
-          else
-            selfReenters(member, Some(c)) || handsMade && {
-              // What the searches before found reaching may not be found again.
-              seen.clear()
-              behaviors(c, member, reaches)
-            })
-    // Every member such a search visited, finished below the cap, reaches nothing.
-    if (!instance && !found && seen.size < Reentry.Reach) cleared ++= seen
-    found
+    def reenters: Boolean = {
+      val field = !measured.isMethod && measured.kind != TermSymbolKind.LazyVal
+      val callers = Option.when(!instance && !field && !external)(callersOf(measured)).flatten
+      val found = callers.forall { set =>
+        behaviors(c, member, m => set(m) || (!m.isMethod && set(m.owner)))
+      } && (if (instance) behaviors(c, member, reaches)
+            else
+              selfReenters(member, Some(c)) || handsMade && {
+                // What the searches before found reaching may not be found again.
+                seen.clear()
+                behaviors(c, member, reaches)
+              })
+      // Every member such a search visited, finished below the cap, reaches nothing.
+      if (!instance && !found && seen.size < Reentry.Reach) cleared ++= seen
+      found
+    }
+
   }
 
   // For a record value, the members a finished search found to reach nothing, by the measured
