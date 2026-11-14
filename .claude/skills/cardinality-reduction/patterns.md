@@ -70,7 +70,7 @@ Entry shape:
 - Fix: stage 3. A `def` on the sum; callers delegate.
 - Expect: adds signature rows, moves none. Gate on tests.
 - Boundary: switchboards (one-line delegation per case: `SingletonIntersections.resolved`, the
-  `Found` match in `MethodAnalysis`), renderers (`FinitePart.render`), interpreters (the
+  `Unbound` match in `TastyFrontEnd.spelled`), renderers (`FinitePart.render`), interpreters (the
   `Shape` matches in the inhabitation solver), a single equality test on a case object
   (`edge.kind == Continuation.OptionBranch`). Sites that agree on two arms but differ on the
   rest are switchboards too (`Binding.Here`/`Elsewhere` in `Scope`, `Solver`, `Namespaces`;
@@ -97,7 +97,7 @@ Entry shape:
 
 ### R4 Independent numeric knobs — rejected
 - Signal (R): `2^n` row of several `Int`/`Long` fields (`SourceSnapshot.Limits`,
-  `AnalysisQuery.Budget`, `MethodAnalysis.Limits`).
+  `AnalysisQuery.Budget`).
 - Boundary: each knob is enforced on its own path. Not a target.
 
 ### R5 Splitting a rendered-message case — rejected
@@ -159,9 +159,11 @@ Entry shape:
 - Signal (M): `StackOverflowError` at `EvidenceAnalysis.scala:350` under `GoalSolver.goal`, e.g.
   `PolymorphicMemberSpec` "cannot create an instance", when sbt runs without `.jvmopts`
   (`-Xss8m`); CI's launcher reads it and passes.
-- Cause: unbudgeted runs (`MethodAnalysis.analyze`, `cardinalityReportOf`) have
-  `solverDepth = Int.MaxValue`, so a growing goal chain recurses until the 256-state budget, each
-  goal folding a deeper shape. `StackOverflowError` is fatal: `NonFatal` does not catch it.
+- Cause: unbudgeted runs of the deleted scalameta front end (its `analyze`,
+  `cardinalityReportOf`) had `solverDepth = Int.MaxValue`, so a growing goal chain recurses until
+  the 256-state budget, each goal folding a deeper shape. `StackOverflowError` is fatal: `NonFatal`
+  does not catch it. Every row of the TASTy front end runs under `Readings.Depth` (64) and
+  `Readings.Work`.
 - Fix: `DeepStack` runs every `Index.measure` on its own 256 MiB (reserved) stack; no count
   moves. `DeepStackSpec` asks from a 256 KiB thread.
 - Evidence: 2026-11-10, local `sbt` wrapper with a hard-coded `-Xmx4g` and no `.jvmopts`.
