@@ -1879,6 +1879,183 @@ here, marked pending, and come back with uncompiled support:
 - `StdlibModelSpec`: an unapplied entry where a proper type is expected is refused
 - `ThrowableSlotsSpec`: a throwable the scala package does not alias is not one there
 
+## Final comparison (before the switch)
+
+Measured 2026-11-14 on `tasty-int` at `e91673f`, before the old front end is deleted. Inputs: the
+six frozen corpora and the 1,957 compiled test fixtures (the cache of `core/target/compiled-fixtures`
+at this commit). One run of `scripts/differential.sh` with `--rows` added (a scratch copy, not
+committed): every input passed, every row is listed with both front ends' values, and the tables
+below are counted from that listing.
+
+### Quality
+
+Columns, for the rows of one table (method rows: signatures and constructors; definition rows: the
+stored-value table):
+
+- **identical**: the same number on both sides (`#`), or `?` on both sides, the new front end
+  measuring the row itself (`?`);
+- **better**: `?` before, a number now, split by why the old front end refused: a limit of reading
+  syntax (**res.**), or a limit of the counting model (**model**, each row derived by hand in
+  `derived.txt`);
+- **tight.**: an upper bound before (`≤2^32`), the exact number within it now (`2^32`);
+- **corr.**: a number before and another number or `?` now, each listed with both values and its
+  derivation in `corrected.txt`. The gate's **worse** column is the same rows: no worse row is
+  unlisted;
+- **unsound**: an old number the new front end leaves uncovered, which `old-unsound.txt` lists as
+  resting on a rule shown unsound;
+- **losses**: an old number the new front end leaves uncovered, not on that list: the known
+  losses (`known-losses.txt`);
+- **unc. ?**: uncovered, where the old front end says `?` too;
+- **numbers old / new**: the rows each front end gives a number for. As the gate counts it, `—` (an
+  abstract type, no size of its own) is a number: 1,874 old and 1,875 new definition rows are `—`.
+
+Method rows:
+
+| input | rows | identical # | identical ? | better res. | better model | tight. | corr. (= worse) | unsound | losses | unc. ? | numbers old | numbers new |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| core | 4,000 | 766 | 2,123 | 13 | 16 | 0 | 0 | 0 | 2 | 1,080 | 768 | 795 |
+| cats-core | 7,651 | 819 | 1,990 | 98 | 295 | 0 | 72 | 2 | 16 | 4,359 | 909 | 1,264 |
+| cats-kernel | 1,785 | 364 | 300 | 3 | 20 | 0 | 0 | 2 | 2 | 1,094 | 368 | 387 |
+| cats-eo | 697 | 269 | 60 | 3 | 9 | 0 | 0 | 0 | 2 | 354 | 271 | 281 |
+| cats-eo-generics | 80 | 16 | 26 | 0 | 0 | 0 | 0 | 0 | 0 | 38 | 16 | 16 |
+| cats-eo-schemes | 19 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 14 | 5 | 5 |
+| **corpora** | 14,232 | 2,239 | 4,499 | 117 | 340 | 0 | 72 | 4 | 22 | 6,939 | 2,337 | 2,748 |
+| fixtures | 6,798 | 5,417 | 409 | 153 | 134 | 11 | 13 | 66 | 32 | 563 | 5,539 | 5,728 |
+| **all** | 21,030 | 7,656 | 4,908 | 270 | 474 | 11 | 85 | 70 | 54 | 7,502 | 7,876 | 8,476 |
+
+Definition rows:
+
+| input | rows | identical # | identical ? | better res. | better model | tight. | corr. (= worse) | unsound | losses | unc. ? | numbers old | numbers new |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| core | 641 | 400 | 26 | 5 | 0 | 0 | 0 | 0 | 0 | 210 | 400 | 405 |
+| cats-core | 1,559 | 1,051 | 317 | 21 | 0 | 0 | 1 | 1 | 0 | 168 | 1,053 | 1,072 |
+| cats-kernel | 312 | 253 | 54 | 0 | 0 | 0 | 0 | 0 | 0 | 5 | 253 | 253 |
+| cats-eo | 151 | 94 | 48 | 6 | 0 | 0 | 0 | 0 | 0 | 3 | 94 | 100 |
+| cats-eo-generics | 12 | 6 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 5 | 6 | 6 |
+| cats-eo-schemes | 2 | 1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 1 |
+| **corpora** | 2,677 | 1,805 | 447 | 32 | 0 | 0 | 1 | 1 | 0 | 391 | 1,807 | 1,837 |
+| fixtures | 5,642 | 4,562 | 697 | 69 | 58 | 0 | 3 | 6 | 2 | 245 | 4,573 | 4,692 |
+| **all** | 8,319 | 6,367 | 1,144 | 101 | 58 | 0 | 4 | 7 | 2 | 636 | 6,380 | 6,529 |
+
+- Every old number the new front end leaves out is accounted for: 7,876 old numeric method rows =
+  7,656 identical + 11 tightened + 85 corrected + 70 unsound + 54 losses, and 6,380 definition rows
+  = 6,367 + 4 + 7 + 2. No row is only on one side; every input passed the gate.
+- The 89 corrections: 21 old numbers now `?` (cats-core: 20 method rows and 1 definition row of the
+  `Ior` and `As` families, whose old number read the family as empty or sealed without a value) and
+  68 now another number (52 cats-core method rows of the `Ior` family, 16 fixture rows). The
+  11 tightened rows are fixtures: six `≤2^32` → `2^32`, two `≤2^8` → `2^8`, and one each of
+  `≤2^16`, `≤2^33`, `≤2^64`.
+- In total the new front end gives a number for 8,476 method rows where the old gave 7,876 (+600;
+  corpora 2,748 against 2,337, +411), and for 6,529 definition rows where the old gave 6,380 (+149).
+  It still leaves uncovered 7,626 method rows (36%) and 645 definition rows (8%). Of those, 7,502 and
+  636 are rows the old front end refuses too. Of the uncovered method rows, 124 are old numbers: 70
+  rest on an unsound rule and 54 are known losses.
+- The known losses, 56 rows (22 corpus method rows, 32 fixture method rows, 2 fixture definition
+  rows), are in `core/src/test/resources/compiled/known-losses.txt`, one per line, as `key | old
+  value: the new front end's reason` (its first reason, without the prefix `not read from compiled
+  classes yet: `), corpora first. The owner accepted them as future work (via the coordinator,
+  2026-11-14). By
+  reason: an overridden member that may call it among a capability record's members 21 (20 of the
+  22 corpus rows: cats-core's `===`, `eqv`, `hash`, `catsDeferForEqCache`, …; core's `Size.order`,
+  `FinitePart.order`); a parent with constructor parameters or in a class 8; a type 6 (path-dependent
+  and lambda types); a restricted constructor 4; a capability record with a parameter that is no
+  public field 4; an abstract type member another declaration of its name bounds or hides 3; two
+  each for the same re-entry reason in an enclosing class, an enclosing class with an overridden
+  constructor field, a class nested in a class, and a capability record whose parents are not read;
+  one each for an anonymous contextual parameter and a class of a dependency (`LazyList`).
+
+### Performance
+
+One `Report.of` per run, each in a JVM of its own (`-Xmx16g -Xss8m`, JDK 25, 32 cores). Only the
+call is timed. The three runs of each front end ran back to back, corpus by corpus, 01:45 to 02:03.
+No other sbt or JVM workload was running: `pgrep -fa java`, checked before the runs and logged at
+each corpus's start, showed only an idle bloop daemon and a Tika server, neither a measurement; the
+load average at those points was 4.6 to 6.8. Old: `scripts/measure-corpus.sh
+<corpus> <report> 3` (`bench/runMain cardinality.bench.CorpusRun`, the scalameta front end, which
+renders the dependency stubs inside the call). New: a scratch driver, not committed
+(`/var/tmp/compare/driver/FrontRun.scala`, scala-cli against core published locally from this
+commit). It makes `CorpusRun`'s call with `frontEnd = Report.Front.Tasty` and the same inputs: the
+corpus root, its `classes`, `classpath.txt`. Each front end rendered the same report in all three
+of its runs, and each gave the row counts of the differential above (new core 795 numeric of 4,000
+method rows, cats-core 1,264 of 7,651). Medians of three, with the lowest and highest run in
+parentheses. Peak RSS is the kernel's `VmHWM` for the whole JVM.
+
+| Corpus | Wall, s, old | Wall, s, new | CPU (user+sys), s, old | CPU, s, new | Peak RSS, GiB, old | Peak RSS, GiB, new |
+|---|---|---|---|---|---|---|
+| core | 112.1 (111.0 to 113.5) | 21.7 (21.2 to 22.7) | 464.6 (445.1 to 501.3) | 68.4 (68.1 to 74.0) | 9.96 (7.77 to 11.06) | 3.05 (3.01 to 3.07) |
+| cats-core | 61.9 (61.8 to 64.9) | 19.5 (18.9 to 21.6) | 301.9 (296.7 to 315.6) | 59.1 (58.5 to 62.2) | 6.46 (6.25 to 6.63) | 4.97 (4.40 to 5.23) |
+| cats-kernel | 27.9 (27.4 to 28.5) | 14.9 (14.3 to 15.3) | 106.1 (105.3 to 110.0) | 40.1 (38.6 to 40.3) | 5.21 (4.26 to 6.17) | 2.03 (2.01 to 2.04) |
+| cats-eo | 20.3 (20.3 to 20.5) | 3.8 (3.8 to 3.9) | 125.0 (122.5 to 127.0) | 21.8 (21.8 to 22.6) | 6.69 (6.59 to 6.76) | 1.60 (1.58 to 1.64) |
+| cats-eo-generics | 19.1 (18.9 to 19.6) | 3.1 (3.1 to 3.1) | 97.4 (96.6 to 97.6) | 15.5 (15.5 to 15.9) | 5.85 (5.71 to 7.15) | 2.14 (2.10 to 2.45) |
+| cats-eo-schemes | 15.2 (15.0 to 15.8) | 2.2 (2.1 to 2.2) | 72.4 (70.5 to 73.3) | 11.5 (11.4 to 11.6) | 4.19 (3.61 to 5.30) | 1.55 (1.54 to 1.56) |
+| **all six, summed** | 256.5 | 65.2 | 1,167.4 | 216.4 | | |
+
+- Summed over the six corpora, the new front end takes a quarter of the wall time (3.9× faster)
+  and under a fifth of the CPU time (5.4× less). Its peak RSS is 24% to 39% of the old one's on
+  every corpus but cats-core (4.97 against 6.46 GiB, 77%).
+- On the small corpora the old front end's cost is mostly fixed: 15 s wall and 70 s CPU for
+  cats-eo-schemes' two sources, which is consistent with rendering and parsing the dependency stubs
+  (the plan's earlier estimate is about 5,200 stub sources; neither the count nor the cause was
+  measured here). The new front end reads the dependency classes as symbols and takes
+  about 2 s for the same corpus.
+- The new front end's slowest corpora are core and cats-core (21.7 s and 19.5 s). Where that time
+  goes was not profiled.
+- Earlier baselines, the old front end only, on a machine shared at the time (load 8 to 36, so
+  loose). Phase 1 ("Measured (2026-11-11)", core only, medians of three): start `55f6ea1` 107.4 s
+  wall, 473.6 s CPU, 8.8 GiB peak heap; end `ffb94c1` with classes 98.1 s, 431.5 s, 9.0 GiB.
+  "Gate assets" at `5f89e91` (medians, wall / CPU / peak heap): core 111.2 s / 488.2 s / 8.62 GiB,
+  cats-eo 30.1 / 167.2 / 3.44, cats-eo-generics 24.4 / 112.3 / 4.04, cats-eo-schemes 15.8 / 74.7 /
+  3.08, cats-kernel 33.2 / 120.9 / 3.06, cats-core 65.5 / 328.0 / 5.09. Today's old front end is
+  as fast or faster (below the earlier ranges on cats-eo, cats-eo-generics and cats-kernel, which
+  fits the load then). Its report counts equal the `1358b07` baselines on every corpus (core 202 ·
+  535 · 31 · 3232 signatures; cats-core 705 · 204 · 0 · 6742); against `5f89e91` only
+  cats-eo-schemes differs, by `Schemes.OnStackLimit` (`?` then, 1 since `1358b07`).
+
+### Source size
+
+Lines of `core/src/main/scala` at `e91673f` (`wc -l`):
+
+| | Files | Lines |
+|---|---|---|
+| core's main sources today | 206 | 47,238 |
+| of which `compiled/` (the TASTy front end) | 28 | 9,721 |
+| of which the rest (`tastyquery/Variances.scala`, 54 lines, included) | 178 | 37,517 |
+| old front end: the inventory's 124 whole files, counted today | 124 | 25,828 |
+| old front end: whole files and parts, as dry run 2 deleted them (`7a2938c`, from `161283b`), plus what the whole files grew since | | ≈ 30,990 |
+| **after the deletion (projected)** | | **≈ 16,250**: `compiled/` 9,721, shared ≈ 6,530 |
+
+- The whole files are the inventory's list ("Switch-over: deletion inventory"), counted again
+  today: 25,828 lines, 115 more than its 25,713. The growth is in the old front end's own fixes
+  since then (`ReceiverFactories`, `Counter`, `Solver`, `FactorySyntax`, …).
+- The parts of files were not measured again. Dry run 2 deleted 30,878 lines net from core's main
+  sources (43,614 → 12,736). Adding the 115 lines the whole files grew gives about 30,990 lines for
+  the old front end today, about two thirds of core's main sources. The shared files changed since
+  `161283b` too (`Report` +61 net for D7 and D8, `Fixpoint` m3/m7, `GoalSolver`,
+  `PolymorphicMembers`). How much of that a deletion would take is not measured, so the projection
+  is good to a few hundred lines.
+- `compiled/` grew from 6,424 lines at the dry runs to 9,721 (+3,297) over the porting rounds. The
+  projected core, about 16,250 lines, is roughly a third of today's.
+
+### Wrong numbers found and fixed during the port
+
+Counted from the group sections (stretches 5 and 6, groups g1 to m7, the record re-entry sections)
+and the integration notes above. One item is one rule fixed, not one row. Where a section names
+rows, the count is given.
+
+| Where the wrong number was | Fixed rules | What |
+|---|---|---|
+| In the old front end, now corrected | 17 | The `Ior` ruling: cats-core's `Ior` family read as empty; 58 `corrected.txt` rows, 6 `align`s among them. `As` read as a sealed family without a value: 15 rows. `canEqual` read as a capability (`S.productArity` 2^128 → 2^64). A sibling extension method left out (`flip`, `choose`, `Exts.get`). A self alias hiding a parameter (`Self.mk.<new#1>.run` 16 → 4). A throw behind a named argument or an ascription (6 rows → 0). A secondary constructor's fields read as free (7 rows, `old-unsound.txt`). A hidden parameter held by a strict value (4 where 16). The stored estimate for a constructor position under rule B, two rules: 7 recursive rows corrected (`Node`, `O.Cell`, `Pa`, `Ua`, … ω → 2) and 17 non-recursive rows unsound. `Outer.Inner.Use.<init>` 1 → 2. The old `Solver` lost a cycle through an alias under a function result or a by-name type (0 → ω). The old held-captures rule reading more than it should (4 review cases), `shapes.Context.caller.<block#1>.passed` 4 → 2^(2^33), the estimate's 0 taken for `(Sing.type, Nothing => Boolean)`. And two corrections, `S2.<extension@5>.later` and `U.helper`, withdrawn later when their rows became uncovered. |
+| In shared code, so both front ends | 11 | Fixed in the shared back end (5). `GoalSolver`: a polymorphic member inside a record undercounted (6 cats-core `InjectK` rows of the new front end; `K[F, K[G, C]]` read 0 in both). `PolymorphicMembers.close`: a binder applied only in a parameter read as unfillable (0 where 1). `Fixpoint` (m3, m7): a lazy field below the top of a field (10 fixture rows, `Ltd` 0 → ω, …), a sum's arm outside its cycle (`Pt`, `Ut` 1 → ω, `Ra` 0 → ε₀), and what one lap may choose (24 fixture rows, ω → ε₀ or 1). Wrong in both front ends but fixed in the new front end's own rules (6), the old number now refused, listed unsound or corrected. Re-entry by a local definition without parameters, and by a call with other arguments (35 fixture rows and 2 cats-kernel rows unsound). Rule B's observed fields missing code beside the class (`out.Use.comp` 2^2 → 2^4, fixed in both). A reader reached through a member it implements (`Ko` 2^2 → 2^4). An enum whose construction throws (`G` 2 → 0, `F` 1 → 0). An override in classes never built read as varying (`DR.g` 16 → 4). |
+| In the new front end, before merge | 41 | Found by the reviews of each unit and each merge, each fixed with a regression before it landed. The main ones, grouped: Same-instance re-entry counted (2^256 where it is refused): g1b's 24 programs, merge 3's wrapped literal and handed-over result, m1's `inert`, `Product`/`Equals` members, the calls a match inserts and m6's three ways to miss them. Records and receivers: a record whose only overrider is never built, a parent constructor given a parameter (`Inh2`, `Nest`, `ToPar`), m4's classes nested in a class that is never built (`Dead#Leaf` 4 where 1 or `?`), `PRIVATE LOCAL` members (`PT` 16 where 4), the support sources a selected report dropped (`p.T.f` 2 where 4). The stored side: `LzB`, `Nb`, `Lc` stored 0; stuck match types on an uninhabited scrutinee; m3's emptiness lost with an unobserved field (`Hm`…`Hd`) and the first refusal taken for all; an opaque alias as a strict edge (`Q` 0); m7's wrapper (`Hm1`–`Hm3`). Types: a type parameter used as a type key, `C[+F[_]]`, `y: x.type`, match types tasty-query reduces and scalac leaves stuck, `ClosedProgram.absent` cutting a binary name at `$`. Four of the 41 are stated in their section without a number. |
+
+`corrected.txt` holds 89 rows, each with both values and its derivation: 73 cats-core rows (58 of
+the `Ior` family, 15 of `As`) and 16 fixture rows. Found and left, recorded in their sections: the
+old `holedChildren` counts `W(t: () => T)` 3 (2); the stored estimate may overcount (18 rows such
+as `St` ω); the old `readBy` reads by name and overcounts; re-entry through `toString`, `equals` or
+`hashCode`, outside the model by ruling; a construction that always throws still stores a value
+(`Dead#Leaf` 2, `Dead` 1, both sides); the old front end does not expand an applied alias in a
+field; `P.m` 16 may be an undercount.
+
 ## Order, and what is not known yet
 
 4a → 4b → 4c → 5a → 5b → 5c → 5d → 5e → 6. Every step: the differential report, core's suite, the

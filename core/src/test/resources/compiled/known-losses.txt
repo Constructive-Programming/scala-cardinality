@@ -1,0 +1,56 @@
+method corpus-cats-core/core/src/main/scala/cats/data/Cokleisli.scala:102 cats.data.CokleisliInstances.catsDataCommutativeArrowForCokleisliId [method] | 1: an overridden member that may call it among the members of a capability record: dimap
+method corpus-cats-core/core/src/main/scala/cats/data/Const.scala:48 cats.data.Const.=== [method] | 2^256: an overridden member that may call it among the members of a capability record: neqv
+method corpus-cats-core/core/src/main/scala/cats/data/Const.scala:57 cats.data.Const.hash [method] | 2^(2^39): an overridden member that may call it among the members of a capability record: neqv
+method corpus-cats-core/core/src/main/scala/cats/data/Const.scala:90 cats.data.ConstInstances.catsDataUpperBoundedForConst.<new#1>.maxBound [method] | 1: an overridden member that may call it among the members of a capability record: eqv
+method corpus-cats-core/core/src/main/scala/cats/data/Const.scala:96 cats.data.ConstInstances.catsDataLowerBoundedForConst.<new#1>.minBound [method] | 1: an overridden member that may call it among the members of a capability record: eqv
+method corpus-cats-core/core/src/main/scala/cats/data/EitherT.scala:530 cats.data.EitherT.=== [method] | 2^256: an overridden member that may call it among the members of a capability record: neqv
+method corpus-cats-core/core/src/main/scala/cats/data/IorT.scala:175 cats.data.IorT.=== [method] | 2^256: an overridden member that may call it among the members of a capability record: neqv
+method corpus-cats-core/core/src/main/scala/cats/data/Kleisli.scala:369 cats.data.KleisliInstances.catsDataCommutativeArrowForKleisliId [method] | 1: an overridden member that may call it among the members of a capability record: dimap
+method corpus-cats-core/core/src/main/scala/cats/data/OneAnd.scala:112 cats.data.OneAnd.=== [method] | 2^(2^16): an overridden member that may call it among the members of a capability record: neqv
+method corpus-cats-core/core/src/main/scala/cats/data/Op.scala:34 cats.data.Op.eqv [method] | 2^256: an overridden member that may call it among the members of a capability record: neqv
+method corpus-cats-core/core/src/main/scala/cats/data/OptionT.scala:597 cats.data.OptionT.=== [method] | 2^256: an overridden member that may call it among the members of a capability record: neqv
+method corpus-cats-core/core/src/main/scala/cats/instances/eq.scala:52 cats.instances.EqInstances.catsDeferForEqCache [method] | 2^512: an overridden member that may call it among the members of a capability record: neqv
+method corpus-cats-core/core/src/main/scala/cats/instances/eq.scala:54 cats.instances.EqInstances.catsDeferForEqCache.<new#1>.Deferred.<init> [constructor] | 2^512: an overridden member that may call it among the members of a capability record: neqv
+method corpus-cats-core/core/src/main/scala/cats/instances/eq.scala:68 cats.instances.EqInstances.catsDeferForEqCache.<new#1>.defer [method] | 2^512: an overridden member that may call it among the members of a capability record: neqv
+method corpus-cats-core/core/src/main/scala/cats/instances/hash.scala:64 cats.instances.HashInstances.catsDeferForHashCache.<new#1>.defer [method] | 2^9444732966289046241280: an overridden member that may call it among the members of a capability record: neqv
+method corpus-cats-core/core/src/main/scala/cats/syntax/eq.scala:35 cats.syntax.EqOps.=== [method] | 2^256: an overridden member that may call it among the members of a capability record: neqv
+method corpus-cats-eo/core/src/main/scala/dev/constructive/eo/data/MultiFocus.scala:326 dev.constructive.eo.data.MultiFocusK.mfAssocPSVec.singletonTo [method] | ω: an overridden member that may call it among the members of a capability record: collectSingletonTo
+method corpus-cats-eo/core/src/main/scala/dev/constructive/eo/optics/Traversal.scala:270 dev.constructive.eo.optics.Traversal.selfChildren.<new#1>.from [method] | 0: a restricted constructor: dev.constructive.eo.data.PSVec$.Slice
+method corpus-cats-kernel/kernel/src/main/scala/cats/kernel/Hash.scala:38 cats.kernel.Hash.hash [declaration] | 2^128: an overridden member that may call it among the members of an enclosing class: neqv
+method corpus-cats-kernel/kernel/src/main/scala/cats/kernel/instances/StaticMethods.scala:97 cats.kernel.instances.StaticMethods.iteratorPartialCompare [method] | ω: an overridden member that may call it among the members of a capability record: eqv
+method corpus-core/core/src/main/scala/cardinality/capacity/Size.scala:123 cardinality.capacity.Size.order [method] | ω: an overridden member that may call it among the members of a capability record: partialCompare
+method corpus-core/core/src/main/scala/cardinality/capacity/Size.scala:223 cardinality.capacity.FinitePart.order [method] | ω: an overridden member that may call it among the members of a capability record: partialCompare
+definition 0b709dc31d1c54a5936d3c45fbc808bfa2ad6dd2bfa8c352ac0127d1a4849b2e/Scopes.scala:2 Base [class] | 1: a restricted constructor: Base
+definition 7601616cdeeb7132cb8ccccbda9119bed2f3c0c3d5446d3555bda686d2683e6c/Scopes.scala:2 Base [class] | 1: a restricted constructor: Base
+method 0b9d13c5ed0899346b05f8f26defd89765e39c56e577a15ddee0164f92b421ae/Scopes.scala:6 O.In.f [declaration] | 1: a type: In.this.p.Y
+method 0c05224861278c13f7b6662a9fa55ed79ca2e93c9ae3a7dc2da22b1cede90f07/Kinds.scala:5 T.other [method] | 0: a type: ([y] =>> scala.package.Either[scala.Unit, y])
+method 0c05224861278c13f7b6662a9fa55ed79ca2e93c9ae3a7dc2da22b1cede90f07/Kinds.scala:7 T.swapped [method] | 0: a type: ([a, b] =>> scala.package.Either[b, a])
+method 16e11279b0bd9228d33e2cb95487fd22594bb7aa4656dc24ea36c0d14fc8e76f/Capability.scala:4 E.run [method] | 3: an overridden member that may call it among the members of a capability record: leak
+method 1bc4c662c1e82e6265977a780b02721bcb7afa61b625348f29a919d6397c06b8/Members.scala:11 Open.v [method] | 2: a type: Open.this.p.X
+method 1e44fbe4e67c9828f715ac019d70b822a63de481d2f852affde1918a07355ef0/Aliases.scala:5 Outer.Instance.get [method] | ω: a parent with constructor parameters or in a class: Base
+method 1f61fbb86b81d87649a4c9c738b8c8a720a24f295667c8d0b986b1dd27ea62f0/Owners.scala:2 P.m [method] | 16: an enclosing class with a constructor field something overrides: n
+method 1f61fbb86b81d87649a4c9c738b8c8a720a24f295667c8d0b986b1dd27ea62f0/Owners.scala:6 O.neg [method] | 64: a capability record whose parents are not read: a class with a constructor field something overrides: n
+method 1f61fbb86b81d87649a4c9c738b8c8a720a24f295667c8d0b986b1dd27ea62f0/Owners.scala:8 O.overField [method] | 64: a capability record whose parents are not read: a class with a constructor field something overrides: n
+method 270f7ea6402d44cd2696aa02f5daabf04b2f31a723bfecbf7f503d5429eb63f0/Example.scala:1 Ra.<init> [constructor] | ε₀: a capability record with a parameter that is no public field: Rb
+method 270f7ea6402d44cd2696aa02f5daabf04b2f31a723bfecbf7f503d5429eb63f0/Example.scala:1 Rc.<init> [constructor] | ω: a capability record with a parameter that is no public field: Rb
+method 2902c7591508406e4d630af3240c5dfb9849a0420d2fdd0a4b53b846c8ad80af/Views.scala:6 T__O.H__O.run [method] | 16: a parent with constructor parameters or in a class: H
+method 2a7827c301c2d0358d8f269ad367277ac7dd7b2636cbd83311a4d942fe54f9d2/Example.scala:6 UsesCell.<init> [constructor] | ω: a capability record with a parameter that is no public field: S
+method 2a7827c301c2d0358d8f269ad367277ac7dd7b2636cbd83311a4d942fe54f9d2/Example.scala:9 UsesSt.<init> [constructor] | ω: a capability record with a parameter that is no public field: O$.St
+method 32fe5bf2d7f2adbeeace656eb27d5b84ddd3c186d720312f82707a417bb014ec/Kinds.scala:6 Ctx.outside [method] | 0: a type: Ctx.this.M.V
+method 3c2886bde6dd528aa48ad2c80d530d58fef7a6914edfdd3494851aae0f94455b/Member.scala:2 Outer2.B.go [method] | 1: a parent with constructor parameters or in a class: A1
+method 3c2886bde6dd528aa48ad2c80d530d58fef7a6914edfdd3494851aae0f94455b/Member.scala:4 OuterG2.B.go [method] | 1: a parent with constructor parameters or in a class: A1
+method 6a6e2498e7cdbd6a76ab207182d3279ecab6ee51a05680984a757a0dd9d74db1/b.scala:2 out.Use.f [method] | 8: a restricted constructor: fx.V$.Two
+method 6d875e39f4cfc36eee25617124da7a272c122444496cbb259495f5a9ec162195/Members.scala:8 O.C.pick [method] | 1: a parent with constructor parameters or in a class: P
+method 83bbed5710542016e6d5b98498a52496096d157cad3c9294e4b50415bb996877/Members.scala:14 C2.to [declaration] | 2: an abstract type member another declaration of its name bounds or hides: X
+method 83bbed5710542016e6d5b98498a52496096d157cad3c9294e4b50415bb996877/Members.scala:8 C.pick [method] | 4: an abstract type member another declaration of its name bounds or hides: X
+method 83bbed5710542016e6d5b98498a52496096d157cad3c9294e4b50415bb996877/Members.scala:9 C.same [method] | 1: an abstract type member another declaration of its name bounds or hides: X
+method 9f3675e23f6b2c54a0ab91b17c4786abeb5535bd4e4bc02738c8d39ae7267f23/Members.scala:8 O.C.pick [method] | 1: a parent with constructor parameters or in a class: P
+method a87fa2f1d1227627e81eb559a936bf5a1a8e0e1b872dd114368188f718921d77/Example.scala:6 Literal.anon.<lambda#1>.<new#1>.get [method] | 1: an anonymous contextual parameter: _$1
+method bb957ab36d96a58db9c22db2e806d1c8f06cc06eec6ac78bd9fe213675b169ff/Singletons.scala:1 Env.pick [method] | 1: a type: Env.this.x.type
+method bc0e8334fe020167909d4a8a6d918dab4e69d8f6dfeee9e1695ae794d2e5b73d/Members.scala:8 O.C.pick [method] | 1: a parent with constructor parameters or in a class: P
+method ca5ba029eb13197ceb2be76f82a8751641996a9cf2b0bdc53672e5739ac5f5ff/Example.scala:1 Grid.<init> [constructor] | ε₀: a class of a dependency: scala.collection.immutable.LazyList
+method d1ade32c2c3510f78495c33eaa800e68c6ad2d468823e6b768b38e7b316041d2/Capability.scala:7 C2.a [declaration] | 3: an overridden member that may call it among the members of an enclosing class: t
+method db277791da5b65ba59075c30f7cf6d9135cf995e5943f39f5ee41137d0b5a244/Example.scala:1 K.Q.Outer.<init> [constructor] | 1: a class nested in a class or a body: In
+method db277791da5b65ba59075c30f7cf6d9135cf995e5943f39f5ee41137d0b5a244/Example.scala:2 K2.Q.Outer.<init> [constructor] | 1: a class nested in a class or a body: In
+method f35cb0ee4f24c6688c1c572cea1e0ed1d97098ab09f8afd094363812cde25b1d/Capability.scala:3 R.target [declaration] | 16: an enclosing class with a constructor field something overrides: p
+method fe80956b155045ee651dadd2bbf4ab5fd3c4c1243d80102ca6ec734c0d5a87c1/Views.scala:4 Outer.InnerM.m [method] | 16: a parent with constructor parameters or in a class: Inner
