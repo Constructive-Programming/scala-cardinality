@@ -153,7 +153,11 @@ ThisBuild / scalacOptions ++= Seq(
   "-unchecked",
   "-Wunused:all",
   "-Wvalue-discard",
-  "-Werror"
+  "-Werror",
+  // Under `coverage` scalac skips a method body of more than 3,000 tree nodes (`Readings.local`,
+  // `Reentry.may`) and says so as a warning, which -Werror would make fatal: it is a note about
+  // the instrumentation, not the code, so it is silenced.
+  "-Wconf:msg=Skipping coverage instrumentation for large method body:s"
 )
 
 // Keep the plugin binary-loadable inside sbt's Scala 3.8.4 runtime. Enable the
