@@ -2,8 +2,6 @@ package cardinality
 
 import scala.meta.*
 
-import cardinality.analysis.MethodAnalysis
-
 /** The overriders that open a fixture's members. A member is open in the closed world exactly where
   * a supplied template overrides it (AGENTS.md), so a fixture about an open member supplies the
   * overrider: beside each class and trait that is not final, `opened` writes a template that
@@ -24,12 +22,11 @@ object Overriders {
   /** The fixture with its overriders, each written at the end of the source it overrides. Withheld
     * support is left as it is.
     */
-  def opened(inputs: List[MethodAnalysis.Input]): List[MethodAnalysis.Input] =
+  def opened(inputs: List[Compiled.Input]): List[Compiled.Input] =
     inputs.map { input =>
-      templates(input.tree.stats, "") match {
+      templates(dialects.Scala3(input.text).parse[Source].get.stats, "") match {
         case written if written.nonEmpty && !input.path.startsWith(Compiled.Withheld) =>
-          val text = input.tree.pos.input.text + written.mkString("\n", "\n", "\n")
-          input.copy(tree = dialects.Scala3(text).parse[Source].get)
+          input.copy(text = input.text + written.mkString("\n", "\n", "\n"))
         case _ => input
       }
     }

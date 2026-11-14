@@ -10,7 +10,7 @@ import org.specs2.mutable.Specification
 class SkillSpec extends Specification {
 
   private def target: Path =
-    Files.createTempDirectory("skill").resolve(".claude/skills/cardinality-reduction/SKILL.md")
+    cardinality.Compiled.temporary("skill").resolve(".claude/skills/cardinality-reduction/SKILL.md")
 
   "render" should {
     "fill in every placeholder, with each tool's own commands" in {

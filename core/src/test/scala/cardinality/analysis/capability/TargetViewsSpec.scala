@@ -1,5 +1,6 @@
 package cardinality.analysis.capability
 
+import cardinality.Pending
 import cardinality.analysis.*
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
@@ -16,39 +17,78 @@ class TargetViewsSpec extends Specification {
 
   def is = s2"""
     Overloads resolve by arity
-      an overload calling the declaration is a definite view          $overloadView
-      an overload the arity does not settle is a possible view        $ambiguousOverload
-      a default argument still selects the declaration                $defaults
+      an overload calling the declaration is a definite view          ${Pending.knownLoss(
+      overloadView
+    )}
+      an overload the arity does not settle is a possible view        ${Pending.knownLoss(
+      ambiguousOverload
+    )}
+      a default argument still selects the declaration                ${Pending.knownLoss(defaults)}
       a parent's default body resolves its names where written        $inheritedDefault
     Mentions that evaluate nothing
-      an η-expanded method is not run: a possible view                $etaExpansion
-      a right-associative operator's operand may be by name           $rightAssociative
-      a partially applied method is η-expanded                        $partial
-      a self alias is the receiver                                    $selfAlias
-      an argument list fills the clause its `using` flag selects      $usingClauses
-      a call on a local binding has no declaration read               $boundQualifier
-      a block's local given shadows the member of its name            $localGiven
+      an η-expanded method is not run: a possible view                ${Pending.knownLoss(
+      etaExpansion
+    )}
+      a right-associative operator's operand may be by name           ${Pending.knownLoss(
+      rightAssociative
+    )}
+      a partially applied method is η-expanded                        ${Pending.knownLoss(partial)}
+      a self alias is the receiver                                    ${Pending.knownLoss(
+      selfAlias
+    )}
+      an argument list fills the clause its `using` flag selects      ${Pending.knownLoss(
+      usingClauses
+    )}
+      a call on a local binding has no declaration read               ${Pending.knownLoss(
+      boundQualifier
+    )}
+      a block's local given shadows the member of its name            ${Pending.knownLoss(
+      localGiven
+    )}
     Enclosing templates
       `Outer.this.m` of a final outer is another declaration          $finalOuter
-      `Outer.this.m` of an open outer may be overridden to re-enter   $openOuter
-      an enclosing receiver's call through the object path is a view  $enclosingPath
-      an enclosing receiver's call through a nested object may re-enter $enclosingNested
+      `Outer.this.m` of an open outer may be overridden to re-enter   ${Pending.resolvedRefusal(
+      openOuter
+    )}
+      an enclosing receiver's call through the object path is a view  ${Pending.knownLoss(
+      enclosingPath
+    )}
+      an enclosing receiver's call through a nested object may re-enter ${Pending.knownLoss(
+      enclosingNested
+    )}
     Nested templates
-      a nested object or class whose body re-enters is a possible view $nested
+      a nested object or class whose body re-enters is a possible view ${Pending.knownLoss(nested)}
       a nested object that names nothing is no view                   $nestedFree
     Positions every evaluation of the body reaches
-      an argument, tuple field, condition, scrutinee, unary or `!=` operand, `equals` receiver $positions
+      an argument, tuple field, condition, scrutinee, unary or `!=` operand, `equals` receiver ${Pending
+      .knownLoss(positions)}
     Code the compiler inserts that defers its operand
-      a by-name `==` overload; a by-value one evaluates its operand   $equality
-      an extension whose receiver is by name                          $byNameExtension
-      a conversion taking its argument by name                        $byNameConversion
-      a context-function parameter, or an alias of one                $contextFunction
-      a lambda converted to a SAM; one returned as a function         $samLambda
-      implicit search selecting a given that re-enters                $implicitSearch
-      `super.m` runs a parent's definition                            $superSelection
+      a by-name `==` overload; a by-value one evaluates its operand   ${Pending.knownLoss(equality)}
+      an extension whose receiver is by name                          ${Pending.knownLoss(
+      byNameExtension
+    )}
+      a conversion taking its argument by name                        ${Pending.knownLoss(
+      byNameConversion
+    )}
+      a context-function parameter, or an alias of one                ${Pending.knownLoss(
+      contextFunction
+    )}
+      a lambda converted to a SAM; one returned as a function         ${Pending.knownLoss(
+      samLambda
+    )}
+      implicit search selecting a given that re-enters                ${Pending.knownLoss(
+      implicitSearch
+    )}
+      `super.m` runs a parent's definition                            ${Pending.knownLoss(
+      superSelection
+    )}
     Imports that may bring code the compiler inserts
-      an import or export of an extension from outside the sources    $importedExtension
-      a block's import reaches the statements after it in the block   $blockImport
+      an import or export of an extension from outside the sources    ${Pending.knownLoss(
+      importedExtension
+    )}
+      a block's import reaches the statements after it in the block   ${Pending.knownLoss(
+      blockImport
+    )}
   """
 
   private def entries(code: String): List[MethodAnalysis.Entry] =

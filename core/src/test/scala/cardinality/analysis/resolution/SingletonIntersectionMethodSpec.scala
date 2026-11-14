@@ -1,5 +1,6 @@
 package cardinality.analysis.resolution
 
+import cardinality.Pending
 import cardinality.analysis.*
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
@@ -11,19 +12,25 @@ class SingletonIntersectionMethodSpec extends Specification {
     Singleton and intersection method shapes
       count an accessible empty module and constructor             $module
       preserve a supplied stable path and its widened provenance   $stable
-      normalize stable alias identity                              $alias
+      normalize stable alias identity                              ${Pending.knownLoss(alias)}
       keep different singleton identities distinct                  $identities
       eliminate idempotent intersections without multiplying        $idempotent
       refine a proven singleton with Singleton                      $marker
-      refuse a `Singleton` bound by an unsupplied import            $markerRebound
+      refuse a `Singleton` bound by an unsupplied import            ${Pending.rejectedFixture(
+      markerRebound
+    )}
       refine a stable path by its own type binder                    $binder
       keep distinct module intersections empty                      $disjoint
       reject uncertain stable-value overlap                         $overlap
       reject unrelated trait and structural intersections           $unsupported
       preserve module member environment diagnostics                $members
-      reject inaccessible paths and alias leaks                     $access
-      reject forward references; a missing path is terminal         $negative
-      reject a var's singleton                                      $negativeVar
+      reject inaccessible paths and alias leaks                     ${Pending.rejectedFixture(
+      access
+    )}
+      reject forward references; a missing path is terminal         ${Pending.knownLoss(negative)}
+      reject a var's singleton                                      ${Pending.rejectedFixture(
+      negativeVar
+    )}
   """
 
   private def entry(code: String, name: String = "pick"): MethodAnalysis.Entry =

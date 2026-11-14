@@ -1,8 +1,5 @@
 package cardinality.analysis.inhabitation
 
-import scala.meta.*
-
-import cardinality.analysis.MethodAnalysis
 import org.specs2.Specification
 import org.specs2.execute.Result
 
@@ -51,7 +48,7 @@ class SequenceEliminationSpec extends Specification {
   private def entry(code: String, name: String): Count =
     cardinality.Compiled
       .analyze(
-        List(MethodAnalysis.Input("Seq.scala", dialects.Scala3(code).parse[Source].get))
+        List(cardinality.Compiled.Input("Seq.scala", code))
       )
       .find(_.name == name)
       .get

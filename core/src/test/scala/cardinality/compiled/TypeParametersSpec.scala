@@ -1,7 +1,6 @@
 package cardinality.compiled
 
 import cardinality.analysis.inhabitation.Inhabitation.Count
-import cardinality.reporting.ScalametaFrontEnd
 import org.specs2.Specification
 
 /** Type parameters of the compiled front end beyond atoms and rigid constructors: a type
@@ -32,7 +31,6 @@ class TypeParametersSpec extends Specification {
   A union is a tagged sum, an intersection its narrowest part
     alternatives told apart by class or constant are summed      $unions
     a part above another is dropped; distinct objects are empty  $intersections
-    the scalameta front end agrees on every row measured        $agrees
   """
 
   private val text =
@@ -125,7 +123,7 @@ class TypeParametersSpec extends Specification {
       |""".stripMargin
 
   private lazy val input = TastyFrontEndSpec.compiled("TypeParameters.scala" -> text)
-  private lazy val rows = Differential.answer(TastyFrontEnd, input.next)
+  private lazy val rows = TastyFrontEnd.rows(input)
 
   private def count(name: String): Count =
     rows.sources
@@ -263,11 +261,5 @@ class TypeParametersSpec extends Specification {
       List(4, 1, 1).map(Count.Finite(_)))
       .and(count("Meet.open").toString must contain("unsupported intersection relationship"))
       .and(count("Meet.single").toString must contain("requires a proven singleton identity"))
-
-  private def agrees = {
-    val compared = Differential.run(input, Differential.answer(ScalametaFrontEnd, input.old))
-    ((compared.failed, compared.noted) must_== (Nil, Nil))
-      .and(Differential.failures(compared.compared) must_== Nil)
-  }
 
 }

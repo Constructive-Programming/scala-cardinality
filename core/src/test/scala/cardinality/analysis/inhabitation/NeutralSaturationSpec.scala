@@ -1,8 +1,5 @@
 package cardinality.analysis.inhabitation
 
-import scala.meta.*
-
-import cardinality.analysis.MethodAnalysis
 import org.specs2.Specification
 import org.specs2.execute.Result
 
@@ -48,7 +45,7 @@ class NeutralSaturationSpec extends Specification {
 
   private def counts(code: String): Map[String, Count] =
     cardinality.Compiled
-      .analyze(List(MethodAnalysis.Input("Sums.scala", dialects.Scala3(code).parse[Source].get)))
+      .analyze(List(cardinality.Compiled.Input("Sums.scala", code)))
       .map(entry => entry.name -> entry.count)
       .toMap
 
@@ -137,7 +134,7 @@ class NeutralSaturationSpec extends Specification {
       s"`b,input/$scope:c`: A): Boolean = true\n" +
       "  def plain[A](q: (A, A) => Boolean, a: A, x: A, c: A, y: A): Boolean = true\n}\n"
     val found = cardinality.Compiled
-      .analyze(List(MethodAnalysis.Input("Keys.scala", dialects.Scala3(code).parse[Source].get)))
+      .analyze(List(cardinality.Compiled.Input("Keys.scala", code)))
       .map(entry => entry.name -> entry.count)
       .toMap
     (found("keys.U.odd") === found("keys.U.plain"))

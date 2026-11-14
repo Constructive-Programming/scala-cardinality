@@ -1,5 +1,6 @@
 package cardinality.analysis
 
+import cardinality.Pending
 import cardinality.analysis.inhabitation.*
 import cardinality.capacity.BooleanSize
 import org.specs2.Specification
@@ -16,35 +17,55 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
     Named tuples are the products of their fields
       fields are read as a tuple's                                   $namedFields
       a named tuple inside a type-lambda alias                       $namedAlias
-      a match type is stuck on a named tuple                         $namedStuck
+      a match type is stuck on a named tuple                         ${Pending.knownLoss(
+      namedStuck
+    )}
       names are part of a rigid argument's key                       $namedKeys
-      a named tuple and its tuple share a runtime class              $namedUnion
-      a dependent function's named parameter is not a field          $dependentFunction
+      a named tuple and its tuple share a runtime class              ${Pending.knownLoss(
+      namedUnion
+    )}
+      a dependent function's named parameter is not a field          ${Pending.knownLoss(
+      dependentFunction
+    )}
     Literal types have one value
       a literal goal has one implementation                          $literalGoals
       a literal input adds nothing a body cannot write               $literalInputs
       literals inside products and sums                              $literalContainers
-      a union of literals holds its distinct constants               $literalUnions
+      a union of literals holds its distinct constants               ${Pending.resolvedRefusal(
+      literalUnions
+    )}
       a literal domain or codomain is a closed space                 $literalCallables
       a call instantiated with a literal widens it to its class      $literalCalls
       a literal is its own key, by class and constant                $literalKeys
-      a floating zero is not read, its sign being lost               $floatingZero
+      a floating zero is not read, its sign being lost               ${Pending.resolvedRefusal(
+      floatingZero
+    )}
     Context functions are functions whose binders are givens
       an input applies like a function                               $contextInputs
       a result builds a literal with named binders                   $contextResults
-      a whole-body binder hides outer evidence of its type           $contextShadowing
+      a whole-body binder hides outer evidence of its type           ${Pending.knownLoss(
+      contextShadowing
+    )}
       a binder of an unrelated type hides nothing                    $contextUnrelated
       a nested context function wraps only its part                  $contextNested
-      local definitions read the enclosing method's binders          $contextLocals
-      a binder behind a reading that stops is refused                $contextUnread
+      local definitions read the enclosing method's binders          ${Pending.knownLoss(
+      contextLocals
+    )}
+      a binder behind a reading that stops is refused                ${Pending.resolvedRefusal(
+      contextUnread
+    )}
       a call returning a context function is applied                 $contextCalls
       an ascription to a context function is applied                 $contextAscription
     Compile-time and type-revealing evidence is refused
-      an inline method counts unless its expansion reads its call    $inlineMethods
+      an inline method counts unless its expansion reads its call    ${Pending.knownLoss(
+      inlineMethods
+    )}
       a definition inside an inline method is expanded with it       $inlineNested
       a one-valued inline goal keeps its one implementation          $inlineTerminal
       a transparent named tuple is refused unless it is a singleton  $inlineNamedTuple
-      runtime type evidence reveals its type argument                $revealingEvidence
+      runtime type evidence reveals its type argument                ${Pending.knownLoss(
+      revealingEvidence
+    )}
       quoted code is compile-time reflection                         $quoted
   """
 

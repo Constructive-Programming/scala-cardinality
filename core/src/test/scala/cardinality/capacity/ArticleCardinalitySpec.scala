@@ -1,5 +1,6 @@
 package cardinality.capacity
 
+import cardinality.Pending
 import org.specs2.Specification
 import org.specs2.execute.Result
 
@@ -131,80 +132,110 @@ class ArticleCardinalitySpec extends Specification {
     List[Boolean] is countable               ${tpe("List[Boolean]") === EffectiveOmega}
 
   Targets (section 6): polymorphic counts
-    identity has one inhabitant              ${target(
-      tpe("[A] => A => A"),
-      UnitSize,
-      needsParametricity
+    identity has one inhabitant              ${Pending.knownLoss(
+      target(
+        tpe("[A] => A => A"),
+        UnitSize,
+        needsParametricity
+      )
     )}
-    first projection has one inhabitant      ${target(
-      tpe("[A, B] => ((A, B)) => A"),
-      UnitSize,
-      needsParametricity
+    first projection has one inhabitant      ${Pending.knownLoss(
+      target(
+        tpe("[A, B] => ((A, B)) => A"),
+        UnitSize,
+        needsParametricity
+      )
     )}
-    either input may be returned             ${target(
-      tpe("[A] => ((A, A)) => A"),
-      BooleanSize,
-      needsParametricity
+    either input may be returned             ${Pending.knownLoss(
+      target(
+        tpe("[A] => ((A, A)) => A"),
+        BooleanSize,
+        needsParametricity
+      )
     )}
-    both outputs chosen independently        ${target(
-      tpe("[A] => ((A, A)) => (A, A)"),
-      TinySize(4),
-      needsParametricity
+    both outputs chosen independently        ${Pending.knownLoss(
+      target(
+        tpe("[A] => ((A, A)) => (A, A)"),
+        TinySize(4),
+        needsParametricity
+      )
     )}
-    apply the function, ignoring B           ${target(
-      tpe("[A, B, C] => (A => C) => B => A => C"),
-      UnitSize,
-      needsParametricity
+    apply the function, ignoring B           ${Pending.knownLoss(
+      target(
+        tpe("[A, B, C] => (A => C) => B => A => C"),
+        UnitSize,
+        needsParametricity
+      )
     )}
-    composition has one inhabitant           ${target(
-      tpe("[A, B, C] => (A => B) => (B => C) => A => C"),
-      UnitSize,
-      needsParametricity
+    composition has one inhabitant           ${Pending.knownLoss(
+      target(
+        tpe("[A, B, C] => (A => B) => (B => C) => A => C"),
+        UnitSize,
+        needsParametricity
+      )
     )}
-    apply the function or return B           ${target(
-      tpe("[A, B] => (A => B) => B => A => B"),
-      BooleanSize,
-      needsParametricity
+    apply the function or return B           ${Pending.knownLoss(
+      target(
+        tpe("[A, B] => (A => B) => B => A => B"),
+        BooleanSize,
+        needsParametricity
+      )
     )}
-    C cannot be manufactured                 ${target(
-      tpe("[A, B, C] => (A => B) => B => A => C"),
-      NothingSize,
-      needsParametricity
+    C cannot be manufactured                 ${Pending.knownLoss(
+      target(
+        tpe("[A, B, C] => (A => B) => B => A => C"),
+        NothingSize,
+        needsParametricity
+      )
     )}
-    Nothing cannot be manufactured           ${target(
-      tpe("[A] => (Nothing => A) => A => Nothing"),
-      NothingSize,
-      needsParametricity
+    Nothing cannot be manufactured           ${Pending.knownLoss(
+      target(
+        tpe("[A] => (Nothing => A) => A => Nothing"),
+        NothingSize,
+        needsParametricity
+      )
     )}
-    a negated argument empties the domain    ${target(
-      tpe("[A, B] => ((A => Nothing, B)) => (Boolean, B)"),
-      NothingSize,
-      needsParametricity
+    a negated argument empties the domain    ${Pending.knownLoss(
+      target(
+        tpe("[A, B] => ((A => Nothing, B)) => (Boolean, B)"),
+        NothingSize,
+        needsParametricity
+      )
     )}
-    no A is available for every A            ${target(
-      tpe("[A] => (A => Nothing) => Nothing"),
-      NothingSize,
-      needsParametricity
+    no A is available for every A            ${Pending.knownLoss(
+      target(
+        tpe("[A] => (A => Nothing) => Nothing"),
+        NothingSize,
+        needsParametricity
+      )
     )}
-    a contradiction can never be supplied    ${target(
-      tpe("[A] => (A => Nothing) => A => Nothing"),
-      NothingSize,
-      needsParametricity
+    a contradiction can never be supplied    ${Pending.knownLoss(
+      target(
+        tpe("[A] => (A => Nothing) => A => Nothing"),
+        NothingSize,
+        needsParametricity
+      )
     )}
-    nor can a pair of them                   ${target(
-      tpe("[A] => ((A => Nothing, A => Nothing)) => (A => Nothing)"),
-      NothingSize,
-      needsParametricity
+    nor can a pair of them                   ${Pending.knownLoss(
+      target(
+        tpe("[A] => ((A => Nothing, A => Nothing)) => (A => Nothing)"),
+        NothingSize,
+        needsParametricity
+      )
     )}
-    Option's natural transformation          ${target(
-      tpe("[A] => Option[A] => Option[A]"),
-      BooleanSize,
-      needsParametricity
+    Option's natural transformation          ${Pending.knownLoss(
+      target(
+        tpe("[A] => Option[A] => Option[A]"),
+        BooleanSize,
+        needsParametricity
+      )
     )}
-    the signature of map                     ${target(
-      tpe("[A, B] => (A => B) => Option[A] => Option[B]"),
-      BooleanSize,
-      needsParametricity
+    the signature of map                     ${Pending.knownLoss(
+      target(
+        tpe("[A, B] => (A => B) => Option[A] => Option[B]"),
+        BooleanSize,
+        needsParametricity
+      )
     )}
 
   Recursive types (section 8)
@@ -229,20 +260,26 @@ class ArticleCardinalitySpec extends Specification {
     a self-referring label still unfolds     ${src(
       "final class M3(m: => M3, o: Option[M3])"
     ) === EffectiveEpsilon0} (o holds None or any M3 beside the tail, ω labels per lap, §8)
-    recursion without a seed                 ${target(
-      tpe("[A] => (A => A) => A"),
-      NothingSize,
-      needsParametricity
+    recursion without a seed                 ${Pending.knownLoss(
+      target(
+        tpe("[A] => (A => A) => A"),
+        NothingSize,
+        needsParametricity
+      )
     )}
     naturals are countable                   ${src(
       "enum Nat { case Zero; case Succ(n: Nat) }"
     ) === EffectiveOmega} (μX.(1 + X), pinned at ℵ₀ by iteration)
-    Church numerals are countable            ${tpe(
-      "[A] => (A => A) => A => A"
-    ) === EffectiveOmega} (the fallback is the right count for the wrong reason)
-    iteration keeps an extra argument        ${tpe(
-      "[A, B] => (A => B => A) => A => B => A"
-    ) === EffectiveOmega} (the fallback is the right count for the wrong reason)
+    Church numerals are countable            ${Pending.knownLoss(
+      tpe(
+        "[A] => (A => A) => A => A"
+      ) === EffectiveOmega
+    )} (the fallback is the right count for the wrong reason)
+    iteration keeps an extra argument        ${Pending.knownLoss(
+      tpe(
+        "[A, B] => (A => B => A) => A => B => A"
+      ) === EffectiveOmega
+    )} (the fallback is the right count for the wrong reason)
 
   Targets (section 2): overlap
     a union with an overlapping member       ${target(

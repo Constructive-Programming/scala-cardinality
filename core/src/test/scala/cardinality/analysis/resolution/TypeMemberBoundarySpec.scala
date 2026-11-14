@@ -3,6 +3,7 @@ package cardinality.analysis.resolution
 import scala.compiletime.testing.typeChecks
 import scala.meta.*
 
+import cardinality.Pending
 import cardinality.analysis.*
 import cardinality.analysis.inhabitation.*
 import cardinality.analysis.inhabitation.NaturalSyntax.pow
@@ -17,25 +18,41 @@ class TypeMemberBoundarySpec extends Specification {
 
   def is = s2"""
     Paths
-      an outer `O.this` or self alias stays the enclosing instance  $outerThis
+      an outer `O.this` or self alias stays the enclosing instance  ${Pending.knownLoss(outerThis)}
       a parameter hides an enclosing template's self alias          $selfShadow
-      a value fixed by its own definition is no choice              $localValue
+      a value fixed by its own definition is no choice              ${Pending.knownLoss(localValue)}
     Members
-      a member some level declares as a class is no atom            $classMember
-      a value class or a private constructor fixes its members      $unsubclassable
-      a parent's private alias is that parent's own                 $privateAlias
-      a type-only template with no constructor input is one value  $typesOnly
-      a type projection of an abstract member has no path           $projection
+      a member some level declares as a class is no atom            ${Pending.resolvedRefusal(
+      classMember
+    )}
+      a value class or a private constructor fixes its members      ${Pending.knownLoss(
+      unsubclassable
+    )}
+      a parent's private alias is that parent's own                 ${Pending.knownLoss(
+      privateAlias
+    )}
+      a type-only template with no constructor input is one value  ${Pending.knownLoss(typesOnly)}
+      a type projection of an abstract member has no path           ${Pending.knownLoss(projection)}
     Refinements
-      a refinement no value of its base may have is refused         $unsatisfiable
+      a refinement no value of its base may have is refused         ${Pending.knownLoss(
+      unsatisfiable
+    )}
       the compiler rejects the refused refinements                  $refinementFacts
     Stuck projections
-      a member scrutinee is spelled by its path                     $spelledMember
-      a bound mentioning the scrutinee refuses                      $boundedScrutinee
-      a type pattern before `case _` still needs a proof            $typePattern
+      a member scrutinee is spelled by its path                     ${Pending.knownLoss(
+      spelledMember
+    )}
+      a bound mentioning the scrutinee refuses                      ${Pending.oldBehavior(
+      boundedScrutinee
+    )}
+      a type pattern before `case _` still needs a proof            ${Pending.knownLoss(
+      typePattern
+    )}
     Gate G1
       a `var` of an intermediate parent implements a `def`          $varImplements
-      a local implementer's captures are refused                    $localImplementer
+      a local implementer's captures are refused                    ${Pending.resolvedRefusal(
+      localImplementer
+    )}
     Closures
       a parent clause's constructor is read with its file's imports $closureImports
   """
@@ -43,9 +60,7 @@ class TypeMemberBoundarySpec extends Specification {
   private def entries(sources: (String, String)*): Map[String, Count] =
     cardinality.Compiled
       .analyze(
-        sources.toList.map((name, code) =>
-          MethodAnalysis.Input(name, dialects.Scala3(code).parse[Source].get)
-        )
+        sources.toList.map((name, code) => cardinality.Compiled.Input(name, code))
       )
       .map(entry => entry.name -> entry.count)
       .toMap

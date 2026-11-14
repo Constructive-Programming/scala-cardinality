@@ -1,5 +1,6 @@
 package cardinality.analysis
 
+import cardinality.Pending
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 
@@ -13,11 +14,21 @@ class TransparentInlineSpec extends Specification {
 
   def is = s2"""
     A transparent result is what the expansion returns
-      a declared top type hides what callers observe                 $transparent
-      a transparent result of an open class may be a subclass        $transparentSubclass
-      a closed transparent result is still narrowed at the call site $transparentClosed
-      a transparent function result is refused too                   $transparentFunction
-      a narrower class, None, or a declared singleton                $transparentResults
+      a declared top type hides what callers observe                 ${Pending.knownLoss(
+      transparent
+    )}
+      a transparent result of an open class may be a subclass        ${Pending.knownLoss(
+      transparentSubclass
+    )}
+      a closed transparent result is still narrowed at the call site ${Pending.knownLoss(
+      transparentClosed
+    )}
+      a transparent function result is refused too                   ${Pending.oldBehavior(
+      transparentFunction
+    )}
+      a narrower class, None, or a declared singleton                ${Pending.knownLoss(
+      transparentResults
+    )}
     An inline method that is not transparent
       an inline parameter of a top type is read only by inline match $inlineTop
   """

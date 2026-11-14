@@ -1,7 +1,6 @@
 package cardinality.compiled
 
 import cardinality.analysis.inhabitation.Inhabitation.Count
-import cardinality.reporting.ScalametaFrontEnd
 import org.specs2.Specification
 
 /** A capability record's member named like the measured definition (`Shapes.record`): it may be the
@@ -15,7 +14,6 @@ class NamesSpec extends Specification {
   A member named like the measured definition
     is read where no instance has both classes, or arities differ $read
     is refused where it may be the definition itself, as before   $refused
-    the scalameta front end agrees on every row measured          $agrees
   """
 
   private val text =
@@ -32,7 +30,7 @@ class NamesSpec extends Specification {
       |""".stripMargin
 
   private lazy val input = TastyFrontEndSpec.compiled("Names.scala" -> text)
-  private lazy val rows = Differential.answer(TastyFrontEnd, input.next)
+  private lazy val rows = TastyFrontEnd.rows(input)
 
   // The last row of a name: an overload taking parameters is written after the member.
   private def count(name: String): Count =
@@ -58,11 +56,5 @@ class NamesSpec extends Specification {
   // overrides computes from the instance (`Cell.value` above) and is no such member.
   private def refused =
     count("Node.size").toString must contain("may be the measured declaration on its receiver")
-
-  private def agrees = {
-    val compared = Differential.run(input, Differential.answer(ScalametaFrontEnd, input.old))
-    ((compared.failed, compared.noted) must_== (Nil, Nil))
-      .and(Differential.failures(compared.compared) must_== Nil)
-  }
 
 }

@@ -1,7 +1,6 @@
 package cardinality.compiled
 
 import cardinality.analysis.inhabitation.Inhabitation.Count
-import cardinality.reporting.ScalametaFrontEnd
 import org.specs2.Specification
 
 /** Slice S4 of the compiled front end (docs/plans/compiled-own-types.md): a member of a class reads
@@ -20,7 +19,6 @@ class ReceiversSpec extends Specification {
     a template that inherits, or a sum, reads what it holds       $inherited
     a local definition reads the methods it is written in         $locals
     a receiver this slice does not read is uncovered, or counted  $later
-    the scalameta front end agrees on every row measured          $agrees
   """
 
   private val text =
@@ -187,7 +185,7 @@ class ReceiversSpec extends Specification {
       |""".stripMargin
 
   private lazy val input = TastyFrontEndSpec.compiled("Receivers.scala" -> text)
-  private lazy val rows = Differential.answer(TastyFrontEnd, input.next)
+  private lazy val rows = TastyFrontEnd.rows(input)
 
   private def entry(name: String) =
     rows.sources.flatMap(_.toOption.toList.flatMap(_.methods)).find(_.name == name).get
@@ -502,23 +500,6 @@ class ReceiversSpec extends Specification {
         case other                          => other.toString
       }
     } must_== expected.map(_._2)
-  }
-
-  // No row the compiled front end measures differs from the scalameta front end's, and none it
-  // counts past a model limit of the old reading is left without a derivation.
-  // `Bounded.get` is derived above (1); the old front end refuses a bounded abstract type member.
-  // `Self`'s `run` is a correction: the self alias `y` hides the parameter `y` in the instance,
-  // and `mk` reads it nowhere else, so `run` is one of the 2^2 functions of its `b`; the old
-  // reading kept the parameter and counted 2^(2 × 2) = 16.
-  private def agrees = {
-    val compared = Differential.run(input, Differential.answer(ScalametaFrontEnd, input.old))
-    def key(name: String) = compared.compared.filter(_.row.name == name).map(_.row.key)
-    val derived = key("recv.Bounded.get").map(_ -> "1").toMap
-    val corrected = key("recv.Self.mk.<new#1>.run").map(_ -> "16 -> 4").toMap
-    ((compared.failed, compared.noted) must_== (Nil, Nil))
-      .and((derived.size, corrected.size) must_== (1, 1))
-      .and(Differential.failures(compared.compared, derived, corrected) must_== Nil)
-      .and(Differential.unused(compared.compared, corrected) must_== Nil)
   }
 
 }

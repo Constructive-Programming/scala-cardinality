@@ -1,5 +1,6 @@
-# The report reads the declarations of the project's Compile dependencies from their TASTy, so a
-# row over a cats-kernel type gets a number; with the dependency classpath cleared it does not.
+# The report reads the module's classes against the project's Compile dependencies, so a row over
+# a cats-kernel type gets a number; with the dependency classpath cleared the type is a member the
+# classpath does not hold, and the row is refused.
 > cardinalityReport
 > checkResolved
 > cardinalityReportSelected example.pick

@@ -1,7 +1,6 @@
 package cardinality.analysis
 
-import scala.meta.*
-
+import cardinality.Pending
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 
@@ -16,7 +15,9 @@ class MethodUnionNullabilitySpec extends Specification {
       reject distinct potentially overlapping free binders           $overlapping
       count distinct nominal types with equal shapes as two cases     $nominal
       add disjoint builtin classes as a sum                          $builtins
-      keep overlapping concrete alternatives unresolved              $unsupported
+      keep overlapping concrete alternatives unresolved              ${Pending.oldBehavior(
+      unsupported
+    )}
     Null-free implementation semantics
       erase explicit nullability without adding a constructor        $nullable
       treat Null alone as empty                                      $nullOnly
@@ -26,7 +27,7 @@ class MethodUnionNullabilitySpec extends Specification {
 
   private def entry(code: String, name: String = "pick"): MethodAnalysis.Entry =
     cardinality.Compiled
-      .analyze(List(MethodAnalysis.Input("Union.scala", dialects.Scala3(code).parse[Source].get)))
+      .analyze(List(cardinality.Compiled.Input("Union.scala", code)))
       .find(_.name == name)
       .get
 

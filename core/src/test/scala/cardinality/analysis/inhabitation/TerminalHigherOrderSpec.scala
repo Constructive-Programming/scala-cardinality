@@ -1,8 +1,5 @@
 package cardinality.analysis.inhabitation
 
-import scala.meta.*
-
-import cardinality.analysis.*
 import org.specs2.Specification
 
 class TerminalHigherOrderSpec extends Specification {
@@ -194,7 +191,7 @@ class TerminalHigherOrderSpec extends Specification {
     }
     final class Modify[S, T, A, B](val modifyFn: (A => B) => S => T)
     """
-    val input = MethodAnalysis.Input("Higher.scala", dialects.Scala3(code).parse[Source].get)
+    val input = cardinality.Compiled.Input("Higher.scala", code)
     val entries = cardinality.Compiled.analyze(List(input))
     (entries.find(_.name == "CanModifyP.replace").get.count === Count.Finite(1))
       .and(entries.find(_.name == "Modify.<init>").get.count === Count.Finite(1))

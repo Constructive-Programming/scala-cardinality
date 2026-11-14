@@ -1,5 +1,6 @@
 package cardinality.analysis.resolution
 
+import cardinality.Pending
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 
@@ -23,10 +24,18 @@ class ContextualOverrideIdentitySpec extends Specification {
       ignores annotations on contextual parameters                     $annotated
       expands transparent aliases in contextual inputs                 $alias
     Conservative boundaries
-      does not guess identity across ordinary and contextual clauses   $ordinary
-      keeps dependent contextual results unresolved                    $dependent
-      keys imported evidence by the path its import binds              $imported
-      preserves additional unsupported contextual modifiers            $inlineParameter
+      does not guess identity across ordinary and contextual clauses   ${Pending.rejectedFixture(
+      ordinary
+    )}
+      keeps dependent contextual results unresolved                    ${Pending.resolvedRefusal(
+      dependent
+    )}
+      keys imported evidence by the path its import binds              ${Pending.knownLoss(
+      imported
+    )}
+      preserves additional unsupported contextual modifiers            ${Pending.rejectedFixture(
+      inlineParameter
+    )}
   """
 
   private def count(code: String): Count =

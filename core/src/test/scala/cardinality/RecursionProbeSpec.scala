@@ -1,8 +1,5 @@
 package cardinality.analysis
 
-import scala.meta.*
-import scala.meta.dialects.Scala3
-
 import org.specs2.mutable.Specification
 
 /** The reading of self-referential (and mutually recursive) trait types.
@@ -17,7 +14,7 @@ class RecursionProbeSpec extends Specification {
 
   private def counts(code: String): Map[String, String] =
     cardinality.Compiled
-      .analyze(List(MethodAnalysis.Input("P.scala", Scala3(code).parse[Source].get)))
+      .analyze(List(cardinality.Compiled.Input("P.scala", code)))
       .map(entry => entry.name -> entry.count.toString)
       .toMap
 

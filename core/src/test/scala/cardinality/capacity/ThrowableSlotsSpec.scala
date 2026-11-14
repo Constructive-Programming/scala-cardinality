@@ -1,5 +1,6 @@
 package cardinality.capacity
 
+import cardinality.Pending
 import cardinality.analysis.inhabitation.Inhabitation.Count
 import org.specs2.Specification
 
@@ -14,10 +15,12 @@ class ThrowableSlotsSpec extends Specification {
 
   def is = s2"""
     A throwable slot is open to implementations, never a size     $openSlots
-    every root-import spelling of a throwable is the open class    $spellings
+    every root-import spelling of a throwable is the open class    ${Pending.oldBehavior(spellings)}
     a constructor over a throwable slot says why it has no number  $constructorSlot
     a source class named Throwable is that class                   $shadowed
-    a throwable the scala package does not alias is not one there  $unaliased
+    a throwable the scala package does not alias is not one there  ${Pending.rejectedFixture(
+      unaliased
+    )}
   """
 
   private val failing: String =

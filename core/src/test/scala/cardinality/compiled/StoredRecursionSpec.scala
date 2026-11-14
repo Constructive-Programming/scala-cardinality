@@ -1,5 +1,6 @@
 package cardinality.compiled
 
+import cardinality.compiled.TastyFrontEndSpec.subject
 import org.specs2.Specification
 
 /** Definitions that reach themselves in the compiled front end: a system of equations solved by the
@@ -203,7 +204,7 @@ class StoredRecursionSpec extends Specification {
       |""".stripMargin
 
   private lazy val rows =
-    Differential.answer(TastyFrontEnd, TastyFrontEndSpec.compiled("Rec.scala" -> text).next)
+    TastyFrontEnd.rows(TastyFrontEndSpec.compiled("Rec.scala" -> text))
 
   // A definition row as the report shows it: its size, or its first reason up to what it names.
   private def definition(name: String): String = {

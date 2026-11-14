@@ -57,8 +57,7 @@ class InlinesSpec extends Specification {
 
   // One source compiled by scalac against `classpath` and the Scala library: its class directory.
   private def compiled(code: String, classpath: List[Path] = Nil): Path = {
-    val root = Files.createTempDirectory("inlines")
-    sys.addShutdownHook(cardinality.Compiled.deleted(root))
+    val root = cardinality.Compiled.temporary("inlines")
     val file = Files.writeString(root.resolve("Example.scala"), code)
     val classes = Files.createDirectories(root.resolve("classes"))
     val reporter = new dotty.tools.dotc.reporting.StoreReporter()

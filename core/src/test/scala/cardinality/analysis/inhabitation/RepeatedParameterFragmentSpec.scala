@@ -1,7 +1,5 @@
 package cardinality.analysis.inhabitation
 
-import scala.meta.*
-
 import cardinality.analysis.*
 import org.specs2.Specification
 
@@ -11,7 +9,6 @@ class RepeatedParameterFragmentSpec extends Specification {
 
   def is = s2"""
     Repeated argument sequences
-      parse the repeated wrapper around a function                $functionAst
       construct only Nil without an element producer              $emptyIntroduction
       prove infinitely many lengths with an element producer      $nonemptyIntroduction
       do not confuse an unproductive element cycle with a seed    $unproductiveElement
@@ -45,11 +42,6 @@ class RepeatedParameterFragmentSpec extends Specification {
         reasons.exists(_.contains("Repeated-argument sequence elimination is unsupported")) must
           beTrue
     }
-
-  def functionAst = {
-    val source = dialects.Scala3("def f[A](fs: (A => Unit)*): Unit = ()").parse[Source].get
-    source.collect { case Type.Repeated(_: Type.Function) => true } === List(true)
-  }
 
   def emptyIntroduction =
     (Inhabitation.count(Nil, Repeated(a)) === Count.Finite(1)).and(

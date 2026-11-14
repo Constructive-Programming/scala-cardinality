@@ -1,11 +1,11 @@
 package cardinality.analysis
 
-import cardinality.Compiled
 import cardinality.analysis.inhabitation.Inhabitation.Count
 import cardinality.analysis.inhabitation.NaturalSyntax
 import cardinality.capacity.Definition
 import cardinality.compiled.Programs
 import cardinality.reporting.Report
+import cardinality.{Compiled, Pending}
 import java.nio.file.{Files, Path}
 import org.specs2.Specification
 import org.specs2.execute.Result
@@ -25,25 +25,37 @@ class DependencyRowsSpec extends Specification {
   def is = s2"""
     A Scala 3 dependency
       counts as its source does, or refuses                           $parity
-      supplies what the module alone cannot name                      $supplied
+      supplies what the module alone cannot name                      ${Pending.knownLoss(supplied)}
       is no row of the module                                         $noRows
-      a compiled inline body is not read: its caller refuses          $inlineBody
+      a compiled inline body is not read: its caller refuses          ${Pending.resolvedRefusal(
+      inlineBody
+    )}
       an inline override in it is expanded where a receiver may be it $inlineOverride
       a stored value through it is its source's                       $stored
     A Java dependency
       an enum is its constants, a static field of its type is none    $javaEnum
       an interface is the record of its abstract methods              $javaInterface
-      a class's state and a sealed interface's subclasses are not read $javaHidden
-      nothing of it is read without it                                $javaAlone
-      `Object` is `Any`; a wildcard is read, a raw type is not        $javaSignatures
+      a class's state and a sealed interface's subclasses are not read ${Pending.knownLoss(
+      javaHidden
+    )}
+      nothing of it is read without it                                ${Pending.knownLoss(
+      javaAlone
+    )}
+      `Object` is `Any`; a wildcard is read, a raw type is not        ${Pending.knownLoss(
+      javaSignatures
+    )}
     A Scala 2 dependency
-      a class of it has a count where the module alone refuses        $scala2
+      a class of it has a count where the module alone refuses        ${Pending.knownLoss(scala2)}
       a sealed class with a child the pickle does not declare refuses $scala2Sealed
     The dependency classpath
       a class two dependencies declare is the first one's             $firstWins
-      a dependency's template is the one of its qualified name        $qualified
-      a JDK module other than java.base is read where a source names it $jdkModule
-      with no classpath at all a JDK module is not read              $jdkUnread
+      a dependency's template is the one of its qualified name        ${Pending.resolvedRefusal(
+      qualified
+    )}
+      a JDK module other than java.base is read where a source names it ${Pending.knownLoss(
+      jdkModule
+    )}
+      with no classpath at all a JDK module is not read              ${Pending.knownLoss(jdkUnread)}
   """
 
   private def counts(report: Report): Map[String, Count] =

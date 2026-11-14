@@ -1,6 +1,7 @@
 package cardinality.compiled
 
 import cardinality.analysis.inhabitation.Inhabitation.Count
+import cardinality.compiled.TastyFrontEndSpec.subject
 import org.specs2.Specification
 
 /** Construction in the compiled front end (decision D5, register D26): a pattern definition is an
@@ -80,7 +81,7 @@ class ConstructionSpec extends Specification {
       |""".stripMargin
 
   private lazy val input = TastyFrontEndSpec.compiled("Construction.scala" -> text)
-  private lazy val rows = Differential.answer(TastyFrontEnd, input.next)
+  private lazy val rows = TastyFrontEnd.rows(input)
 
   private def count(name: String): Count = counts(name).head
 

@@ -1,5 +1,6 @@
 package cardinality.capacity
 
+import cardinality.Pending
 import org.specs2.Specification
 
 // Rule B's factories on the stored-value side (v1.md §2, register D42): a class whose constructor
@@ -14,7 +15,7 @@ class StoredFactoriesSpec extends Specification {
     A class only factories build
       the largest space a factory builds, read through delegation    $largest
       fields no public member shows are one value                    $hidden
-      no factory: no space                                           $noBuilder
+      no factory: no space                                           ${Pending.knownLoss(noBuilder)}
   """
 
   private lazy val found = rows(

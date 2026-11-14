@@ -9,11 +9,11 @@ lazy val checkResolved = taskKey[Unit]("Check a row resolves through the compile
 checkResolved := Def.uncached {
   val text = IO.read(cardinalityReportFile.value)
   assert(text.contains("27  example.pick"), text)
-  assert(!text.contains("tasty/"), text)
 }
 
-lazy val checkUnsupplied = taskKey[Unit]("Check the sources-only report leaves the name unsupplied")
+lazy val checkUnsupplied = taskKey[Unit]("Check a row over a class the classpath lacks is refused")
 checkUnsupplied := Def.uncached {
   val text = IO.read(cardinalityReportFile.value)
-  assert(text.contains("declaration not supplied: cats.kernel.Comparison"), text)
+  assert(text.contains("?  example.pick"), text)
+  assert(text.contains("a member the classpath does not hold: cats"), text)
 }

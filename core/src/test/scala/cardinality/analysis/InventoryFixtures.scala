@@ -9,7 +9,7 @@ import org.specs2.matcher.{MatchResult, MustMatchers}
 trait InventoryFixtures extends MustMatchers {
   import Inhabitation.Count
 
-  protected def inputs(sources: (String, String)*): List[MethodAnalysis.Input] =
+  protected def inputs(sources: (String, String)*): List[cardinality.Compiled.Input] =
     cardinality.Compiled.inputs(sources*)
 
   protected def counts(sources: (String, String)*): Map[String, Count] =

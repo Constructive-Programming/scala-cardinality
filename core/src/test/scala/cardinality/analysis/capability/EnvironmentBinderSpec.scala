@@ -1,8 +1,5 @@
 package cardinality.analysis.capability
 
-import scala.meta.*
-
-import cardinality.analysis.*
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 import org.specs2.execute.Result
@@ -26,7 +23,7 @@ class EnvironmentBinderSpec extends Specification {
 
   private lazy val found: Map[String, Count] =
     cardinality.Compiled
-      .analyze(List(MethodAnalysis.Input("Env.scala", dialects.Scala3(code).parse[Source].get)))
+      .analyze(List(cardinality.Compiled.Input("Env.scala", code)))
       .map(entry => entry.name -> entry.count)
       .toMap
 

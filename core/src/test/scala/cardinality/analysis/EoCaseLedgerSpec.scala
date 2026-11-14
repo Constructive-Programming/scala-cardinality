@@ -1,13 +1,10 @@
 package cardinality.analysis
 
-import scala.meta.*
-
-import cardinality.EoBaseline
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 
-/** Reduced relevant scopes from the pinned EO archive; the opt-in EoBaseline runner reads all 53
-  * original sources. These tests check the ledger's derivations, not just report snapshots.
+/** Reduced relevant scopes from the pinned EO archive. These tests check the ledger's derivations,
+  * not just report snapshots.
   */
 class EoCaseLedgerSpec extends Specification {
   import Inhabitation.Count
@@ -23,16 +20,11 @@ class EoCaseLedgerSpec extends Specification {
       an additional captured value changes a zero                $capturedResult
       an additional endomorphism changes an identity count        $capturedStep
       an additional result producer changes replace's count      $capturedFallback
-    Review identity
-      moving anonymous extension and given owners keeps keys     $movedOwners
-      different extension receivers retain different keys        $differentReceivers
-    Input integrity
-      reject bytes other than the pinned EO archive               $wrongChecksum
   """
 
   private def entries(code: String): Map[String, MethodAnalysis.Entry] =
     cardinality.Compiled
-      .analyze(List(MethodAnalysis.Input("Ledger.scala", dialects.Scala3(code).parse[Source].get)))
+      .analyze(List(cardinality.Compiled.Input("Ledger.scala", code)))
       .map(entry => entry.name -> entry)
       .toMap
 
@@ -94,35 +86,5 @@ class EoCaseLedgerSpec extends Specification {
         def modify(f: A => B): S => T
         def replace(b: B): S => T = modify(_ => b)
     """)("CanModifyP.replace").count === Count.Finite(2)
-
-  private def keys(code: String) = {
-    val tree = dialects.Scala3(code).parse[Source].get
-    cardinality.Compiled
-      .analyze(List(MethodAnalysis.Input("Owners.scala", tree)))
-      .map(entry => EoBaseline.identity(entry, tree))
-      .toSet
-  }
-
-  def movedOwners = {
-    val code = """
-      trait Maker[A] { def make(a: A): A }
-      given [A]: Maker[A] with
-        def make(a: A): A = a
-      extension (a: Boolean) def value: Boolean = a
-    """
-    keys(code) === keys("\n\n" + code)
-  }
-
-  def differentReceivers = {
-    val measured = keys("""
-      extension (a: Boolean) def value: Unit = ()
-      extension (a: Unit) def value: Unit = ()
-    """)
-    measured.size === 2
-  }
-
-  def wrongChecksum =
-    EoBaseline.verifyChecksum(Array[Byte](0)) must
-      throwA[IllegalArgumentException](".*EO sources checksum mismatch.*")
 
 }

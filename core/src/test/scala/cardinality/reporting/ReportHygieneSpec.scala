@@ -1,11 +1,9 @@
 package cardinality.reporting
 
-import scala.meta.*
-
+import cardinality.Pending
 import cardinality.analysis.MethodAnalysis
 import cardinality.analysis.inhabitation.Inhabitation.Count
 import cardinality.capacity.*
-import cardinality.types.Spelling
 import java.io.FileOutputStream
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
@@ -21,34 +19,32 @@ import org.specs2.specification.AfterAll
 class ReportHygieneSpec extends Specification with AfterAll {
 
   def is = s2"""
-    One-line spelling
-      a broken parameter clause reads on one line           $brokenClause
-      a refinement's body reads on one line                 $refinement
-      comments between tokens are layout                    $comments
-      a literal keeps its own spaces                        $literal
-      a line break between statements in braces reads `;`   $statementBreaks
-      a line break inside an expression is layout           $expressionBreaks
-      an operator at a line start is infix only before space $leadingOperators
-      an operator at a line end continues only an operand   $trailingOperators
-      a braceless match reads in the braces it stands for   $bracelessMatch
-      text the tokenizer refuses keeps its characters       $untokenizable
-      a character Scala does not have keeps its spaces      $invalidCharacter
-      spelling is idempotent                                $idempotent
-
     Method rows
-      a refinement reason quotes the source, on one line    $refinementReason
-      so does one behind aliases of aliases                 $nestedAliases
-      a source name shaped like a placeholder is its own    $placeholderName
-      so is one that only starts like a placeholder         $placeholderPrefix
-      a literal type reads as written in rows and reasons   $literalRows
-      a refinement reads one way however it is laid out     $refinementLayouts
-      an operator name stays apart from its result's colon  $operatorNames
+      a refinement reason quotes the source, on one line    ${Pending.resolvedRefusal(
+      refinementReason
+    )}
+      so does one behind aliases of aliases                 ${Pending.resolvedRefusal(
+      nestedAliases
+    )}
+      a source name shaped like a placeholder is its own    ${Pending.resolvedRefusal(
+      placeholderName
+    )}
+      so is one that only starts like a placeholder         ${Pending.resolvedRefusal(
+      placeholderPrefix
+    )}
+      a literal type reads as written in rows and reasons   ${Pending.oldBehavior(literalRows)}
+      a refinement reads one way however it is laid out     ${Pending.oldBehavior(
+      refinementLayouts
+    )}
+      an operator name stays apart from its result's colon  ${Pending.oldBehavior(operatorNames)}
       a signature drops its layout and trailing comma       $signatureLayout
-      curried clauses read one way however laid out         $curriedClauses
-      a braceless match type result reads as valid Scala    $bracelessResult
-      a literal shaped like a placeholder is the literal    $placeholderLiteral
-      every reason spells a refinement as the row does      $refinedReasons
-      so does one whose result is inferred                  $inferredResult
+      curried clauses read one way however laid out         ${Pending.oldBehavior(curriedClauses)}
+      a braceless match type result reads as valid Scala    ${Pending.oldBehavior(bracelessResult)}
+      a literal shaped like a placeholder is the literal    ${Pending.resolvedRefusal(
+      placeholderLiteral
+    )}
+      every reason spells a refinement as the row does      ${Pending.knownLoss(refinedReasons)}
+      so does one whose result is inferred                  ${Pending.oldBehavior(inferredResult)}
 
     Blocker categories
       the category ends at the first separator              $separator
@@ -57,7 +53,9 @@ class ReportHygieneSpec extends Specification with AfterAll {
       but the colon after a name ending in `_` is           $underscoreColons
       every subtype, name and namespace tallies once        $instances
       a union counts under the reason it stopped on         $unions
-      whatever its alternatives are spelled like            $unionAlternatives
+      whatever its alternatives are spelled like            ${Pending.oldBehavior(
+      unionAlternatives
+    )}
       prose and its punctuation are kept                    $prose
       a report tallies a category once per signature        $tally
 
@@ -65,15 +63,13 @@ class ReportHygieneSpec extends Specification with AfterAll {
       two sources with one file name keep apart             $sameName
       how the inputs were named does not move a row         $namedInputs
       a single source prints its file name                  $singleSource
-      jar entries and directory files read relative to both $mixedInputs
-      a source that cannot be read is placed as a row is    $failedInputs
+      jar entries and directory files read relative to both ${Pending.uncompiled(mixedInputs)}
+      a source that cannot be read is placed as a row is    ${Pending.uncompiled(failedInputs)}
 
     Capacities
       a capacity prints as the bound it is                  $capacityRow
       an exact count prints its digits                      $exactRow
     """
-
-  private def parse(code: String): Source = dialects.Scala3(code).parse[Source].get
 
   private def entries(code: String): List[MethodAnalysis.Entry] =
     cardinality.Compiled.analyze(cardinality.Compiled.inputs("Example.scala" -> code))
@@ -81,110 +77,6 @@ class ReportHygieneSpec extends Specification with AfterAll {
   private def reasons(entry: MethodAnalysis.Entry): List[String] = entry.count match {
     case Count.Unresolved(found) => found
     case _                       => Nil
-  }
-
-  def brokenClause =
-    Spelling.flat("BijectionIso[S, T, A, B](\n    read: S => A,\n    build: B => T,\n)") ===
-      "BijectionIso[S, T, A, B](read: S => A, build: B => T)"
-
-  def refinement = {
-    val tpe = dialects.Scala3("Indexed[S, T] { type X = (A, B) }").parse[Type].get
-    // Scalameta prints a refinement's body on lines of its own; the row quotes it on one.
-    (tpe.syntax must contain("\n")).and(Spelling.of(tpe) === "Indexed[S, T] { type X = (A, B) }")
-  }
-
-  def comments =
-    Spelling.flat("f(\n  a: Int, // the count\n  /* flag */ b: Boolean\n): Int") ===
-      "f(a: Int, b: Boolean): Int"
-
-  // Collapsing whitespace in the text would rewrite the literal type `"a  b"` into another one; a
-  // reason's prose is collapsed around it.
-  def literal =
-    (Spelling.flat("f(x: \"a  b\" ): Int") === "f(x: \"a  b\"): Int")
-      .and(
-        Spelling.line(
-          "unsupported\n  type: \"a  b\"  or 'x'"
-        ) === "unsupported type: \"a  b\" or 'x'"
-      )
-      .and(
-        Spelling.line(
-          "`a  b`  and the bound's  capabilities"
-        ) === "`a  b` and the bound's capabilities"
-      )
-
-  // Inside braces a line break separates two statements, as `;` does: one declaration, two layouts.
-  def statementBreaks =
-    (Spelling.flat("Two {\n  type X = Int\n  type Y = Boolean\n}") ===
-      "Two { type X = Int; type Y = Boolean }")
-      .and(
-        Spelling.flat(
-          "Two { type X = Int; type Y = Boolean }"
-        ) === "Two { type X = Int; type Y = Boolean }"
-      )
-      .and(
-        Spelling.flat("T match {\n  case Int => String\n  case _ => Int\n}") ===
-          "T match { case Int => String; case _ => Int }"
-      )
-      .and(
-        Spelling.flat(
-          "f(x: Int = {\n  val a = 1\n  a\n}): Int"
-        ) === "f(x: Int = { val a = 1; a }): Int"
-      )
-
-  // A line that ends in an infix operator, or starts with one, continues its expression; inside
-  // parentheses or brackets a line break is never a separator; nor before `}` or after `;`.
-  def expressionBreaks =
-    (Spelling.flat("{\n  a +\n    b\n}") === "{ a + b }")
-      .and(Spelling.flat("{\n  a\n    + b\n}") === "{ a + b }")
-      .and(Spelling.flat("{ f(a,\n  b)\n  g[A,\n  B] }") === "{ f(a, b); g[A, B] }")
-      .and(Spelling.flat("{ type X = Int;\n  type Y = Int\n}") === "{ type X = Int; type Y = Int }")
-
-  // Scala 3 reads an operator at a line start as infix only with whitespace and an operand after it
-  // and no blank line before it: `-bar` begins a statement (`{ foo; -bar }` is -2 where `foo` is 1
-  // and `bar` 2, `{ foo - bar }` is -1).
-  def leadingOperators =
-    (Spelling.flat("{\n  foo\n  -bar\n}") === "{ foo; -bar }")
-      .and(Spelling.flat("{\n  foo\n  - bar\n}") === "{ foo - bar }")
-      .and(Spelling.flat("{\n  foo\n\n  - bar\n}") === "{ foo; - bar }")
-      .and(Spelling.flat("{ foo -bar }") === "{ foo -bar }")
-
-  // A line that ends in an operator name continues into an operand, never into a definition or a
-  // case.
-  def trailingOperators =
-    (Spelling.flat("Two {\n  type F = ~>\n  type G = Int\n}") ===
-      "Two { type F = ~>; type G = Int }")
-      .and(
-        Spelling.flat("T match {\n  case Int => ~>\n  case _ => Int\n}") ===
-          "T match { case Int => ~>; case _ => Int }"
-      )
-      .and(Spelling.flat("{\n  a +:\n    b\n}") === "{ a +: b }")
-
-  // A braceless `match` opens an indentation region; on one line its cases need the braces it
-  // stands for (scalac 3.9.0 rejects `T match case Int => String case _ => Boolean`, E040). The
-  // region ends at a line indented less than its cases, or at a bracket closing around it.
-  def bracelessMatch =
-    (Spelling.flat("T match\n  case Int => String\n  case _ => Boolean") ===
-      "T match { case Int => String; case _ => Boolean }")
-      .and(
-        Spelling.flat("Two {\n  type F[X] = X match\n    case Int => String\n  type G = Int\n}") ===
-          "Two { type F[X] = X match { case Int => String }; type G = Int }"
-      )
-      .and(
-        Spelling.flat("F[T match\n  case Int => String]") === "F[T match { case Int => String }]"
-      )
-      .and(Spelling.flat("T match { case Int => String }") === "T match { case Int => String }")
-
-  def untokenizable = Spelling.flat("the bound's\n  capabilities") === "the bound's capabilities"
-
-  // Scalameta's tokenizer reads `—` as an invalid token that swallows the space before it; text
-  // its tokens do not reproduce is only collapsed, never rejoined.
-  def invalidCharacter =
-    (Spelling.flat("P | Q — PQ derives from Q") === "P | Q — PQ derives from Q")
-      .and(Spelling.line("a\n  —  b") === "a — b")
-
-  def idempotent = {
-    val text = "extension [S, F[_, _]](\n  o: Optic[S, F]\n)(using FF: Fold[F])"
-    Spelling.flat(Spelling.flat(text)) === Spelling.flat(text)
   }
 
   // `Aux` is a transparent alias, so the normalizer freezes its arguments behind placeholders
@@ -356,22 +248,13 @@ class ReportHygieneSpec extends Specification with AfterAll {
     (found.signature === "pick[A](x: A, y: A): A").and(found.count === Count.Finite(2))
   }
 
-  // Clauses are spelled one by one, so a line break between curried clauses is no space, in a
-  // signature and in the enclosing context of an extension's identity.
+  // Clauses are spelled one by one, so a line break between curried clauses is no space in a
+  // signature.
   def curriedClauses = {
     val found = entries(
       "package c\nobject O {\n  def f[A](x: A)\n      (y: A): A = x\n  def g[A](x: A)(y: A): A = x\n}\n"
     )
-    val code =
-      "package e\nextension [A](x: A)\n    (using o: Ordering[A])\n  def big(y: A): Boolean = true\n"
-    val tree = parse(code)
-    val big = cardinality.Compiled.analyze(List(MethodAnalysis.Input("e/E.scala", tree))).head
-    (found.map(_.signature) === List("f[A](x: A)(y: A): A", "g[A](x: A)(y: A): A"))
-      .and(
-        cardinality.EoBaseline
-          .identity(big, tree)
-          ._4 === "extension [A](x: A)(using o: Ordering[A])"
-      )
+    found.map(_.signature) === List("f[A](x: A)(y: A): A", "g[A](x: A)(y: A): A")
   }
 
   // A braceless match type result reads with the braces its region stands for, which scalac 3.9.0

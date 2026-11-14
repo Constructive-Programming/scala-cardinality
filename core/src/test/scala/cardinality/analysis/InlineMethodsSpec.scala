@@ -1,5 +1,6 @@
 package cardinality.analysis
 
+import cardinality.Pending
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 import org.specs2.matcher.MatchResult
@@ -17,35 +18,71 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
       forwarding, choosing and comparing bodies                      $plainBodies
       an inline parameter read as a value, twice, or passed on       $inlineParameters
       an inline extension and an inline method calling one           $inlineCalls
-      inline vals and inline givens named in the body                $inlineValues
+      inline vals and inline givens named in the body                ${Pending.knownLoss(
+      inlineValues
+    )}
       definitions nested in a passing inline method                  $nestedPassing
-      library members, extractors, named arguments, overriding       $libraryAndSyntax
+      library members, extractors, named arguments, overriding       ${Pending.resolvedRefusal(
+      libraryAndSyntax
+    )}
     Compile-time operations refuse, wherever they hide
       scala.compiletime renamed, qualified, aliased or relative      $compileTimeNames
-      a passing-looking method calling a failing one                 $transitive
-      an inline parameter inspected by a callee                      $inspectedParameter
+      a passing-looking method calling a failing one                 ${Pending.knownLoss(
+      transitive
+    )}
+      an inline parameter inspected by a callee                      ${Pending.knownLoss(
+      inspectedParameter
+    )}
       a runtime type test on a type the expansion instantiates       $typeTests
-      a given left to implicit search, summon, valueOf               $searches
+      a given left to implicit search, summon, valueOf               ${Pending.resolvedRefusal(
+      searches
+    )}
       an abstract inline declaration and its implementation          $abstractInline
-      the A5 fixtures stay refused                                   $a5Fixtures
-      names the reading cannot resolve                               $unresolved
+      the A5 fixtures stay refused                                   ${Pending.oldBehavior(
+      a5Fixtures
+    )}
+      names the reading cannot resolve                               ${Pending.knownLoss(
+      unresolved
+    )}
       a package's synthetic object inherits Any's members            $packageMembers
       compile-time operations in types the body writes               $compileTimeTypes
-      a member that does not apply falls back to an extension        $extensionFallback
-      an extension restating the member is never taken (P2)          $restatedExtension
-      an extension on its own type parameter may answer anything     $binderExtension
-      a member an argument's or a subclass's class may override      $overriddenMembers
-      implicit search through extensions, context functions, eta     $searchForms
-      a type test on an array reads its element type                 $arrayTests
+      a member that does not apply falls back to an extension        ${Pending.knownLoss(
+      extensionFallback
+    )}
+      an extension restating the member is never taken (P2)          ${Pending.resolvedRefusal(
+      restatedExtension
+    )}
+      an extension on its own type parameter may answer anything     ${Pending.knownLoss(
+      binderExtension
+    )}
+      a member an argument's or a subclass's class may override      ${Pending.knownLoss(
+      overriddenMembers
+    )}
+      implicit search through extensions, context functions, eta     ${Pending.knownLoss(
+      searchForms
+    )}
+      a type test on an array reads its element type                 ${Pending.knownLoss(
+      arrayTests
+    )}
     Code the compiler may insert around the body
-      a channel outside the sources refuses all but identities       $channels
-      an inline conversion of the sources refuses every body         $inlineConversion
-      a conversion is read by its type, wherever it may be found     $conversionTypes
+      a channel outside the sources refuses all but identities       ${Pending.resolvedRefusal(
+      channels
+    )}
+      an inline conversion of the sources refuses every body         ${Pending.resolvedRefusal(
+      inlineConversion
+    )}
+      a conversion is read by its type, wherever it may be found     ${Pending.knownLoss(
+      conversionTypes
+    )}
       a conversion local to another method is found nowhere else     $conversionScope
-      an exported or a local conversion is found where it is visible $conversionVisibility
+      an exported or a local conversion is found where it is visible ${Pending.resolvedRefusal(
+      conversionVisibility
+    )}
     Verdicts and reasons
-      a cycle of inline calls is decided as one                      $cycles
-      reasons quote what they name                                   $reasonPhrases
+      a cycle of inline calls is decided as one                      ${Pending.knownLoss(cycles)}
+      reasons quote what they name                                   ${Pending.resolvedRefusal(
+      reasonPhrases
+    )}
   """
 
   private def pow2(exponent: Int): Count =

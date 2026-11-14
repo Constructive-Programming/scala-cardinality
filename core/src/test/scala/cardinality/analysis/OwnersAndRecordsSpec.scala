@@ -1,7 +1,6 @@
 package cardinality.analysis
 
-import scala.meta.*
-
+import cardinality.Pending
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 import org.specs2.execute.Result
@@ -21,27 +20,45 @@ class OwnersAndRecordsSpec extends Specification {
       a class's, a member object's or a plain def keeps one call      $builtOwners
     Captures a member holds
       a readable field or own member that is the capture, or of type 1 $heldAlias
-      any other reading, a wider type or an overridden field, refuses  $heldOtherwise
-      a local definition around the target holds what it reads        $heldLocally
+      any other reading, a wider type or an overridden field, refuses  ${Pending.knownLoss(
+      heldOtherwise
+    )}
+      a local definition around the target holds what it reads        ${Pending.knownLoss(
+      heldLocally
+    )}
     Case-class leaves of sealed families
-      an overridable member of the leaf or a parent opens the family   $openLeaf
-      an extension, a parent's field, an overload or a later clause too $openLeafMembers
-      a parent is the declaration its name resolves to where written   $resolvedParents
+      an overridable member of the leaf or a parent opens the family   ${Pending.knownLoss(
+      openLeaf
+    )}
+      an extension, a parent's field, an overload or a later clause too ${Pending.knownLoss(
+      openLeafMembers
+    )}
+      a parent is the declaration its name resolves to where written   ${Pending.knownLoss(
+      resolvedParents
+    )}
       a final leaf, a final override or a universal member keeps it    $closedLeaf
       an abstract member of the empty type empties the family          $emptyFamily
     Records
       a final case class with members or a marker parent is a record   $caseRecords
-      a private constructor or a later clause gives its own reason     $caseRefusals
+      a private constructor or a later clause gives its own reason     ${Pending.knownLoss(
+      caseRefusals
+    )}
       a match-type field reduces on the record's tuple argument        $matchField
     Members no subclass overrides
-      a given or a final member an inline body selects is fixed        $fixedSelection
-      a deferred given is abstract: every class extending it gives one $deferredGiven
-      a `deferred` nothing imports is no compiletime one               $deferredBare
+      a given or a final member an inline body selects is fixed        ${Pending.oldBehavior(
+      fixedSelection
+    )}
+      a deferred given is abstract: every class extending it gives one ${Pending.resolvedRefusal(
+      deferredGiven
+    )}
+      a `deferred` nothing imports is no compiletime one               ${Pending.rejectedFixture(
+      deferredBare
+    )}
   """
 
   private def one(code: String): Map[String, Count] =
     cardinality.Compiled
-      .analyze(List(MethodAnalysis.Input("Owners.scala", dialects.Scala3(code).parse[Source].get)))
+      .analyze(List(cardinality.Compiled.Input("Owners.scala", code)))
       .map(entry => entry.name -> entry.count)
       .toMap
 

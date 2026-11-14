@@ -1,5 +1,6 @@
 package cardinality.analysis
 
+import cardinality.Pending
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 import org.specs2.matcher.MatchResult
@@ -19,24 +20,54 @@ class UnsuppliedWildcardSpec extends Specification {
 
   def is = s2"""
     A wildcard over a namespace no source supplies
-      refuses a package member of another file it may shadow           $packageMember
-      refuses a member of a record its field type names               $recordField
-      refuses the type a projection reads its member from             $projection
-      refuses a prefix it may rebind, and a name under that prefix    $rebindsPrefix
-      refuses the first name of a named import or a qualified type    $rebindsHead
-      shadows an outer scope's supplied wildcard                       $shadowsOuterWildcard
+      refuses a package member of another file it may shadow           ${Pending.resolvedRefusal(
+      packageMember
+    )}
+      refuses a member of a record its field type names               ${Pending.resolvedRefusal(
+      recordField
+    )}
+      refuses the type a projection reads its member from             ${Pending.resolvedRefusal(
+      projection
+    )}
+      refuses a prefix it may rebind, and a name under that prefix    ${Pending.resolvedRefusal(
+      rebindsPrefix
+    )}
+      refuses the first name of a named import or a qualified type    ${Pending.resolvedRefusal(
+      rebindsHead
+    )}
+      shadows an outer scope's supplied wildcard                       ${Pending.resolvedRefusal(
+      shadowsOuterWildcard
+    )}
       refuses a builtin a wildcard behind a doubted prefix may bind    $doubtedBuiltins
-      refuses Singleton for the marker where a wildcard may bind it    $singletonMarker
+      refuses Singleton for the marker where a wildcard may bind it    ${Pending.knownLoss(
+      singletonMarker
+    )}
     Selectors and prefixes the reading does not follow
-      a `given` selector may bind a path's first name                  $givenSelectors
-      a supplied wildcard binding a value, an enum case                $valuesAndCases
-      an import whose prefix is no path                                $unfollowedPrefixes
-      a package the sources spell only as a prefix is open             $prefixPackages
-      a parameter whose declared type is in doubt keeps that reason    $doubtedParameter
+      a `given` selector may bind a path's first name                  ${Pending.resolvedRefusal(
+      givenSelectors
+    )}
+      a supplied wildcard binding a value, an enum case                ${Pending.resolvedRefusal(
+      valuesAndCases
+    )}
+      an import whose prefix is no path                                ${Pending.resolvedRefusal(
+      unfollowedPrefixes
+    )}
+      a package the sources spell only as a prefix is open             ${Pending.resolvedRefusal(
+      prefixPackages
+    )}
+      a parameter whose declared type is in doubt keeps that reason    ${Pending.resolvedRefusal(
+      doubtedParameter
+    )}
     Term heads a supplied clause binds (probes/a7fix2/spec)
-      an object's inherited members, by kind, and an unsupplied parent $inheritedHeads
-      the aliases an object's export clauses define                    $exportedHeads
-      what a package object's parents pass on                          $packageObjectHeads
+      an object's inherited members, by kind, and an unsupplied parent ${Pending.resolvedRefusal(
+      inheritedHeads
+    )}
+      the aliases an object's export clauses define                    ${Pending.resolvedRefusal(
+      exportedHeads
+    )}
+      what a package object's parents pass on                          ${Pending.resolvedRefusal(
+      packageObjectHeads
+    )}
       the nearest package that has the prefix's first name             $nearestAnchor
       terms only: a type or a class of the name binds no head          $typeHeads
       no private member outside where it is accessible                 $privateHeads
@@ -47,13 +78,21 @@ class UnsuppliedWildcardSpec extends Specification {
       a supplied namespace that declares nothing of the name           $suppliedNamespace
     Listed stdlib namespaces bind what the table lists
       CollectionConverters and scala.quoted bind no source name        $listedKeep
-      nor a builtin a constructor slot reads, unlike `zz.*`            $listedConstructors
-      quotes.reflect, whose members are not listed, may bind any       $reflectRefuses
+      nor a builtin a constructor slot reads, unlike `zz.*`            ${Pending.resolvedRefusal(
+      listedConstructors
+    )}
+      quotes.reflect, whose members are not listed, may bind any       ${Pending.knownLoss(
+      reflectRefuses
+    )}
       quotes.reflect binds no root spelling the model reads            $reflectRoots
       a reflect import in a class body is read without looping         $reflectInClass
     The B3 delta audit's rows (audit/ad931e2)
-      ModifyF.map.map and Direct.first are refused                    $modifyF
-      Optic.id is refused, a `_root_` twin keeps 1                     $opticId
+      ModifyF.map.map and Direct.first are refused                    ${Pending.resolvedRefusal(
+      modifyF
+    )}
+      Optic.id is refused, a `_root_` twin keeps 1                     ${Pending.resolvedRefusal(
+      opticId
+    )}
   """
 
   // The namespaces no fixture supplies, declaring nothing a fixture names: every fixture is

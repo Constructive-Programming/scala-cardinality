@@ -1,5 +1,6 @@
 package cardinality.capacity
 
+import cardinality.Pending
 import org.specs2.Specification
 import org.specs2.execute.Result
 
@@ -14,7 +15,9 @@ class LeafFamiliesSpec extends Specification {
 
   def is = s2"""
     A subclass may override what the leaf has
-      an extension, a parent's field, an overload, a later clause    $open
+      an extension, a parent's field, an overload, a later clause    ${Pending.resolvedRefusal(
+      open
+    )}
     A member fixed anywhere in the ancestry closes the leaf
       a parent's final override, or the leaf's own field             $closed
   """

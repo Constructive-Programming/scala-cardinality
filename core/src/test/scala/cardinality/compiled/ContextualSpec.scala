@@ -1,7 +1,6 @@
 package cardinality.compiled
 
 import cardinality.analysis.inhabitation.Inhabitation.Count
-import cardinality.reporting.ScalametaFrontEnd
 import org.specs2.Specification
 
 /** Slice S5 of the compiled front end (docs/plans/compiled-own-types.md): contextual scope. A body
@@ -20,7 +19,6 @@ class ContextualSpec extends Specification {
     an anonymous parameter no other candidate competes with       $anonymous
     an anonymous parameter around a definition or told apart      $captured
     what implicit search would choose is not read yet             $later
-    the scalameta front end agrees on every row measured          $agrees
   """
 
   private val text =
@@ -106,7 +104,7 @@ class ContextualSpec extends Specification {
       |""".stripMargin
 
   private lazy val input = TastyFrontEndSpec.compiled("Contextual.scala" -> text)
-  private lazy val rows = Differential.answer(TastyFrontEnd, input.next)
+  private lazy val rows = TastyFrontEnd.rows(input)
 
   private def count(name: String): Count =
     rows.sources
@@ -280,21 +278,6 @@ class ContextualSpec extends Specification {
         case other                          => other.toString
       }
     } must_== expected.map(_._2)
-  }
-
-  // Three rows differ, each derived above: `Two.k` counts where the old front end refuses for
-  // re-entry, `Fed.get` is the correction of an abstract given read as a function, and `Exts.get`
-  // that of an abstract extension method left out.
-  private def agrees = {
-    val compared = Differential.run(input, Differential.answer(ScalametaFrontEnd, input.old))
-    def key(name: String) = compared.compared.filter(_.row.name == name).map(_.row.key)
-    val derived = key("ctx.Two.k").map(_ -> "9").toMap
-    val corrected =
-      (key("ctx.Fed.get").map(_ -> "4 -> 16") ++ key("ctx.Exts.get").map(_ -> "2 -> 16")).toMap
-    ((compared.failed, compared.noted) must_== (Nil, Nil))
-      .and((derived.size, corrected.size) must_== (1, 2))
-      .and(Differential.failures(compared.compared, derived, corrected) must_== Nil)
-      .and(Differential.unused(compared.compared, corrected) must_== Nil)
   }
 
 }

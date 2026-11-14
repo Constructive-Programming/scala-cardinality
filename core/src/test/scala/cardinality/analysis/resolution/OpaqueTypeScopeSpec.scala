@@ -34,9 +34,9 @@ class OpaqueTypeScopeSpec extends Specification {
       compile the visibility rules with Scala, not just parsing  $compiledVisibility
   """
 
-  private def inputs(files: (String, String)*): List[MethodAnalysis.Input] =
+  private def inputs(files: (String, String)*): List[cardinality.Compiled.Input] =
     files.toList.map { (path, code) =>
-      MethodAnalysis.Input(path, dialects.Scala3(code).parse[Source].get)
+      cardinality.Compiled.Input(path, code)
     }
 
   private def count(name: String, files: (String, String)*): Count =

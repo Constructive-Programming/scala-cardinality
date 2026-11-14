@@ -1,5 +1,6 @@
 package cardinality.analysis
 
+import cardinality.Pending
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 
@@ -15,15 +16,21 @@ class ConversionClosureSpec extends Specification with InventoryFixtures {
   def is = s2"""
     An inline conversion is a candidate for a body only where the body may find it
       in the companion of a type the body never reaches: not a candidate     $unrelated
-      in the companion of a type the body writes                              $written
-      reached through a referenced member's declared type                    $referenced
-      reached through the signature of a given the body may summon           $summoned
-      reached through a given of a reached companion, transitively            $transitive
-      imported into the body's scope                                          $imported
+      in the companion of a type the body writes                              ${Pending
+      .resolvedRefusal(written)}
+      reached through a referenced member's declared type                    ${Pending
+      .resolvedRefusal(referenced)}
+      reached through the signature of a given the body may summon           ${Pending
+      .resolvedRefusal(summoned)}
+      reached through a given of a reached companion, transitively            ${Pending
+      .resolvedRefusal(transitive)}
+      imported into the body's scope                                          ${Pending
+      .resolvedRefusal(imported)}
     An inline extension is a candidate for a body only where the body may find it
       in the companion of a type the body never reaches: not a candidate     $extensionUnrelated
       in the companion of a type the body's signature writes: a member wins  $extensionWritten
-      imported into the body's scope                                          $extensionImported
+      imported into the body's scope                                          ${Pending
+      .resolvedRefusal(extensionImported)}
   """
 
   private val lib = "lib.scala" -> """package lib

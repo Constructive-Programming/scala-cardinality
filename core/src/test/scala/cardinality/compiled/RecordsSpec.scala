@@ -1,7 +1,6 @@
 package cardinality.compiled
 
 import cardinality.analysis.inhabitation.Inhabitation.Count
-import cardinality.reporting.ScalametaFrontEnd
 import org.specs2.Specification
 
 /** Capability records in the compiled front end (docs/plans/compiled-own-types.md, stretch 4): a
@@ -17,7 +16,6 @@ class RecordsSpec extends Specification {
     what a record inherits, and a member something overrides      $inherited
     an inherited member with type parameters of its own           $polymorphic
     a record this step does not read is uncovered                 $later
-    the scalameta front end agrees on every row measured          $agrees
   """
 
   private val text =
@@ -189,7 +187,7 @@ class RecordsSpec extends Specification {
       |""".stripMargin
 
   private lazy val input = TastyFrontEndSpec.compiled("Records.scala" -> text)
-  private lazy val rows = Differential.answer(TastyFrontEnd, input.next)
+  private lazy val rows = TastyFrontEnd.rows(input)
 
   private def count(name: String): Count =
     rows.sources
@@ -360,17 +358,6 @@ class RecordsSpec extends Specification {
         s"${Receivers.Reenters} among the members of a capability record"
       )
     )
-  }
-
-  // `Bounded.t` counts where the old front end refuses a bounded abstract type member: `t: T`
-  // has no input of `T` (the bound `T <: Int` gives an Int from a T, not a T), so no body: 0.
-  private def agrees = {
-    val compared = Differential.run(input, Differential.answer(ScalametaFrontEnd, input.old))
-    val derived =
-      compared.compared.filter(_.row.name == "rec.Bounded.t").map(_.row.key -> "0").toMap
-    ((compared.failed, compared.noted) must_== (Nil, Nil))
-      .and(derived.size must_== 1)
-      .and(Differential.failures(compared.compared, derived) must_== Nil)
   }
 
 }

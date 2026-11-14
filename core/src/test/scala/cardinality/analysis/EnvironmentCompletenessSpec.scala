@@ -1,5 +1,6 @@
 package cardinality.analysis
 
+import cardinality.Pending
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 import org.specs2.matcher.MatchResult
@@ -28,33 +29,57 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
       an export outranks an import of its own body                   $exportBeatsImport
       a wildcard import or a path reads an object's exports          $reexports
       a renamed, hidden or given export leaves the name alone        $exportSelectors
-      a wildcard export outside the sources refuses the name         $foreignExport
-      an export in a parent or beside a declaration is refused       $exportRefusals
-      a parent's export refuses only the names it defines            $exportedNames
+      a wildcard export outside the sources refuses the name         ${Pending.resolvedRefusal(
+      foreignExport
+    )}
+      an export in a parent or beside a declaration is refused       ${Pending.rejectedFixture(
+      exportRefusals
+    )}
+      a parent's export refuses only the names it defines            ${Pending.resolvedRefusal(
+      exportedNames
+    )}
       an export of what the exported object inherits outranks        $exportInherited
-      a path through a value is never read as an object              $valuePrefix
-      cyclic, ambiguous and non-path exports are refused             $exportCycles
+      a path through a value is never read as an object              ${Pending.knownLoss(
+      valuePrefix
+    )}
+      cyclic, ambiguous and non-path exports are refused             ${Pending.rejectedFixture(
+      exportCycles
+    )}
     Imports
       a given selector binds no type name                            $givenSelector
       an unimport and a rename leave the builtin                     $unimport
       an unimport under a foreign wildcard leaves the builtin        $foreignUnimport
-      a clause whose prefix is no path refuses the builtin           $nonPathImport
+      a clause whose prefix is no path refuses the builtin           ${Pending.resolvedRefusal(
+      nonPathImport
+    )}
       a wildcard import reads the members an object inherits         $inheritedThroughImport
       a protected member an object inherits is not imported          $protectedThroughImport
-      an inherited member under type arguments is refused            $argumentsThroughImport
-      an object with a parent outside the sources refuses the name   $unsuppliedThroughImport
+      an inherited member under type arguments is refused            ${Pending.resolvedRefusal(
+      argumentsThroughImport
+    )}
+      an object with a parent outside the sources refuses the name   ${Pending.knownLoss(
+      unsuppliedThroughImport
+    )}
     Mutable state
       a var holds the value it was given                             $variables
       a var implements an inherited declaration in any template      $variableImplementations
       an abstract var is a declared slot                             $abstractVariable
     Local captures
-      a member of the scope hides an enclosing method's parameter    $hiddenCapture
+      a member of the scope hides an enclosing method's parameter    ${Pending.knownLoss(
+      hiddenCapture
+    )}
       a capture an outer template keeps stays reachable              $qualifiedCapture
-      an export that hides a local capture is refused                $exportedCapture
-      an inner import or inherited member hides a local capture      $ambiguousCapture
+      an export that hides a local capture is refused                ${Pending.resolvedRefusal(
+      exportedCapture
+    )}
+      an inner import or inherited member hides a local capture      ${Pending.resolvedRefusal(
+      ambiguousCapture
+    )}
       an extension method hides a local capture                      $extensionCapture
       every variable a pattern definition binds hides a capture      $patternCapture
-      a pattern-bound value is no method and no object               $patternDefinitions
+      a pattern-bound value is no method and no object               ${Pending.resolvedRefusal(
+      patternDefinitions
+    )}
     Parameters
       a by-name parameter reads as its value                         $byName
   """

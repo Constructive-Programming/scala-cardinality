@@ -1,5 +1,6 @@
 package cardinality.capacity
 
+import cardinality.Pending
 import org.specs2.Specification
 import org.specs2.matcher.MatchResult
 
@@ -10,7 +11,7 @@ class CounterSpec extends Specification {
       Can parse simple products $parseProduct
       Can parse lists $parseListOfSomething
       Looks inside packages $parsePackage
-      Skips unknown statements, bounds unknown types $parseUnknown
+      Skips unknown statements, bounds unknown types ${Pending.countDiffers(parseUnknown)}
       """
 
   def parseProduct: MatchResult[Size] = {

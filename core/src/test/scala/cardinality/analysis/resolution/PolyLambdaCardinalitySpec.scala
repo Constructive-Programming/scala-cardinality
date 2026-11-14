@@ -1,6 +1,7 @@
 package cardinality.analysis.resolution
 
 import cardinality.Compiled.withheld
+import cardinality.Pending
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 
@@ -16,16 +17,16 @@ class PolyLambdaCardinalitySpec extends Specification {
       keeps nested lambda shadowing lexical                      $shadowing
       measures constructor fields through beta reduction          $constructor
       refuses an external constructor inside the lambda           $external
-      refuses constrained lambda binders                         $bounds
-      refuses unapplied lambdas and wrong arity                    $arity
+      refuses constrained lambda binders                         ${Pending.resolvedRefusal(bounds)}
+      refuses unapplied lambdas and wrong arity                    ${Pending.rejectedFixture(arity)}
       resolves an alias body in its declaration's scope            $aliasScope
     Closed polymorphic identity
       introduces the unique total parametric identity             $identity
       application adds no choices or opaque iteration             $application
       does not supply an arbitrary missing result                  $missing
       keeps poly binder shadowing separate from outer binders      $polyShadowing
-      leaves other rank-polymorphic functions unresolved           $rankN
-      reads a nested context function as a function               $evidence
+      leaves other rank-polymorphic functions unresolved           ${Pending.knownLoss(rankN)}
+      reads a nested context function as a function               ${Pending.knownLoss(evidence)}
       retains unknown external dependencies                       $dependency
       refuses incomplete environments beside an identity result    $environment
   """

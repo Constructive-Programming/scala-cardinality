@@ -67,6 +67,8 @@ lazy val core = project
       Seq(
         "-Xmx6g",
         "-Xss8m",
+        // The forked JVM's temporary files go where sbt's own do.
+        s"-Djava.io.tmpdir=${sys.props("java.io.tmpdir")}",
         s"-Dcardinality.test.classpath=${classpath.mkString(java.io.File.pathSeparator)}"
       )
     },

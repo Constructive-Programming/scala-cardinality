@@ -26,8 +26,7 @@ private[cardinality] object Programs {
 
   /** One source compiled against `classpath` and the Scala library: its class directory. */
   def compiled(code: String, classpath: List[Path] = Nil): Path = {
-    val root = Files.createTempDirectory("program")
-    sys.addShutdownHook(Compiled.deleted(root))
+    val root = Compiled.temporary("program")
     val file = Files.writeString(root.resolve("Example.scala"), code)
     val classes = Files.createDirectories(root.resolve("classes"))
     val reporter = new dotty.tools.dotc.reporting.StoreReporter()
@@ -90,8 +89,7 @@ private[cardinality] object Programs {
     */
   def packaged(name: String): Path = {
     val all = jarOf(classOf[tastyfixtures.Endo[?]])
-    val out = Files.createTempDirectory("dependency")
-    sys.addShutdownHook(Compiled.deleted(out))
+    val out = Compiled.temporary("dependency")
     val zipped = Option.unless(Files.isDirectory(all))(FileSystems.newFileSystem(all))
     try {
       val from = zipped.fold(all)(_.getPath("/")).resolve(name)

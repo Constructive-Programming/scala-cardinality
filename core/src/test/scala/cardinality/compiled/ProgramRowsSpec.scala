@@ -71,7 +71,7 @@ class ProgramRowsSpec extends Specification {
     val libraries = read.getOrElse(classpath) ++ Programs.libraries
     val module = FrontEnd.Module(
       List("Example.scala" -> code),
-      Report.Environment(libraries, classes = Some(CompiledTypes.Classes(List(classes), libraries)))
+      Report.Environment(Some(CompiledTypes.Classes(List(classes), libraries)))
     )
     TastyFrontEnd.rows(module).sources.flatMap(_.toOption)
   }

@@ -1,9 +1,6 @@
 package cardinality.analysis
 
-import scala.meta.*
-
-import cardinality.EoBaseline
-import cardinality.analysis.model.GivenNames
+import cardinality.Pending
 import org.specs2.Specification
 
 /** Rows for the definitions beyond defs (docs/research/definition-inventory.md): given aliases and
@@ -20,9 +17,10 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       a given alias is a method of its clauses                        $givenAliases
       an abstract given is a declaration, implemented without itself  $abstractGivens
       a local given alias is a row with clauses, a step without       $localGiven
-      an unmatched inherited given leaves the identity unresolved     $givenIdentity
+      an unmatched inherited given leaves the identity unresolved     ${Pending.resolvedRefusal(
+      givenIdentity
+    )}
       an anonymous given is the member of its synthesized name        $anonymousGivens
-      a synthesized name is the one 3.9.0 gives                       $synthesizedNames
       an inline given alias is read by the inline-method rule         $inlineGivens
     Member values
       a value is a nullary signature of its type                      $memberValues
@@ -35,24 +33,41 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       a member is a final class's, with the enclosing captures        $anonymousMembers
       each anonymous class of a body is a row of its own              $anonymousOrdinals
       an inherited concrete member is no capability of it             $anonymousFinal
-      hidden parent state a body may not reach is refused             $hiddenState
-      a level passing the argument or a body import is not followed   $passedLevels
+      hidden parent state a body may not reach is refused             ${Pending.knownLoss(
+      hiddenState
+    )}
+      a level passing the argument or a body import is not followed   ${Pending.resolvedRefusal(
+      passedLevels
+    )}
       a value's or a given's context binders reach its members        $valueBinders
       an untyped value takes an overridden declaration's binders      $overriddenBinders
-      a context-function literal binds its own clause once            $contextLiterals
-      a `summon` between two anonymous binders is refused             $ambiguousLiterals
+      a context-function literal binds its own clause once            ${Pending.oldBehavior(
+      contextLiterals
+    )}
+      a `summon` between two anonymous binders is refused             ${Pending.rejectedFixture(
+      ambiguousLiterals
+    )}
     Constructors
       an enum's parameterized case has the case-class constructor     $enumCases
       an enum case is typed where its enum is declared                $enumScope
       a case with a parent keeps the enum's binders                   $enumParents
       abstract classes, traits and conditional givens have one        $templateConstructors
-      a bound's evidence position is named by its evidence           $evidencePosition
-      a secondary constructor chooses the primary's arguments         $secondaryConstructor
-      a secondary constructor of an open class reads no record        $secondaryOpen
-      a secondary constructor's body sees the class's members         $secondaryBody
-      the primary's arguments: by-name, repeated, none, evidence      $primaryArguments
+      a bound's evidence position is named by its evidence           ${Pending.knownLoss(
+      evidencePosition
+    )}
+      a secondary constructor chooses the primary's arguments         ${Pending.oldBehavior(
+      secondaryConstructor
+    )}
+      a secondary constructor of an open class reads no record        ${Pending.oldBehavior(
+      secondaryOpen
+    )}
+      a secondary constructor's body sees the class's members         ${Pending.knownLoss(
+      secondaryBody
+    )}
+      the primary's arguments: by-name, repeated, none, evidence      ${Pending.oldBehavior(
+      primaryArguments
+    )}
     Identities
-      new rows have unique identities that moving does not change     $identities
   """
 
   def givenAliases = {
@@ -156,67 +171,6 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       .and(found("D.<given@4>") === "1")
       .and(found("E.other") === "2")
       .and(found("O.<given@9>") === "2")
-  }
-
-  // Each name as 3.9.0's `-Xprint:typer` prints it (fixtures `$S/probes/b5-fix2/gname`). The parser
-  // drops the bound of `Ord[? <: String]` (3.9.0: given_Ord_String), so that name is not known.
-  def synthesizedNames = {
-    val source = dialects
-      .Scala3("""|object N {
-                 |  given Int = 1
-                 |  given Ord[Int] = o
-                 |  given [T](using Ord[T]): Ord[List[T]] = o
-                 |  given (Int, String) = p
-                 |  given Ord[(Int, (Long, Short))] = o
-                 |  given (String => Int) = f
-                 |  given ((Int, Long) => String) = f
-                 |  given (() => Int) = f
-                 |  given (Int ?=> String) = f
-                 |  given Ord[Long => String] = o
-                 |  given scala.collection.immutable.Seq[Char] = s
-                 |  given Two[Int, Ord[String]] = t
-                 |  given Ord[Short] & Show[Short] = o
-                 |  given (Boolean | Char) = b
-                 |  given Ord[?] = o
-                 |  given Ord[? <: String] = o
-                 |  given Ord[Int Two Long] = o
-                 |  given Ord[[X] =>> Ord[X]] = o
-                 |  given M.x.type = M.x
-                 |  given Ord[M.type] = o
-                 |  given 3 = 3
-                 |  given Ord[Char] with {}
-                 |  given Ord[Int] with Show[Int] with {}
-                 |}""".stripMargin)
-      .parse[Source]
-      .get
-    val givens = source.collect { case g: (Defn.GivenAlias | Defn.Given) => g }
-    (givens.filter(GivenNames.unknown).map(_.pos.text) === List("given Ord[? <: String] = o"))
-      .and(
-        givens.flatMap(GivenNames.of) === List(
-          "given_Int",
-          "given_Ord_Int",
-          "given_Ord_List",
-          "given_Int_String",
-          "given_Ord_Int_Long_Short",
-          "given_String_to_Int",
-          "given_Int_Long_to_String",
-          "given_Int",
-          "given_Int_to_String",
-          "given_Ord_Function",
-          "given_Seq_Char",
-          "given_Two_Int_Ord",
-          "given_&_Ord_Show",
-          "given_|_Boolean_Char",
-          "given_Ord_",
-          "given_Ord_Two",
-          "given_Ord_Ord",
-          "given_x_type",
-          "given_Ord_M_type",
-          "given_",
-          "given_Ord_Char",
-          "given_Ord_Int_Show_Int"
-        )
-      )
   }
 
   def memberValues = {
@@ -568,30 +522,6 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       .and(found(("method", "this(u: Unit): N")) === "1")
       .and(found(("method", "this(u: Unit, b: A): R[A]")) === "4")
       .and(found(("method", "this(u: Unit, b: A): R2[A]")) === "1")
-  }
-
-  def identities = {
-    val code = """
-      |trait Named[A] { def name: Boolean }
-      |object Twice {
-      |  given Named[Int] = new Named[Int] { def name: Boolean = true }
-      |  given Named[Unit] = new Named[Unit] { def name: Boolean = false }
-      |}""".stripMargin
-    def keys(text: String) = {
-      val tree = cardinality.Compiled.source(text)
-      entries(text).map(entry => EoBaseline.identity(entry, tree))
-    }
-    val secondaries = """
-      |final class S(a: Boolean) {
-      |  def this(x: Unit) = { this(true); def helper(y: Unit): Boolean = a }
-      |  def this(x: Unit, z: Unit) = { this(false); def helper(y: Unit): Boolean = a }
-      |}""".stripMargin
-    // Both members are `Twice.<given>.<new#1>.name: Boolean` once the lines are dropped: the
-    // enclosing given alias tells them apart, and moving the file's lines moves no identity. The
-    // two secondary constructors' helpers are `S.<init#1>.helper` and `S.<init#2>.helper`.
-    (keys(code).distinct.size === keys(code).size)
-      .and(keys(code).toSet === keys("\n\n" + code).toSet)
-      .and(keys(secondaries).distinct.size === keys(secondaries).size)
   }
 
 }

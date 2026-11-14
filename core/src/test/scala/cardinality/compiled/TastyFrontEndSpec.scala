@@ -1,16 +1,16 @@
 package cardinality.compiled
 
+import cardinality.Compiled
 import cardinality.analysis.inhabitation.Inhabitation.Count
-import cardinality.capacity.{BooleanSize, IntSize, TinySize, UnitSize}
-import cardinality.reporting.{FrontEnd, Report, ScalametaFrontEnd}
+import cardinality.capacity.{BooleanSize, Definition, IntSize, TinySize, UnitSize}
+import cardinality.compiled.TastyFrontEndSpec.{subject, tag}
+import cardinality.reporting.{FrontEnd, Report}
 import cardinality.tasty.CompiledTypes
 import java.nio.file.{Files, Path}
 import org.specs2.Specification
 
-import Differential.Verdict
-
-/** The compiled front end's spike and the differential gate that judges it (phase 4 of
-  * docs/plans/compiled-own-types.md). Every expected count is derived in its example's comment.
+/** The compiled front end's first slice (phase 4 of docs/plans/compiled-own-types.md). Every
+  * expected count is derived in its example's comment.
   */
 class TastyFrontEndSpec extends Specification {
 
@@ -21,7 +21,6 @@ class TastyFrontEndSpec extends Specification {
     a member of an object that is never built has one body        $unbuilt
     what the counting model refuses is a row of its own           $refused
     classes compiled from another text refuse the source          $stale
-    it imports and names nothing of the scalameta reading         $imports
     a source without definitions is empty, a bound name is a row  $sources
     a class of the module is the product or sum it declares       $products
     a type the model does not read is refused, as before          $refusals
@@ -30,10 +29,6 @@ class TastyFrontEndSpec extends Specification {
     a definition the stored side does not read yet is uncovered   $unstored
     a class's row is the product of its constructor's positions   $constructors
     an inline method counts unless a call site decides it         $inlines
-
-  The differential gate
-    agrees with the scalameta front end on every row measured     $agrees
-    finds every row under the scalameta front end's name and line $named
   """
 
   private val text =
@@ -421,7 +416,7 @@ class TastyFrontEndSpec extends Specification {
     "Built.scala" -> built
   )
 
-  private lazy val rows = Differential.answer(TastyFrontEnd, input.next)
+  private lazy val rows = TastyFrontEnd.rows(input)
   private lazy val source = rows.sources.collect { case Right(source) => source }.head
 
   private def count(name: String): Count = {
@@ -814,140 +809,11 @@ class TastyFrontEndSpec extends Specification {
 
   // Every definition moved by one character: no name is where the classes say it is.
   private def stale = {
-    val moved = input.next.copy(sources = List("Demo.scala" -> (" " + text)))
-    Differential.answer(TastyFrontEnd, moved).sources must beLike {
+    val moved = input.copy(sources = List("Demo.scala" -> (" " + text)))
+    TastyFrontEnd.rows(moved).sources must beLike {
       case List(Left(error)) => error.message must startWith("compiled classes do not match")
     }
   }
-
-  // What the front end may use of the rest: the row types, the solver and its step budget, the
-  // shape half of `TopTypes` it calls, the size algebra, the standard model's tables, the class
-  // loader and a list helper. Anything else would be the scalameta reading.
-  private val allowed = Set(
-    "cardinality.analysis.AnalysisWork",
-    "cardinality.analysis.BuiltinTypes",
-    "cardinality.analysis.MethodAnalysis.Entry",
-    "cardinality.analysis.inhabitation.Card",
-    "cardinality.analysis.inhabitation.ClosedSpaces",
-    "cardinality.analysis.inhabitation.EvidenceAnalysis",
-    "cardinality.analysis.inhabitation.Inhabitation",
-    "cardinality.analysis.inhabitation.Inhabitation.Binder",
-    "cardinality.analysis.inhabitation.Inhabitation.Binding",
-    "cardinality.analysis.inhabitation.Inhabitation.Head",
-    "cardinality.analysis.inhabitation.Inhabitation.Count",
-    "cardinality.analysis.inhabitation.Inhabitation.Shape",
-    "cardinality.analysis.inhabitation.Natural",
-    "cardinality.analysis.inhabitation.PolymorphicMembers",
-    "cardinality.analysis.resolution.LiteralTypes",
-    "cardinality.analysis.resolution.StuckProjections",
-    "cardinality.analysis.resolution.TopTypes",
-    "cardinality.capacity.BaseTypes",
-    "cardinality.capacity.Blocked",
-    "cardinality.capacity.BooleanSize",
-    "cardinality.capacity.Definition",
-    "cardinality.capacity.Definition.Kind",
-    "cardinality.capacity.Definition.Unbound",
-    "cardinality.capacity.EffectiveEpsilon0",
-    "cardinality.capacity.EffectiveOmega",
-    "cardinality.capacity.Fixpoint",
-    "cardinality.capacity.NothingSize",
-    "cardinality.capacity.Size",
-    "cardinality.capacity.Store",
-    "cardinality.capacity.UnitSize",
-    "cardinality.reporting.FrontEnd",
-    "cardinality.reporting.Report",
-    "cardinality.tasty.CompiledTypes",
-    "cardinality.types.Graphs",
-    "cardinality.types.ListedNamespaces",
-    "cardinality.types.Traversals"
-  )
-
-  // An import clause, on one line or several: its path (a wildcard's included) and the names in
-  // its braces, if any.
-  private val clause = """(?m)^\s*import (?:_root_\.)?([\w.*]+?)(?:\.\{([^}]*)\})?$""".r
-
-  // What the allowed imports would still let a row be handed to: the report's own entry points,
-  // the scalameta front end, a scalameta tree, the source rewriting.
-  private val delegating =
-    """Report\.(of|query)|ScalametaFrontEnd|\bmeta\.|CompiledTypes\.ascribe""".r
-
-  private def imports = {
-    val files = Files.list(Path.of("src/main/scala/cardinality/compiled"))
-    val lines =
-      try
-        files.toArray.toList.flatMap(file =>
-          Files.readString(file.asInstanceOf[Path]).linesIterator
-        )
-      finally files.close()
-    val imported = clause
-      .findAllMatchIn(lines.mkString("\n"))
-      .flatMap { found =>
-        Option(found.group(2)).fold(List(found.group(1)))(
-          // A renamed import (`X as Y`) is its first name.
-          _.split(',').toList.map(name => s"${found.group(1)}.${name.trim.takeWhile(_ != ' ')}")
-        )
-      }
-      .toSet
-    // Every import line is one clause the pattern read whole: none names two paths.
-    val written = lines.map(_.trim).filter(_.startsWith("import "))
-    (imported.filter(_.startsWith("cardinality.")) must_== allowed)
-      .and(written.filter(_.contains(", ")).filterNot(_.contains("{")) must_== Nil)
-      .and(written.size must_== clause.findAllMatchIn(lines.mkString("\n")).size)
-      .and(lines.filter(_.contains("scala.meta")) must_== Nil)
-      .and(lines.filter(delegating.findFirstIn(_).nonEmpty) must_== Nil)
-      .and(
-        lines.filter(_.contains("cardinality.")).filterNot(_.trim.startsWith("import ")) must_==
-          List("package cardinality.compiled").flatMap(List.fill(28)(_))
-      )
-  }
-
-  private lazy val compared =
-    Differential.run(input, Differential.answer(ScalametaFrontEnd, input.old))
-
-  // Five rows of the fixtures are better past a model limit, and derived: `sizes.Seen` and its
-  // constructor's one position hold a `Prj[Unit]#Me`, `Prj`'s A as the prefix fixes it, Unit, 1
-  // (the old reading does not read a projection through an applied type); and three families whose one case class
-  // nothing extends, final in the closed world, each 2 (`stored`).
-  //
-  // Four more are derived (D26): a family whose one case always throws when built (`Thrown`,
-  // `Arg`, `Rep`, `Cur`) has no value, so a method returning one has none, 0 (the old reading
-  // refuses those constructions). Six are corrections of that rule: `NamA` passes `x = ???` by
-  // name, `OrdA` out of order, `AscA`'s `z` is `(??? : Int)`, so `Nam`, `Ord` and `Asc` hold no
-  // value and `nam`, `ord`, `asc` have none (1 -> 0; the old reading misses those throws).
-  //
-  // Four rows are corrections (the owner's ruling on `Ior`): its cases are `Left(a: A)`,
-  // `Right(b: B)` and `Both(a: A, b: B)`, so its value space is A + B + A × B, and at Boolean and
-  // Boolean 2 + 2 + 4 = 8. The old reading does not see cases written infix (`extends (A Ior
-  // Nothing)`) and takes the family for empty: a field of it 0, a constructor over it 0, and a
-  // function from it the one empty function, where there are 2^8. `passed` (h4): `run`'s block, an
-  // `Int ?=> Boolean`, gives an Int it may summon: 2^(2 × 2^32); the old reading counts 4.
-  private def agrees = {
-    val verdicts = compared.compared.map(_.verdict).toSet
-    // The row of that name that is not identical (`sizes.Ior` is also its companion's row).
-    def keys(name: String, value: String) = compared.compared
-      .filter(c => c.row.name == name && c.verdict != Verdict.Identical)
-      .map(_.row.key -> value)
-    val closed = List("Loose", "Prot", "Impl").flatMap(name => keys(s"sizes.$name", "2"))
-    val thrown = List("arg", "thrown", "rep", "cur").flatMap(n => keys(s"types.Use.$n", "0"))
-    val seen = keys("sizes.Seen", "1") ++ keys("sizes.Seen.<init>", "1")
-    val derived = (seen ++ keys("types.Use.bare", "1") ++ closed ++ thrown).toMap
-    val hidden = List("Nam", "Ord", "Asc").flatMap(n =>
-      keys(s"types.$n", "1 -> 0") ++ keys(s"types.Use.${n.toLowerCase}", "1 -> 0")
-    )
-    val corrected = (keys("sizes.Ior", "0 -> ? A; B") ++ keys("sizes.Iors", "0 -> 8") ++
-      keys("sizes.Iors.<init>", "0 -> 8") ++ keys("sizes.UseIor.split", "1 -> 2^8") ++ hidden ++
-      keys("shapes.Context.caller.<block#1>.passed", "4 -> 2^(2^33)")).toMap
-    ((compared.failed, compared.noted) must_== (Nil, Nil))
-      .and((derived.size, corrected.size) must_== (10, 11))
-      .and(Differential.failures(compared.compared, derived, corrected) must_== Nil)
-      .and(Differential.unused(compared.compared, corrected) must_== Nil)
-      .and(verdicts must contain(Verdict.Identical))
-  }
-
-  // Every row of both sources pairs under one name, kind and line: nothing in `shapes` is paired
-  // by position or under another kind.
-  private def named =
-    compared.compared.filter(_.by != Differential.Strict).map(_.row.name) must_== Nil
 
   // A source that defines nothing has no classes and no rows; a top-level definition of two names
   // is a definition row and a method row per name.
@@ -957,8 +823,7 @@ class TastyFrontEndSpec extends Specification {
         "Empty.scala" -> "package demo\nimport scala.util.Try\n",
         "Two.scala" -> "val a, b = true\n"
       )
-      .next
-    Differential.answer(TastyFrontEnd, module).sources must beLike {
+    TastyFrontEnd.rows(module).sources must beLike {
       case List(Right(empty), Right(two)) =>
         ((empty.methods, empty.definitions) must_== (Nil, Nil))
           .and(two.definitions.map(_.name) must_== List("a", "b"))
@@ -970,9 +835,29 @@ class TastyFrontEndSpec extends Specification {
 
 object TastyFrontEndSpec {
 
+  extension (reason: Definition.Unbound) {
+
+    /** What a definition row's reason is about: a member's name, or the reason as it reads. */
+    def subject: String = reason match {
+      case Definition.Unbound.Member(name) => name
+      case other                           => other.render
+    }
+
+    /** The kind of a definition row's reason (`unknown`, `param`, `refusal`, …). */
+    def tag: String = reason match {
+      case _: (Definition.Unbound.Parameter | Definition.Unbound.HigherKinded) => "param"
+      case _: Definition.Unbound.Member                                        => "member"
+      case _: Definition.Unbound.Open                                          => "open"
+      case _: Definition.Unbound.Unknown                                       => "unknown"
+      case _: Definition.Unbound.Syntax                                        => "syntax"
+      case _: Definition.Unbound.Refusal                                       => "refusal"
+    }
+
+  }
+
   /** `sources` compiled in-process against the Scala library, as a build hands a module over. */
-  def compiled(sources: (String, String)*): Differential.Input = {
-    val root = Files.createTempDirectory("compiled-module")
+  def compiled(sources: (String, String)*): FrontEnd.Module = {
+    val root = Compiled.temporary("compiled-module")
     val classes = Files.createDirectories(root.resolve("classes"))
     val files = sources.map { (path, text) =>
       val file = root.resolve("src").resolve(path)
@@ -993,8 +878,7 @@ object TastyFrontEndSpec {
     if (dotty.tools.dotc.Main.process(arguments.toArray, reporter).hasErrors)
       sys.error(s"fixture does not compile: ${reporter.allErrors.map(_.message).mkString("; ")}")
     val compiled = CompiledTypes.Classes(List(classes), libraries.map(Path.of(_)))
-    val module = FrontEnd.Module(sources.toList, Report.Environment(classes = Some(compiled)))
-    Differential.Input("", module, module)
+    FrontEnd.Module(sources.toList, Report.Environment(classes = Some(compiled)))
   }
 
 }

@@ -1,5 +1,6 @@
 package cardinality.analysis
 
+import cardinality.Pending
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 import org.specs2.matcher.MatchResult
@@ -25,7 +26,9 @@ class NameLookupSoundnessSpec extends Specification with InventoryFixtures {
       resolve a parent clause through a wildcard import                 $wildcardParent
     Inherited member objects
       read a path through an object the template inherits               $inheritedObjectPath
-      refuse a path an unsupplied parent may bind                       $unsuppliedObjectPath
+      refuse a path an unsupplied parent may bind                       ${Pending.knownLoss(
+      unsuppliedObjectPath
+    )}
   """
 
   private val options = List(

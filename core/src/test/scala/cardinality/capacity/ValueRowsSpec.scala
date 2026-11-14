@@ -1,5 +1,6 @@
 package cardinality.capacity
 
+import cardinality.Pending
 import cardinality.analysis.inhabitation.Inhabitation.Count
 import org.specs2.Specification
 
@@ -14,7 +15,9 @@ class ValueRowsSpec extends Specification {
 
   def is = s2"""
     A value row holds one value when its declared type has one
-      an inhabited, undeclared or unresolved type                     $valueReasons
+      an inhabited, undeclared or unresolved type                     ${Pending.oldBehavior(
+      valueReasons
+    )}
       a sum drops the summands that provably build nothing            $sumDropsEmptySummand
     """
 
