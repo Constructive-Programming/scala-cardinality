@@ -1,7 +1,6 @@
 package cardinality
 
 import cardinality.CardinalityTool.Classes
-import cardinality.loader.Calculator
 import sbt.*
 import sbt.Keys.*
 
@@ -15,62 +14,35 @@ object CardinalityPlugin extends AutoPlugin {
   object autoImport extends CardinalityKeys {
 
     val cardinalityDependencyClasspath = taskKey[Seq[File]](
-      "Compiled dependencies the project's compiled classes are read against."
+      "Compiled dependencies, jars and class directories, the project's classes are read against."
     )
 
   }
 
   import autoImport.*
 
-  override def projectSettings: Seq[Setting[?]] = CardinalityTool.defaults(autoImport) ++ Seq(
+  override def projectSettings: Seq[Setting[?]] = Seq(
     // The project's own Compile dependencies, never `fullClasspath`: dependency paths stay explicit.
     cardinalityDependencyClasspath := (Compile / dependencyClasspath).value.files,
     cardinalitySeedSkill := CardinalityTool
       .seedSkill(streams.value.log, cardinalitySkillFile.value, (ThisBuild / baseDirectory).value),
-    cardinalityReport := CardinalityTool.report(
-      calculator.value,
-      (Compile / sources).value,
-      compiled.value,
-      cardinalityReportFile.value,
-      streams.value.log
-    ),
+    cardinalityReport := run.value.report((Compile / sources).value, compiled.value),
     // A library's binary jar given beside its sources jar is read against the project's
     // dependencies.
     cardinalityReportOf := {
       val sources = CardinalityTool.paths.parsed.map(file)
-      CardinalityTool.report(
-        calculator.value,
-        sources,
-        Classes(Some(Nil), cardinalityDependencyClasspath.value),
-        cardinalityReportFile.value,
-        streams.value.log
-      )
+      run.value.report(sources, Classes(Some(Nil), cardinalityDependencyClasspath.value))
     },
-    cardinalityReportSelected := {
-      val names = CardinalityTool.names.parsed
-      CardinalityTool.selected(
-        calculator.value,
-        names,
-        (Compile / sources).value,
-        compiled.value,
-        cardinalityReportFile.value,
-        streams.value.log
-      )
-    }
-  )
+    cardinalityReportSelected :=
+      run.value.selected(CardinalityTool.names.parsed, (Compile / sources).value, compiled.value)
+  ) ++ CardinalityTool.defaults(autoImport)
 
-  private lazy val calculator = Def.task {
-    Calculator.of(
-      CardinalityTool
-        .jars(csrConfiguration.value, cardinalityVersion.value, target.value, streams.value.log)
-        .map(_.toPath)
-    )
-  }
+  private val run = CardinalityTool.run(autoImport)
 
   // The project's compiled classes and the jars their types refer to, which the report reads.
   // `exportedProducts` compiles first, so the classes match the sources the report reads. Sources
   // that do not compile hand no classes, and the report refuses every one of them.
-  private lazy val compiled = Def.task {
+  private val compiled = Def.task {
     val classpath = cardinalityDependencyClasspath.value
     val log = streams.value.log
     (Compile / exportedProducts).result.value match {

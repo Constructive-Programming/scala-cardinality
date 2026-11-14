@@ -28,8 +28,8 @@ class CardinalityModuleSpec extends Specification {
   // share it.
   "the Mill plugin" should {
     "write a module's report (a Boolean and an Option[Boolean] make 2 * 3 = 6; the compiler's " +
-      "(Boolean, Boolean) = 4), on the calculator's Scala or another: its jars are resolved apart " +
-      "from the module; refuse a source without compiled classes; seed the skill with Mill " +
+      "(Boolean, Boolean) = 4), on two Scala versions other than the calculator's: its jars are " +
+      "resolved apart from the module; refuse a source without compiled classes; seed the skill with Mill " +
       "commands, refresh its own file and refuse a user's" in {
         UnitTester(build, fixture).scoped { eval =>
           val Right(same) = eval(build.foo.cardinalityReport()): @unchecked

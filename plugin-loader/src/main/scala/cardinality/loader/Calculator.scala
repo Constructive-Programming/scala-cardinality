@@ -20,27 +20,18 @@ final class Calculator private (jars: Seq[Path]) {
 
   private val entry = loader.loadClass("cardinality.Entry")
 
-  /** Writes the report over `sources` to `out`; the number of errors it holds. `output` is the
-    * sources' compiled classes, read against the dependency `classpath`; `None` when they did not
-    * compile, and every source is refused.
+  /** Writes the report over `sources` to `out` (with `names`, the report of those qualified methods
+    * alone); the number of errors it holds. `output` is the sources' compiled classes, read against
+    * the dependency `classpath`; `None` when they did not compile, and every source is refused.
     */
   def report(
-      sources: Seq[Path],
-      output: Option[Seq[Path]],
-      classpath: Seq[Path],
-      out: Path
-  ): Int =
-    count(call("report", list(sources), optional(output), list(classpath), out))
-
-  /** Writes the report of the qualified method `names` alone; the number of errors it holds. */
-  def selected(
       sources: Seq[Path],
       names: Seq[String],
       output: Option[Seq[Path]],
       classpath: Seq[Path],
       out: Path
   ): Int =
-    count(call("selected", list(sources), list(names), optional(output), list(classpath), out))
+    count(call("report", list(sources), list(names), optional(output), list(classpath), out))
 
   private def list[A](values: Seq[A]): java.util.List[A] = {
     val result = new java.util.ArrayList[A]
@@ -65,8 +56,13 @@ final class Calculator private (jars: Seq[Path]) {
     thread.setContextClassLoader(loader)
     try
       entry.getMethods
-        .find(_.getName == method)
-        .getOrElse(throw new NoSuchMethodException(s"cardinality.Entry.$method"))
+        .find(m => m.getName == method && m.getParameterCount == arguments.size)
+        .getOrElse(
+          throw new NoSuchMethodException(
+            s"cardinality.Entry.$method with ${arguments.size} parameters: the calculator " +
+              s"(cardinalityVersion) is not one this plugin (${Calculator.version}) can call"
+          )
+        )
         .invoke(null, arguments*)
     catch { case e: InvocationTargetException => throw e.getCause }
     finally thread.setContextClassLoader(before)

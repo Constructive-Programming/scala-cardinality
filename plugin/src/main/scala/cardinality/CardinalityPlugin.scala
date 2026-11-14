@@ -38,15 +38,7 @@ object CardinalityPlugin extends AutoPlugin {
     },
     // `Def.uncached`: a report over transient inputs (`sources` is excluded from sbt 2's cache key)
     // must re-run every time, never be served stale from the task cache.
-    cardinalityReport := Def.uncached {
-      CardinalityTool.report(
-        calculator.value,
-        (Compile / sources).value,
-        compiled.value,
-        cardinalityReportFile.value,
-        streams.value.log
-      )
-    },
+    cardinalityReport := Def.uncached(run.value.report((Compile / sources).value, compiled.value)),
     // The same report over sources the build does not compile itself — a library's published
     // sources jar beside its binary jar, read against the project's dependencies — so that a
     // dependency's types can be measured without vendoring them into this build.
@@ -54,40 +46,15 @@ object CardinalityPlugin extends AutoPlugin {
     // `Def.inputTask` instead, the key is registered as a plain task and sbt rejects the arguments.
     cardinalityReportOf := {
       val sources = CardinalityTool.paths.parsed.map(file)
-      Def.uncached {
-        CardinalityTool.report(
-          calculator.value,
-          sources,
-          Classes(Some(Nil), dependencies.value),
-          cardinalityReportFile.value,
-          streams.value.log
-        )
-      }
+      Def.uncached(run.value.report(sources, Classes(Some(Nil), dependencies.value)))
     },
     cardinalityReportSelected := {
       val names = CardinalityTool.names.parsed
-      Def.uncached {
-        CardinalityTool.selected(
-          calculator.value,
-          names,
-          (Compile / sources).value,
-          compiled.value,
-          cardinalityReportFile.value,
-          streams.value.log
-        )
-      }
+      Def.uncached(run.value.selected(names, (Compile / sources).value, compiled.value))
     }
   )
 
-  // The calculator of the jars resolved at `cardinalityVersion`, every run: a republished snapshot
-  // is the one loaded.
-  private val calculator = Def.task {
-    cardinality.loader.Calculator.of(
-      CardinalityTool
-        .jars(csrConfiguration.value, cardinalityVersion.value, target.value, streams.value.log)
-        .map(_.toPath)
-    )
-  }
+  private val run = CardinalityTool.run(autoImport)
 
   private val dependencies = Def.task {
     val converter = fileConverter.value

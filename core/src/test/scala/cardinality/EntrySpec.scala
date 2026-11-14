@@ -11,34 +11,38 @@ class EntrySpec extends Specification {
 
   private val code = "package p\ncase class Flag(on: Boolean)\ndef pick[A](x: A, y: A): A = x\n"
 
-  // The source on disk, its compiled classes and their classpath, and where the report goes.
-  private lazy val (source, output, classpath, out) = {
+  // The source on disk at the path its TASTy records, its compiled classes and their classpath,
+  // and where each example's report goes.
+  private lazy val (source, output, classpath, dir) = {
     val compiled = Compiled.classesOf("p/A.scala" -> code)
     val dir = Compiled.temporary("entry-spec")
-    val file = Files.writeString(dir.resolve("A.scala"), code)
+    val file = dir.resolve("p").resolve("A.scala")
+    Files.createDirectories(file.getParent)
     (
-      JList.of(file),
+      JList.of(Files.writeString(file, code)),
       Optional.of(compiled.output.asJava),
       compiled.classpath.asJava,
-      dir.resolve("out").resolve("report.txt")
+      dir
     )
   }
 
-  private val uncompiled = Optional.empty[JList[Path]]
+  private def out(example: String): Path = dir.resolve(example).resolve("report.txt")
 
   "Entry.report" should {
     "write the report from the compiled classes, and refuse sources without classes" in {
-      (Entry.report(source, output, classpath, out) must_== 0)
-        .and(Files.readString(out) must contain("2  p.Flag.<init>"))
-        .and(Entry.report(source, uncompiled, classpath, out) must_== 1)
+      val (compiled, uncompiled) = (out("report"), out("uncompiled"))
+      (Entry.report(source, JList.of(), output, classpath, compiled) must_== 0)
+        .and(Files.readString(compiled) must contain("2  p.Flag.<init>"))
+        .and(Entry.report(source, JList.of(), Optional.empty, classpath, uncompiled) must_== 1)
     }
   }
 
-  "Entry.selected" should {
+  "Entry.report with names" should {
     "write the selected report for a qualified method name" in {
-      (Entry.selected(source, JList.of("p.pick"), output, classpath, out) must_== 0)
-        .and(Files.readString(out) must contain("pick[A]"))
-        .and(Files.readString(out) must not(contain("Flag")))
+      val selected = out("selected")
+      (Entry.report(source, JList.of("p.pick"), output, classpath, selected) must_== 0)
+        .and(Files.readString(selected) must contain("pick[A]"))
+        .and(Files.readString(selected) must not(contain("Flag")))
     }
   }
 

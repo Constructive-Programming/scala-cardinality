@@ -34,16 +34,18 @@ trait CardinalityModule extends ScalaModule {
     compileClasspath().map(_.path).filter(os.exists).map(_.toNIO).distinct
   }
 
+  // This module's compiled classes, which the report reads against `dependencyJars`.
+  private def ownClasses = Task.Anon(Some(Seq(compile().classes.path.toNIO)))
+
   /** Report the cardinality of this module's sources, read from their compiled classes. */
   def cardinalityReport(): Command[PathRef] = Task.Command {
-    val out = Task.dest / "report.txt"
-    val errors = calculator(cardinalityCalculatorJars()).report(
+    report(
+      cardinalityCalculatorJars(),
       allSourceFiles().map(_.path.toNIO),
-      Some(Seq(compile().classes.path.toNIO)),
-      dependencyJars(),
-      out.toNIO
+      Nil,
+      Classes(ownClasses(), dependencyJars()),
+      "source(s) could not be read"
     )
-    finish(out, errors, "source(s) could not be read")
   }
 
   /** Report the cardinality of the Scala sources at the given paths: files, directories, or a
@@ -51,25 +53,25 @@ trait CardinalityModule extends ScalaModule {
     * compiled classes are read against this module's compile classpath.
     */
   def cardinalityReportOf(paths: Leftover[String]): Command[PathRef] = Task.Command {
-    val out = Task.dest / "report.txt"
-    val sources = paths.value.map(os.Path(_, mill.api.BuildCtx.workspaceRoot).toNIO)
-    val errors =
-      calculator(cardinalityCalculatorJars()).report(sources, Some(Nil), dependencyJars(), out.toNIO)
-    finish(out, errors, "source(s) could not be read")
+    report(
+      cardinalityCalculatorJars(),
+      paths.value.map(os.Path(_, mill.api.BuildCtx.workspaceRoot).toNIO),
+      Nil,
+      Classes(Some(Nil), dependencyJars()),
+      "source(s) could not be read"
+    )
   }
 
   /** The implementation report of the given qualified method names alone. */
   def cardinalityReportSelected(names: Leftover[String]): Command[PathRef] = Task.Command {
     if (names.value.isEmpty) Task.fail("provide at least one qualified method name")
-    val out = Task.dest / "report.txt"
-    val errors = calculator(cardinalityCalculatorJars()).selected(
+    report(
+      cardinalityCalculatorJars(),
       allSourceFiles().map(_.path.toNIO),
       names.value,
-      Some(Seq(compile().classes.path.toNIO)),
-      dependencyJars(),
-      out.toNIO
+      Classes(ownClasses(), dependencyJars()),
+      "selected report error(s)"
     )
-    finish(out, errors, "selected report error(s)")
   }
 
   /** Where `cardinalitySeedSkill` writes the reduction skill: under the build's root. */
@@ -102,12 +104,26 @@ trait CardinalityModule extends ScalaModule {
 
   private def calculator(jars: Seq[PathRef]): Calculator = Calculator.of(jars.map(_.path.toNIO))
 
-  // Fails the command when a source could not be read: a report over sources the
-  // calculator could not read is incomplete, and failing quietly would present the numbers it did
-  // find as the whole story.
-  private def finish(output: os.Path, errors: Int, what: String)(using
-      mill.api.TaskCtx
-  ): Result[PathRef] = {
+  // The classes a report reads: the sources' compiled output (`None`: every source is refused) and
+  // the dependency classpath its types refer to.
+  final private case class Classes(
+      output: Option[Seq[java.nio.file.Path]],
+      classpath: Seq[java.nio.file.Path]
+  )
+
+  // Writes the report to the command's `Task.dest` and fails the command when it holds errors: a
+  // report over sources the calculator could not read is incomplete, and failing quietly would
+  // present the numbers it did find as the whole story.
+  private def report(
+      jars: Seq[PathRef],
+      sources: Seq[java.nio.file.Path],
+      names: Seq[String],
+      classes: Classes,
+      what: String
+  )(using mill.api.TaskCtx): Result[PathRef] = {
+    val output = Task.dest / "report.txt"
+    val errors =
+      calculator(jars).report(sources, names, classes.output, classes.classpath, output.toNIO)
     Task.log.info(os.read(output))
     Task.log.info(s"report written to $output")
     if (errors > 0) Result.Failure(s"$errors $what") else Result.Success(PathRef(output))
