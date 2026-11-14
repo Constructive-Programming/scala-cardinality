@@ -1608,6 +1608,60 @@ front end stays the report's until none is left.
 - Sources without compiled classes are not analyzed at all until uncompiled support returns.
 - Measure again on the frozen corpus: rows, moved rows, wall, CPU, memory.
 
+## Switch-over: done (S8, 2026-11-14)
+
+On branch `tasty-s8`, from `4fad6ef`: the TASTy front end is the only one.
+
+- `9b49255` flips the default; `1600f94` removes the switch (`Report.Front`,
+  `Environment.frontEnd`, `stubs`, `classpath`; `cardinalityFrontEnd` in both plugins), the stub
+  tasks and keys, and the selected report's syntax search with its support, limits and budget
+  settings (D7: `Report.query` is the module's report filtered by name).
+- `8f3b502` deletes the old front end, recomputed with `Reach.scala` on the tree as it was (149
+  files, 134 whole), then repaired by hand as the dry runs did, and further: `AnalysisWork` down to
+  the fuel counter `Readings` uses, `TastyStubs`' class loading folded into `CompiledTypes`, the
+  root-import spellings of `StdlibModel`, `BuiltinTypes` and `TopTypes` (every caller passes a fully
+  qualified name), enum cases nothing builds, the one-implementation `FrontEnd` trait, and
+  `ListedNamespaces` and `Spelling` folded into their only users. core depends on neither
+  scalameta nor kyo-core; scalameta stays a Test dependency (a fixture library, and `Overriders`).
+- `da223e8` retires the differential gate: `Differential`, the verdict gates, the coverage memory,
+  `scripts/differential.sh`, `scripts/spec-ledger.sh`. Its lists move here:
+  [corrected](compiled-own-types/corrected.txt), [derived](compiled-own-types/derived.txt),
+  [old-unsound](compiled-own-types/old-unsound.txt), [known losses](compiled-own-types/known-losses.txt).
+- `391f7ae` empties a class that is never built on the stored side, and a class nested in one (D5,
+  register D26): `Dead` 1 -> 0, `Dead#Leaf` 2 -> 0 (`CorrectionsSpec.unbuilt`). No corpus row moves.
+- `422ad4e` makes the tests compile: 23 test files of deleted code go, and about 50 examples of
+  deleted internals; every example the TASTy front end does not meet runs under
+  `cardinality.Pending` with its class (below, and [pending.txt](compiled-own-types/pending.txt)).
+
+Measured (`wc -l`, Scala files):
+
+| | before (`4fad6ef`) | after |
+|---|---|---|
+| `core/src/main/scala` | 47,238 lines, 206 files | 15,872 lines, 67 files |
+| main sources of every module (core, plugin, millPlugin, bench) | 47,832 | 16,234 |
+| `core/src/test/scala` | 37,790 lines, 131 files | 33,102 lines, 109 files |
+
+The six frozen corpora render byte-identical reports through `Report.of` before (`4fad6ef`, the
+TASTy front end forced in `CorpusRun`) and after every commit above, the stored-side fix included.
+`TastyFrontEndSpec`, `ProgramRowsSpec` and `RecordsSpec` give the same outcome for every example
+both trees have (three old-against-new examples are gone).
+
+Pending examples by class (`core/testFull`: 2,031 examples, 526 pending, none failing; 3 of the
+pending are `ArticleCardinalitySpec`'s own targets): (a) pins old behavior 49; (b) pins a refusal
+the compiled tree resolves 106; (c) known loss 303; rejected fixture, uncompiled support 54 (the
+list below, unchanged); uncompiled support, reading sources with no compiled classes 6; count
+differs, to derive 5 (`CapabilitySpec` `canEqual` 4 against 2, three `CardinalitySpec` rows and one
+`CounterSpec` row where the TASTy front end gives a finite number and the pin says ω). The classes
+are read from each failure's message, as the spec inventory's were: a new `?` with
+`not read from compiled classes yet`, or another refusal where a number was pinned, is (c); a new
+number where a refusal was pinned is (b); a signature, a row's name or a reason worded differently
+is (a). No row was derived again.
+
+Scripted: `report`, `library`, `selected` keep only their TASTy expectations (`library` reads the
+binary jar beside the sources jar, either alone refused, D8); `dependencies` has its new
+expectation (D9): with the dependency classpath cleared, `pick(c: Comparison)` is refused, `a member
+the classpath does not hold: cats`.
+
 ## Switch-over: wiring (2026-11-13)
 
 - One switch: `Report.Environment.frontEnd: Report.Front` (`Scalameta`, the default, or `Tasty`).
@@ -1821,8 +1875,9 @@ switch, `39009dd`):
 ## Switch-over: pending examples (D11)
 
 The 54 examples that fail under the TASTy front end because scalac rejects their fixture (spec
-ledger at `b977b40`, `no compiled classes: scalac rejects this fixture`). At the switch they move
-here, marked pending, and come back with uncompiled support:
+ledger at `b977b40`, `no compiled classes: scalac rejects this fixture`). Moved here at the switch
+(S8): each runs under `Pending.rejectedFixture` and comes back with uncompiled support. The same 54
+fail so after S8:
 
 - `AliasOverrideIdentitySpec`: guards incorrect alias arity
 - `AliasOverrideIdentitySpec`: guards mutually recursive aliases

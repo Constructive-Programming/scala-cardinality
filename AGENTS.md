@@ -68,11 +68,10 @@ subclass, override or implementation exists outside them.
 
 - A concrete class that no supplied template extends (an anonymous `new C { … }` and a given
   included) is final. A concrete member of a class or trait that no supplied template overrides is
-  final. `ClosedWorld` writes those `final` modifiers into the sources before anything reads them,
-  so every rule about final classes and members applies from there. A constructor `val` and an
-  untyped literal `val` keep their spelling; a receiver asks `Resolver.overriding` for them.
-  A class with a non-public constructor is final too where nothing supplied extends it: only its
-  scope may extend it, and its values are what its public factories build (Rule B).
+  final. The TASTy front end reads them so (`compiled.ClosedProgram`), so every rule about final
+  classes and members applies to them. A class with a non-public constructor is final too where
+  nothing supplied extends it: only its scope may extend it, and its values are what its public
+  factories build (Rule B).
 - A member a supplied template does override varies across receivers, so it stays a free
   capability, as an abstract member is.
 - Abstract members stay capabilities (v1.md §2), and a goal of an abstract template is still any
@@ -83,16 +82,11 @@ subclass, override or implementation exists outside them.
 - The closed world settles which templates exist. It does not settle a name the analyzer cannot
   resolve. An unresolved identity, an alias it does not follow or a scope it does not enumerate
   keeps its refusal.
-- Templates are matched by simple name. A parent outside the sources whose members are not known
-  may define anything: a member only such a parent may override is refused
-  (`member may be overridden through a parent outside the sources`). Two same-named templates in
-  different packages share their subclasses, so a member one of them overrides stays open: the
-  open-world reading, which can overcount. Resolve parents before relying on such a row. A
-  compiled dependency stub is the exception: it spells the parent the compiler resolved, so a
-  stub's parent is the template of that qualified name alone, whether or not a stub declares it
-  (an undeclared one, like `java.util.Map`, is a parent outside the sources; `scala.Product` and
-  the markers keep their known members). A stub template is asked about by its qualified name: only
-  stubs whose parent is it, and sources spelling its simple name, may extend it.
+- Templates are the compiler's symbols: a parent is the class the compiler resolved, the module's
+  or a dependency's, and two classes of one simple name in different packages are two templates. A
+  parent whose members are not known (a class the classpath does not hold) may define anything: a
+  member only such a parent may override is refused; `scala.Product` and the markers keep their
+  known members.
 
 The analyzer does not certify that a body obeys the assumptions. A `0` means "no pure, total,
 parametric implementation", not "no Scala body compiles".
@@ -121,15 +115,15 @@ Three conventions sit beside these assumptions (v1.md §2, "Modelling convention
   class the same way from its companion's and body's public factories. A class with a non-public
   constructor that nothing supplied extends is final in the closed world.
 - **Rule T, a member without a result type has the compiler's type.** The build plugins pass the
-  module's compiled classes; `CompiledTypes` writes the TASTy type of each untyped member, local,
-  anonymous-class member and pattern name into the source (spelled from `_root_`) before anything
-  reads it. A name typed in its pattern (`val (a: A, b)`) has that type, compiled or written. No match at the
-  same name offset, name and span (stale classes), no spelling, or `transparent inline` (Rule X)
-  refuses (`written without a type, in a source not compiled`): the compiler's inference is never
-  imitated from syntax. Never refuse such a member because its type is inferred when classes are
-  supplied. Core's tests compile their fixtures in-process (`cardinality.Compiled`), so a fixture
-  meant to keep a type must compile; one that names an unsupplied declaration on purpose refuses
-  its untyped members.
+  module's compiled classes, and the analyzer reads TASTy alone: every type, that of an untyped
+  member, local, anonymous-class member or pattern name included, is the one the compiler gave it.
+  A source without compiled classes, or whose classes are another text's, is refused (`no compiled
+  classes for this source`, `compiled classes do not match the source`); reading uncompiled
+  sources is future work. A `transparent inline` result stays Rule X's. Never refuse a member
+  because its type is inferred. Core's tests compile their fixtures in-process
+  (`cardinality.Compiled`): a fixture scalac rejects has no rows and is listed in
+  `rejected-fixtures.txt`; one that names an unsupplied declaration on purpose compiles against
+  withheld support (`Compiled.withheld`), which the analysis is not given.
 - **Rule F, an opaque type outside its scope is one value.** Where its representation is hidden,
   an opaque type counts 1 on both sides (it reads as `Unit`; as a type argument it keeps its own
   nominal identity). Inside its scope the representation is read as before. Never refuse a count
@@ -206,6 +200,10 @@ The analyzer's code does not define what a number means; these documents do.
   - Implement the general rule, never a special case for one signature.
 - Every changed count in a report run must be explained. A pinned expectation that changes needs
   its derivation.
+- An example the TASTy front end does not meet yet runs under `cardinality.Pending.<class>`
+  (pending while it fails, a failure once it passes), its class from the spec inventory of
+  docs/plans/compiled-own-types.md; `docs/plans/compiled-own-types/pending.txt` lists them. Turning
+  one back into a plain example needs the count's derivation, as any changed pin does.
 
 ## Build and gates
 
