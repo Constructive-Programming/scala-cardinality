@@ -76,7 +76,7 @@ lazy val core = project
     // sbt wiring exercised by scripted tests, which run outside scoverage's
     // instrumentation, so a floor there would be red by construction.
     coverageFailOnMinimum := true,
-    coverageMinimumStmtTotal := 80
+    coverageMinimumStmtTotal := 90
   )
 
 // Measurement over a frozen corpus (bench/README.md). Not aggregated by `root`: it runs on demand,

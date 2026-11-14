@@ -23,7 +23,7 @@ abstract type member reached through a path read as open, and the leftovers belo
   [pending.txt](compiled-own-types/pending.txt) lists the 368 `Pending.*` examples.
 - Gates: `core/testFull`, `plugin/scripted` (5 of 5), `millPlugin/test`, `scalafmtCheckAll`,
   `scalafixAll --check`, `scripts/check-file-metrics.sh`, CPD (25 tokens) and `coverageAll`
-  (core 94.45% statements, 90.20% branches; floor 80%) pass. scalac's coverage phase skips a
+  (core 94.45% statements, 90.20% branches; floor 90%) pass. scalac's coverage phase skips a
   method body over 3,000 tree nodes with a warning -Werror makes fatal: `Readings.local` and
   `Reentry.may` were, and are split (`scopesAt`, `importing`, `leftBy`; a per-call
   `Reentry.Search`); `build.sbt` no longer silences the warning.
