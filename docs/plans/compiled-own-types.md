@@ -2303,6 +2303,33 @@ specs) are identical; no row moved.
 Gate times: cats-kernel 47.2 s, cats-core 101.6 s (the old front end's rows recomputed in the same
 JVM run after the build hash changed; the machine shared). `compiled/` is 9,719 lines.
 
+Then `tasty-m7` (`7692004`, on m3's `a415439`). `Fixpoint.scala` merged to m7's version exactly
+(the integration never touched it after m3; m7's per-lap completion supersedes m3's branch rule).
+Conflict only in `StoredRecursionSpec`: both sides' examples kept; `hiddenPositions` takes m7's
+`Ho`/`Ht` ε₀ beside the rows round 5 added. The review confirmed the alias expansion and node-only
+continuations in `Solver`, and the opaque blocking in `Stored`, agree with m7's degree probing (an
+alias to a pair, to `Int => Y`, to `(Z, Z)` counts as its spelling), and found one wrong number,
+older than m7 (the m3 fix's sibling): a hidden class empty only under a wrapper (`A(h: Boolean, b:
+=> Option[B])`, `B(x: Nothing, a: => A)`) read 4, `List` ω, `Either[Boolean, B]` 6, where `b` is
+`None`, `Nil`, a `Left`: 2, 2, 4 (the old front end says so). The observed estimate is now bounded
+by the whole estimate (hiding fields only merges values; `hiddenPositions`: `Hm1`, `Hm2`, `Hm3`).
+The coverage memory dropped the 24 fixture rows m7 moves (ω -> ε₀ or 1, both front ends). Every worse
+row is a listed correction (m7's `Pa.<init>`, `Ua.<init>` added). The two new old numeric rows
+uncovered are m7's new fixture `Ra.<init>` (ε₀), `Rc.<init>` (ω), refused as "a capability record
+with a parameter that is no public field". `sbt plugin/scripted` and `millPlugin/test` pass.
+
+| input | identical | better | worse | uncovered | old numeric uncovered | past old-unsound |
+|---|---|---|---|---|---|---|
+| core | 2,889 | 29 | 0 | 1,082 | 2 (2) | 2 (2) |
+| cats-core | 2,809 | 393 | 72 | 4,377 | 18 (19) | 16 (16) |
+| cats-kernel | 664 | 23 | 0 | 1,098 | 4 (4) | 2 (2) |
+| cats-eo | 329 | 12 | 0 | 356 | 2 (2) | 2 (2) |
+| cats-eo-generics | 42 | 0 | 0 | 38 | 0 (0) | 0 (0) |
+| cats-eo-schemes | 5 | 0 | 0 | 14 | 0 (0) | 0 (0) |
+| fixtures | 5,826 | 287 | 13 | 661 | 98 (106) | 32 (34) |
+
+Gate times: cats-kernel 15.5 s, cats-core 19.2 s. `compiled/` is 9,721 lines. Round 5 is merged.
+
 ### What exists
 
 | Piece | Where | What it is |

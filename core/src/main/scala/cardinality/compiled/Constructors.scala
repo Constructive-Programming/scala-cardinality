@@ -182,14 +182,16 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
       // A recursive position the method side refuses for a parameter a class does not show: under
       // rule B the parameter is unobserved, so each class holds the fields this constructor
       // observes (`final class A(h: Boolean, b: => B)` beside `final class B(x: Int, a: => A)`:
-      // `b` is one value, the row 2). A class with no value has none whatever is observed: an
-      // empty estimate of the whole class stands (`B(x: Nothing, a: => A)`: 0).
+      // `b` is one value, the row 2). Hiding fields only merges values, so the position holds no
+      // more than the whole classes' estimate: an empty class stays empty, under a wrapper too
+      // (`B(x: Nothing, a: => A)`: `b: => B` is 0, `b: => Option[B]` 1).
       case Left(Constructors.Hidden(reason))
           if Constructors.estimable(tpe) && stored.recursive(tree, tpe) =>
         recursive(None)
           .flatMap(whole =>
-            if (whole.size.contains(NothingSize)) Right(whole)
-            else estimate(Some(parameter.symbol.owner))
+            estimate(Some(parameter.symbol.owner)).map(observed =>
+              observed.copy(size = observed.size.map(s => whole.size.fold(s)(s.min)))
+            )
           )
           .map(Constructors.fromEstimate(reason, _, ground))
       case Left(Unread.Refused(reason)) =>

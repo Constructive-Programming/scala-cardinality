@@ -165,6 +165,12 @@ class StoredRecursionSpec extends Specification {
       |final class Hk(x: Nothing, a: => Hm)
       |final class Hc(h: Boolean, d: Hd)
       |final class Hd(x: Int, c: Hc)
+      |final class Hm1(h: Boolean, b: => Option[Hk1])
+      |final class Hk1(x: Nothing, a: => Hm1)
+      |final class Hm2(h: Boolean, b: => List[Hk2])
+      |final class Hk2(x: Nothing, a: => Hm2)
+      |final class Hm3(h: Boolean, b: => Either[Boolean, Hk3])
+      |final class Hk3(x: Nothing, a: => Hm3)
       |final class Shut private () { final case class In(b: Boolean) }
       |final class Hp(h: Boolean, p: (Hq, Shut#In))
       |final class Hq(x: Int, a: => Hp)
@@ -416,11 +422,29 @@ class StoredRecursionSpec extends Specification {
   // observes: `Hk` holds a `Nothing`, so `Hm`'s position is empty, 0, and so is `Hk`'s (no `Hm`
   // without a `Hk`); `Hc` and `Hd` need each other strictly, no value, 0 each. A part beside the
   // cycle the method side refuses keeps the refusal in either order: `Shut` is never built, so
-  // `Shut#In` is refused in `Hp` and `Hp2`, and in `Hq` and `Hq2`, which reach them.
+  // `Shut#In` is refused in `Hp` and `Hp2`, and in `Hq` and `Hq2`, which reach them. An empty class
+  // under a wrapper leaves the wrapper's own values: `Hm1`'s `b` is `None`, 2 × 1; `Hm2`'s `Nil`,
+  // 2; `Hm3`'s a `Left`, 2 × 2 (they read 4, ω, 6: the observed `Hk` as one value).
   private def hiddenPositions =
-    List("Ha", "Hb", "Hn", "Ho", "Ht", "Hw", "Hm", "Hk", "Hc", "Hd", "Hp", "Hp2").map(
-      constructor
-    ) must_== List("2", "≤2^32", "2", "ε₀", "ε₀", "?", "0", "0", "0", "0", "?", "?")
+    List(
+      "Ha",
+      "Hb",
+      "Hn",
+      "Ho",
+      "Ht",
+      "Hw",
+      "Hm",
+      "Hk",
+      "Hc",
+      "Hd",
+      "Hp",
+      "Hp2",
+      "Hm1",
+      "Hm2",
+      "Hm3"
+    )
+      .map(constructor) must_==
+      List("2", "≤2^32", "2", "ε₀", "ε₀", "?", "0", "0", "0", "0", "?", "?", "2", "2", "4")
 
   // `Neg` reaches itself through a function's domain, where the numeric equation is no count
   // (Cantor). `GS[A]` continues through `=> GS[A]`, a class named with arguments: a field the
