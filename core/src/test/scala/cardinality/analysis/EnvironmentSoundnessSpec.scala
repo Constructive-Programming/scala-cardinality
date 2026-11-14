@@ -17,9 +17,7 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       keep two anonymous parameters apart                          $anonymousApart
       keep anonymous parameters of two owners apart                $anonymousOwners
       count unrelated anonymous evidence once each                 $anonymousDistinct
-      refuse same-typed evidence a search cannot tell apart        ${Pending.oldBehavior(
-      anonymousAmbiguous
-    )}
+      refuse same-typed evidence a search cannot tell apart        $anonymousAmbiguous
       read an extension's clauses at its method's level            ${Pending.knownLoss(
       anonymousExtension
     )}
@@ -82,15 +80,9 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       read enum cases that bind or bottom-pin the parameters       $enumBinds
       read enum cases that take parameters through `extends`       $enumBindsByExtends
       refuse a sealed family with anonymous instances              $sealedAnonymous
-      refuse a sealed family extended through an alias             ${Pending.oldBehavior(
-      sealedAlias
-    )}
-      refuse a sealed family with an inner or local child          ${Pending.oldBehavior(
-      sealedInner
-    )}
-      refuse a sealed family with a child in any block             ${Pending.oldBehavior(
-      sealedBlockChild
-    )}
+      read a sealed family extended through an alias               $sealedAlias
+      refuse a sealed family with an inner or local child          $sealedInner
+      refuse a sealed family with a child in any block             $sealedBlockChild
       read a sealed family whose children live in an object        $sealedInObject
       read a family an alias names but nothing extends through it  $sealedAliasUnused
   """
@@ -145,8 +137,8 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       |  def same[A](x: A)(using Option[A], Option[A]): A = ???
       |  def named[A](x: A)(using o: Option[A])(using Option[A]): A = ???
       |}""".stripMargin)
-    refused(found("T.same"), "ambiguous anonymous evidence: Option[A]")
-      .and(refused(found("T.named"), "ambiguous anonymous evidence: Option[A]"))
+    refused(found("T.same"), "ambiguous anonymous evidence: scala.Option[A]")
+      .and(refused(found("T.named"), "ambiguous anonymous evidence: scala.Option[A]"))
   }
 
   // An extension's clauses are clauses of its method: `pick[A](x: A)(using o: Option[A])(using
@@ -680,9 +672,9 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       .and(refused(found("UseW.makeW"), s"$reason: W"))
   }
 
-  // Children are registered by the parent name their clause spells: `new SA {}` through `type SA =
-  // S` is a value of S no case enumerates (S1 and it: ≥ 2, read as 1), and `R2(b: Boolean)
-  // extends RA` a child (R1, R2(true), R2(false): 3, read as 1). Both refused.
+  // A parent is the class the compiler resolved, through any alias: `new SA {}` through `type SA =
+  // S` is an anonymous value of S no case enumerates (S1 and it: ≥ 2), refused; `R2(b: Boolean)
+  // extends RA` is a child of R like any other: R1, R2(true), R2(false), 3.
   def sealedAlias = {
     val found = counts("Alias.scala" -> """sealed trait S
       |case object S1 extends S
@@ -694,8 +686,8 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       |type RA = R
       |final case class R2(b: Boolean) extends RA
       |object UseR { def mk(): R = ??? }""".stripMargin)
-    refused(found("UseS.mk"), "sealed family is extended through an alias: S")
-      .and(refused(found("UseR.mk"), "sealed family is extended through an alias: R"))
+    refused(found("UseS.mk"), "sealed family has anonymous instances in its file: S")
+      .and(found("UseR.mk") === Count.Finite(3))
   }
 
   // `o1.In(true)` and `o2.In(true)` are values of different classes; a local `Loc()` is a class
@@ -710,7 +702,7 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       |object Local { def make(): Unit = { final case class Loc() extends L; () } }
       |object UseL { def makeL(): L = ??? }""".stripMargin)
     refused(found("UseS.makeS"), "sealed subtype is an inner or local class: In")
-      .and(refused(found("UseL.makeL"), "sealed subtype is an inner or local class: Loc"))
+      .and(refused(found("UseL.makeL"), "sealed family has anonymous instances in its file: L"))
   }
 
   // A child declared in a val, lazy val, given, lambda, if arm or top-level val block is a class per
@@ -742,7 +734,7 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       |object H6 { def mk(b: Boolean): S6 = if (b) { case object Loc6 extends S6; Loc6 } else A6 }
       |object U6 { def f(): S6 = ??? }
       |""".stripMargin)
-    val reason = "sealed subtype is an inner or local class: Loc"
+    val reason = "sealed family has anonymous instances in its file: S"
     refused(found("U1.f"), s"${reason}1")
       .and(refused(found("U2.f"), s"${reason}2"))
       .and(refused(found("U3.f"), s"${reason}3"))

@@ -29,9 +29,7 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
       a local class has no companion to select from                     ${Pending.rejectedFixture(
       localClass
     )}
-      a local type that hides an outer one refuses                      ${Pending.resolvedRefusal(
-      localTypes
-    )}
+      a local type that hides an outer one is the local one            $localTypes
     Applications are read to their last clause
       a clause a callee does not take applies its result's apply        ${Pending.knownLoss(
       furtherClauses
@@ -47,20 +45,14 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
       a conversion behind any number of aliases is found                ${Pending.knownLoss(
       aliasChains
     )}
-      a given whose type a wildcard may hide is read as its declaration  ${Pending.resolvedRefusal(
-      doubtedConversions
-    )}
+      a given conversion the body does not apply is no candidate       $doubtedConversions
       a listed namespace's wildcard binds its own terms only            ${Pending.knownLoss(
       listedTerms
     )}
       a deferred inline member is an inline body's capability          $deferredMembers
       a passing body is eliminated by the solver like its def twin      $solverTwins
-      a conversion private to another package is never inserted        ${Pending.resolvedRefusal(
-      privateConversions
-    )}
-      a qualifier is converted from its own type's implicit scope       ${Pending.resolvedRefusal(
-      anchoredConversions
-    )}
+      a conversion the body does not apply is never inserted           $privateConversions
+      a qualifier's member wins over its implicit scope                $anchoredConversions
       only a template extending the receiver overrides its member       ${Pending.knownLoss(
       overridingInlines
     )}
@@ -211,16 +203,16 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
       "reads the local K, which has no companion this reading reads"
     )
 
-  // A local class named like a class outside the body would be read as the outer one, whose members
-  // are not the local one's.
+  // The compiled body names the local class, never the outer `Fn`: `(new Fn)(x)` is the local
+  // apply, the identity, and neither body uses a compile-time operation, so each counts as its
+  // `def` twin (every Int => Int, 2^(2^37)).
   def localTypes = {
     val found = rows("""final class Fn { def apply(x: Int): Int = x }
       |object U {
       |  inline def hidden(x: Int): Int = { final class Fn { def apply(y: Int): Int = y }; (new Fn)(x) }
       |  inline def fresh(x: Int): Int = { final class Gn { def apply(y: Int): Int = y }; (new Gn)(x) }
       |}""".stripMargin)
-    refused(found("U.hidden"), "declares the local type Fn, which hides a type of that name")
-      .and(refused(found("U.fresh"), "creates an instance of a class not read"))
+    (found("U.hidden") === pow2(37)).and(found("U.fresh") === pow2(37))
   }
 
   private val fn = """import scala.compiletime.summonFrom
@@ -314,11 +306,11 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
     refused(found("U.f"), "may expand the inline conversion given A9[Int, String]")
   }
 
-  // `forgetful.*` is in doubt (its `forgetful` may be `zzz.forgetful`), so the given's type name is
-  // not read; the declaration it would otherwise be is: a plain trait leaves `U.f` its number (4),
-  // one extending `Conversion` makes the inline-apply given a conversion every body may meet
-  // (probes/a7fix1/conv, valid Scala 3.9.0). The alternative, a type outside the sources, is not
-  // read as a conversion (D27's boundary). U.scala itself imports nothing.
+  // `forgetful.*` binds the supplied `p.forgetful` (the withheld `zzz` declares no `forgetful`). A
+  // plain trait leaves `U.f` its number, B => B through id, 4; one extending `Conversion` makes the
+  // inline-apply given a conversion (probes/a7fix1/conv, valid Scala 3.9.0), but the compiled body
+  // `id(x)` applies none, so it is no candidate (D2 of docs/plans/compiled-own-types.md): 4 too.
+  // U.scala itself imports nothing.
   def doubtedConversions = {
     // `zzz`, a namespace the sources do not supply: compiled against, then withheld.
     val zzz = cardinality.Compiled.withheld("package zzz\nobject Unsupplied")
@@ -336,8 +328,7 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
         ("package p\nimport zzz.*\nimport forgetful.*\ngiven g: ForgetfulFunctor[Int, Long] with { inline def apply(i: Int): Long = i.toLong }" + zzz),
       use
     )
-    (plain("p.U.f") === Count.Finite(4))
-      .and(refused(converting("p.U.f"), "may expand the inline conversion g"))
+    (plain("p.U.f") === Count.Finite(4)).and(converting("p.U.f") === Count.Finite(4))
   }
 
   // `scala.quoted.*` declares the terms `Varargs` and `quotes` and no term `ExprMap` (a trait
@@ -407,8 +398,8 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
 
   // Scala never inserts an inaccessible implicit: conv, `private[lib]`, is no candidate in `app`
   // even under a wildcard import of R, so first counts as its `def` twin (every (Int, Int) => Int,
-  // 2^(2^69)); public, the import brings it, it may be inserted where an expression does not
-  // conform, and its expansion reads the call site: refused.
+  // 2^(2^69)). Public, the import brings it, but `t._1` already conforms: the compiled body applies
+  // no conversion, so it is no candidate either (D2): the twin again.
   def privateConversions = {
     def lib(access: String) = "lib.scala" -> s"""package lib
       |object R {
@@ -424,15 +415,14 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
     val hidden = counts(lib("private[lib] "), app)
     (hidden("app.C.first") === hidden("app.C.firstD"))
       .and(hidden("app.C.first") === pow2(69))
-      .and(
-        refused(counts(lib(""), app)("app.C.first"), "may expand the inline conversion conv")
-      )
+      .and(counts(lib(""), app)("app.C.first") === pow2(69))
   }
 
   // A qualifier is converted, or answered by an extension, only from the scopes around the body or
-  // its static type's implicit scope: conv and h, members of T's companion, may answer t.f and t.h
-  // (Box's inline f and h read the call site: refused), never u.f or u.h, which count as their
-  // `def` twins (every Int => Int, 2^(2^37)).
+  // its static type's implicit scope, and only where no member applies: conv and h, members of T's
+  // companion, could answer t.f and t.h, but T's own f and h take an Int, so the compiled bodies
+  // call the members and no conversion or extension is applied (D2). Every body counts as its
+  // `def` twin (every Int => Int, 2^(2^37)).
   def anchoredConversions = {
     val lib = "lib.scala" -> """package lib
       |final class T { def f(x: Int): Int = x; def h(x: Int): Int = x }
@@ -454,8 +444,8 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
     (found("app.C.onU") === found("app.C.onUD"))
       .and(found("app.C.hOnU") === found("app.C.onUD"))
       .and(found("app.C.onU") === pow2(37))
-      .and(refused(found("app.C.onT"), "the implicit conversion conv may answer"))
-      .and(refused(found("app.C.hOnT"), "h uses scala.compiletime.codeOf"))
+      .and(found("app.C.onT") === pow2(37))
+      .and(found("app.C.hOnT") === pow2(37))
   }
 
   // An expansion selects f on b's class at the call site: Sub overrides f, but not inline, and

@@ -46,13 +46,9 @@ class TopTypesUnionSpec extends Specification {
     )}
       a supplied self type with a parent outside the sources         $selfUnsuppliedParent
       a supplied self type read in full                              $suppliedSelf
-      a wildcard-imported object with a parent outside the sources   ${Pending.resolvedRefusal(
-      importedObject
-    )}
+      a wildcard-imported object with a parent outside the sources   $importedObject
       a package object with a parent outside the sources             $packageObject
-      a wildcard import or export of an unsupplied namespace         ${Pending.resolvedRefusal(
-      foreignWildcard
-    )}
+      a wildcard import or export of an unsupplied namespace         $foreignWildcard
       a supplied wildcard-imported object read in full               $suppliedObject
       a constructor's types are read outside its class's parents      ${Pending.knownLoss(
       ctorOutsideParents
@@ -115,9 +111,7 @@ class TopTypesUnionSpec extends Specification {
       an opaque alternative outside its scope                        ${Pending.knownLoss(
       opaqueOutside
     )}
-      a top-like alternative                                         ${Pending.resolvedRefusal(
-      topLike
-    )}
+      a top-like alternative                                         $topLike
       an alternative whose declaration was not supplied              ${Pending.knownLoss(
       missingDecl
     )}
@@ -136,9 +130,7 @@ class TopTypesUnionSpec extends Specification {
       a family whose shape misses an enum-case subclass              ${Pending.knownLoss(
       unenumeratedChild
     )}
-      a family a child extends through a parameterised alias         ${Pending.resolvedRefusal(
-      aliasApplicationChild
-    )}
+      a family a child extends through a parameterised alias         $aliasApplicationChild
       one union alias applied twice to one runtime class             ${Pending.knownLoss(
       aliasTwice
     )}
@@ -338,21 +330,14 @@ class TopTypesUnionSpec extends Specification {
     count("trait Base { def x: Int }\ntrait T { self: Base => def g(): Unit }", "T.g") ===
       Count.Finite(1)
 
-  // With `trait X { type Any = Boolean }`, k is Boolean => Boolean: 4, not 2.
-  // `import Defs.*` brings what `Defs` inherits from `ext.X`, which may declare `Any` or `Unit`: the
-  // lookup refuses the name before any builtin reading.
+  // `import Defs.*` brings what `Defs` inherits from `ext.X`; the withheld X declares neither `Any`
+  // nor `Unit`, so the compiler binds the builtins (D3): k reads its top input as one value, a
+  // Boolean, 2; f's result is Unit, 1. (With `trait X { type Any = Boolean }` k would be 4.)
   def importedObject = {
     val code =
       "object Defs extends ext.X\nobject W { import Defs.*; def k(x: Any): Boolean = true\n" +
         "  def f(s: ext.Schema): Unit = () }" + ext("trait X\nclass Schema")
-    reasonContains(code, "W.k", "inherited type member not resolved: Any (unsupplied parent ext.X)")
-      .and(
-        reasonContains(
-          code,
-          "W.f",
-          "inherited type member not resolved: Unit (unsupplied parent ext.X)"
-        )
-      )
+    (count(code, "W.k") === Count.Finite(2)).and(count(code, "W.f") === Count.Finite(1))
   }
 
   // The package object's unsupplied parent rebinds no builtin name (the never-shadowed assumption):
@@ -365,20 +350,15 @@ class TopTypesUnionSpec extends Specification {
 
   // An unsupplied wildcard import rebinds neither `Any` nor `Unit` (the never-shadowed
   // assumption): g's Any result is an output, ω, and f's Unit one-valued, 1, whatever `Schema` is.
+  // The wildcard export of the withheld `ext.defs`, which declares no `Unit`, leaves the builtin as
+  // the compiler binds it (D3): 1.
   def foreignWildcard = {
     val imported = "import ext.*\ndef g(): Any = ()\ndef f(s: Schema): Unit = ()" + schema
     val exported = "object E { export ext.defs.*; def f(s: ext.Schema): Unit = () }" +
       ext("object defs\nclass Schema")
     (count(imported, "g") === Count.Countable)
       .and(count(imported, "f") === Count.Finite(1))
-      .and(
-        reasonContains(
-          exported,
-          "E.f",
-          "through ext.defs, which is not supplied (export of E)",
-          "wildcard export not supplied: Unit (wildcard export of ext.defs)"
-        )
-      )
+      .and(count(exported, "E.f") === Count.Finite(1))
   }
 
   // Scala 3.9.0 reads `final class E(val a: Any) extends ext.X` with `scala.Any` even when X
@@ -806,11 +786,12 @@ class TopTypesUnionSpec extends Specification {
   }
 
   // AnyRef absorbs a union as Any does (v1.md §2): AnyRef | Boolean is AnyRef, an output, ω (it
-  // was refused: boxing makes a Boolean an AnyRef). AnyVal is not read as Any there: refused.
+  // was refused: boxing makes a Boolean an AnyRef). AnyVal keeps its own reading: Boolean <: AnyVal,
+  // so AnyVal | Boolean is AnyVal, an output top, ω.
   def topLike =
     (count("def t(x: AnyRef, i: Boolean): AnyRef | Boolean = i", "t") === Count.Countable)
       .and(count("def m(i: Boolean): Matchable | Boolean = i", "m") === Count.Countable)
-      .and(reasonContains("def v(i: Boolean): AnyVal | Boolean = i", "v", "top-like"))
+      .and(count("def v(i: Boolean): AnyVal | Boolean = i", "v") === Count.Countable)
 
   def missingDecl =
     reasonContains(
@@ -880,15 +861,14 @@ class TopTypesUnionSpec extends Specification {
     )
 
   // `type Id[X] = X; case class C() extends Id[S]` is a child of S (Scala 3.9.0 warns that a match
-  // on S1 alone misses C()), so S | Q has 3 values, not 2. A supplied class applied to the family
-  // (`Visitor[R]`) cannot be dealiased: R | Q is R1 + Q1.
+  // on S1 alone misses C()), so S | Q has 3 values, not 2: S1, C, Q1. A supplied class applied to
+  // the family (`Visitor[R]`) cannot be dealiased: R | Q is R1 + Q1.
   def aliasApplicationChild = {
     val code = "type Id[X] = X\ntrait Visitor[A]\nsealed trait S\nfinal case class S1() extends S\n" +
       "final case class C() extends Id[S]\nsealed trait Q\nfinal case class Q1() extends Q\n" +
       "sealed trait R\nfinal case class R1() extends R\nfinal case class V() extends Visitor[R]\n" +
       "def u(): S | Q = ???\ndef w(): R | Q = ???"
-    reasonContains(code, "u", "sealed family S may be extended through Id[S]")
-      .and(count(code, "w") === Count.Finite(2))
+    (count(code, "u") === Count.Finite(3)).and(count(code, "w") === Count.Finite(2))
   }
 
   def aliasTwice =
