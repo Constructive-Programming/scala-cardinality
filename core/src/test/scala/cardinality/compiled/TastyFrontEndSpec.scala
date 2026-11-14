@@ -838,13 +838,14 @@ object TastyFrontEndSpec {
 
     /** What a definition row's reason is about: a member's name, or the reason as it reads. */
     def subject: String = reason match {
-      case Definition.Unbound.Member(name) => name
-      case other                           => other.render
+      case Definition.Unbound.Member(name, _) => name
+      case other                              => other.render
     }
 
     /** The kind of a definition row's reason (`unknown`, `param`, `refusal`, …). */
     def tag: String = reason match {
       case _: (Definition.Unbound.Parameter | Definition.Unbound.HigherKinded) => "param"
+      case Definition.Unbound.Member(_, true)                                  => "open"
       case _: Definition.Unbound.Member                                        => "member"
       case _: Definition.Unbound.Open                                          => "open"
       case _: Definition.Unbound.Unknown                                       => "unknown"

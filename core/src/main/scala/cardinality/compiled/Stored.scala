@@ -537,8 +537,14 @@ final private[compiled] class Stored(world: World)(using Context) {
           case (_, Some(body), _) => applied(body)
           // An export's alias is a member bounded by one type on both sides: that type.
           case (_, _, bounds) if PathTypes.exported(bounds) => applied(bounds.high)
-          // An abstract member nothing fixed is what each instance chooses.
-          case _ => Right(Held(EffectiveOmega, List(Unbound.Member(member.name.toString))))
+          // An abstract member nothing fixed is what each instance chooses: the instance of a
+          // class around the site (`this.M`), else one a path names, which is open.
+          case _ =>
+            val reason = ref.prefix match {
+              case self: ThisType if !self.cls.isModuleClass => Unbound.Member(member.name.toString)
+              case _ => Unbound.Member(ref.showBasic, through = true)
+            }
+            Right(Held(EffectiveOmega, List(reason)))
         }
       // A member a refinement declares (`R#X` for `R = { type X = Unit }`) has no symbol: the type
       // its bounds pin, if any (`PathTypes.pinned`).

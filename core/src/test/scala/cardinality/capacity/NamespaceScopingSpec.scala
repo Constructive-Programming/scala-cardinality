@@ -32,9 +32,7 @@ class NamespaceScopingSpec extends Specification {
       a package value, a pattern variable and a self alias are first names  $termBindings
       a class member's owner binds as any type name does          $ownerShadowing
       an abstract type member shadows an outer type               $abstractMember
-      an object's abstract type member stays open                 ${Pending.oldBehavior(
-      objectMember
-    )}
+      an object's abstract type member stays open                 $objectMember
       a generic definition named without arguments has no value space  $typeConstructor
       a bare generic definition named without arguments           ${Pending.knownLoss(
       bareConstructor

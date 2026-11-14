@@ -207,7 +207,7 @@ private[cardinality] object TastyFrontEnd {
   private def spelled(unbound: Definition.Unbound): Definition.Unbound = {
     import Definition.Unbound.*
     unbound match {
-      case Member(name)  => Member(Source.spelled(name))
+      case m: Member     => m.copy(name = Source.spelled(m.name))
       case Open(name)    => Open(Source.spelled(name))
       case Unknown(name) => Unknown(Source.spelled(name))
       case Syntax(what)  => Syntax(Source.spelled(what))

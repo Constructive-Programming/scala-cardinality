@@ -26,8 +26,10 @@ object Definition {
 
     /** An abstract type member of an enclosing class or trait: inside the template it is `this.M`,
       * which each instance chooses, so the size is a function of that choice as of a parameter.
+      * Reached through a path (`through`: an object's own member, or a value's, `x.Z`), it is open:
+      * no instantiation of the row gives it, and `name` is the path as written.
       */
-    case Member(name: String)
+    case Member(name: String, through: Boolean = false)
 
     /** Any subtype anywhere may add values, so the reference has no bound at all. */
     case Open(name: String)
@@ -46,7 +48,7 @@ object Definition {
     def render: String = this match {
       case Parameter(name)           => name
       case HigherKinded(name, arity) => s"$name[${List.fill(arity)("_").mkString(", ")}]"
-      case Member(name)              => s"member $name"
+      case Member(name, through)     => if (through) name else s"member $name"
       case Open(name)                => name
       case Unknown(name)             => name
       case Syntax(what)              => what
@@ -55,8 +57,8 @@ object Definition {
 
     /** Which class of gap the reason is. */
     def group: Gap = this match {
+      case Member(_, true) | _: Open              => Gap.Open
       case _: (Parameter | HigherKinded | Member) => Gap.Instantiation
-      case _: Open                                => Gap.Open
       case _: (Unknown | Syntax | Refusal)        => Gap.Unresolved
     }
 
