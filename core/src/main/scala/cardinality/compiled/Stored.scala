@@ -1,16 +1,7 @@
 package cardinality.compiled
 
+import cardinality.capacity.*
 import cardinality.capacity.Definition.{Kind, Unbound}
-import cardinality.capacity.{
-  BaseTypes,
-  Blocked,
-  EffectiveOmega,
-  Fixpoint,
-  NothingSize,
-  Size,
-  Store,
-  UnitSize
-}
 import cardinality.types.Traversals
 import tastyquery.Contexts.*
 import tastyquery.Symbols.*
@@ -18,13 +9,11 @@ import tastyquery.Trees.{
   ClassDef,
   OpaqueTypeAliasDefinitionTree,
   PolyTypeDefinitionTree,
-  TermTree,
   Tree,
   TypeAliasDefinitionTree,
   TypeBoundsTree,
   TypeDefinitionTree,
   TypeMember,
-  TypeTree,
   ValDef
 }
 import tastyquery.Types.*
@@ -63,7 +52,8 @@ import tastyquery.Types.*
   * class of a dependency or of an enum with parameters and a value case.
   */
 final private[compiled] class Stored(world: World)(using Context) {
-  import Stored.{Env, Held, Instance, Row, Values, given}
+  import Equations.{given, *}
+  import Stored.{Env, Held, Row}
 
   /** The row of a definition. */
   def row(kind: Kind, tree: Tree): Either[String, Row] = (kind, tree) match {
@@ -245,57 +235,7 @@ final private[compiled] class Stored(world: World)(using Context) {
   private def family(tree: ClassDef, env: Env): Either[String, Held] = {
     val parent = tree.symbol
     val name = parent.displayFullName
-    val children = ownCases(parent)
-    val carried = passed(parent, env, "a subtype")
-    def subtype(child: ClassSymbol | TermSymbol): Either[String, Held] = child match {
-      case value: TermSymbol if value.isGivenOrUsing =>
-        Left(s"a family with a given instance: $name")
-      case value: TermSymbol if value.isEnumCase =>
-        Left(s"an enum case under a sealed family: ${value.displayFullName}")
-      case _ if !World.inObjects(child) => Left(s"a family with an inner or local subtype: $name")
-      case value: TermSymbol            =>
-        for {
-          unbuilt <- value.moduleClass.fold(Right(false))(c =>
-            World.tree(c).map(_ => world.unbuilt(c))
-          )
-          _ <- carried(value)
-        } yield Held(if (unbuilt) NothingSize else UnitSize)
-      case cls: ClassSymbol =>
-        for {
-          below <- World.tree(cls)
-          bound <- carried(cls)
-          inside = env.copy(
-            binders = cls.typeParams.zip(bound).toMap,
-            visiting = env.visiting + cls,
-            written = Sums
-              .carried(cls, parent, parent.typeParams.map(env.written.get))
-              .toList
-              .flatMap(cls.typeParams.zip(_).collect { case (p, Some(w)) => p -> w })
-              .toMap
-          )
-          held <-
-            if (world.unbuilt(cls)) Right(Held(NothingSize))
-            else if (env.system.isEmpty && env.visiting(cls)) Left(Stored.Reaches(cls))
-            else if (cls.isEnum) Left(s"an enum under a sealed family: ${cls.displayFullName}")
-            else if (Shapes.isFamily(cls))
-              env.system.fold(family(below, inside))(variable(cls, bound))
-            else if (cls.isAbstractClass)
-              Left(s"a family with an open abstract subtype: ${cls.displayFullName}")
-            else if (world.extended(cls))
-              Left(s"a family with a subtype something extends: ${cls.displayFullName}")
-            // A subtype nothing extends is final in the closed world, written so or not. One
-            // not written final whose parent is outside the module is left undecided, though its
-            // `final` twin counts (a known gap); what such a parent declares is the index's
-            // to say.
-            else if (
-              !Shapes.isFinal(cls) && World.ancestors(cls).exists(base => !world.ofModule(base))
-            )
-              Left(
-                s"a family with a subtype not written final whose parent is outside the module: ${cls.displayFullName}"
-              )
-            else env.system.fold(constructed(below, inside))(variable(cls, bound))
-        } yield held
-    }
+    val children = Sums.ownCases(parent)
     // A family a class declares is one per instance of that class. An anonymous instance lists
     // the family itself; none listed for a family something extends means the classpath lacks the
     // annotation that lists them.
@@ -305,61 +245,84 @@ final private[compiled] class Stored(world: World)(using Context) {
     else if (children.isEmpty && world.extended(parent))
       Left(s"a family whose subtypes are not listed: $name")
     else if (world.unbuilt(parent)) Right(Held(NothingSize))
-    else Traversals.sequence(children.map(subtype)).map(Algebra.sum)
+    else Traversals.sequence(children.map(subtype(parent, env))).map(Algebra.sum)
   }
+
+  private def subtype(parent: ClassSymbol, env: Env)(
+      child: ClassSymbol | TermSymbol
+  ): Either[String, Held] = child match {
+    case value: TermSymbol if value.isGivenOrUsing =>
+      Left(s"a family with a given instance: ${parent.displayFullName}")
+    case value: TermSymbol if value.isEnumCase =>
+      Left(s"an enum case under a sealed family: ${value.displayFullName}")
+    case _ if !World.inObjects(child) =>
+      Left(s"a family with an inner or local subtype: ${parent.displayFullName}")
+    case value: TermSymbol =>
+      for {
+        unbuilt <- value.moduleClass.fold(Right(false))(c =>
+          World.tree(c).map(_ => world.unbuilt(c))
+        )
+        _ <- passed(parent, env, "a subtype")(value)
+      } yield Held(if (unbuilt) NothingSize else UnitSize)
+    case cls: ClassSymbol => classCase(parent, env, cls)
+  }
+
+  private def classCase(parent: ClassSymbol, env: Env, cls: ClassSymbol): Either[String, Held] =
+    for {
+      below <- World.tree(cls)
+      bound <- passed(parent, env, "a subtype")(cls)
+      inside = env.copy(
+        binders = cls.typeParams.zip(bound).toMap,
+        visiting = env.visiting + cls,
+        written = Sums
+          .carried(cls, parent, parent.typeParams.map(env.written.get))
+          .toList
+          .flatMap(cls.typeParams.zip(_).collect { case (p, Some(w)) => p -> w })
+          .toMap
+      )
+      held <-
+        if (world.unbuilt(cls)) Right(Held(NothingSize))
+        else
+          subtypeRefusal(cls, env).toLeft(()).flatMap { _ =>
+            env.system.fold(
+              if (Shapes.isFamily(cls)) family(below, inside) else constructed(below, inside)
+            )(variable(cls, bound))
+          }
+    } yield held
+
+  // Why a subtype that is built is not read: one reached again outside a system, or an enum; a
+  // sealed level below is read as its own sum.
+  private def subtypeRefusal(cls: ClassSymbol, env: Env): Option[String] =
+    if (env.system.isEmpty && env.visiting(cls)) Some(Stored.Reaches(cls))
+    else if (cls.isEnum) Some(s"an enum under a sealed family: ${cls.displayFullName}")
+    else if (Shapes.isFamily(cls)) None
+    else if (cls.isAbstractClass)
+      Some(s"a family with an open abstract subtype: ${cls.displayFullName}")
+    else if (world.extended(cls))
+      Some(s"a family with a subtype something extends: ${cls.displayFullName}")
+    // A subtype nothing extends is final in the closed world, written so or not. One not written
+    // final whose parent is outside the module is left undecided, though its `final` twin counts
+    // (a known gap); what such a parent declares is the index's to say.
+    else
+      Option.when(!Shapes.isFinal(cls) && World.ancestors(cls).exists(!world.ofModule(_)))(
+        s"a family with a subtype not written final whose parent is outside the module: ${cls.displayFullName}"
+      )
 
   // The row of a family that an enum's value case extends directly has no size and its
   // refusal, whatever the other cases hold. (A reference to such a family, and a family
   // that has one under a sealed level, is a `Left` of `family`.)
   private def strayed(parent: ClassSymbol): Option[Row] =
-    ownCases(parent).collectFirst {
+    Sums.ownCases(parent).collectFirst {
       case stray: TermSymbol if stray.isEnumCase =>
         val why =
           s"sealed family not summed: ${parent.name} (an enum case extends it: ${stray.name})"
         Row(None, List(Unbound.Refusal(why)))
     }
 
-  // A family's subtypes as its own level counts them: a case under one of its sealed levels is
-  // that level's (a sealed trait that extends a sealed class makes its cases the class's too).
-  private def ownCases(parent: ClassSymbol): List[ClassSymbol | TermSymbol] = {
-    val children = parent.sealedChildren
-    val levels = children.collect {
-      case c: ClassSymbol if c != parent && Shapes.isFamily(c) => c
-    }
-    children.filterNot { child =>
-      val cls = child match {
-        case c: ClassSymbol => Some(c)
-        case v: TermSymbol  => v.moduleClass
-      }
-      // One whose clause names this level itself beside the sublevel extends it twice.
-      cls.exists(c =>
-        levels.exists(level => level != c && c.isSubClass(level)) &&
-          !c.tree.exists(_.rhs.parents.exists(clauseNames(_, parent)))
-      )
-    }
-  }
-
-  // Whether a parent of a template is one somebody wrote (the compiler's own have no extent) that
-  // names `parent`.
-  private def clauseNames(clause: Tree, parent: ClassSymbol): Boolean = {
-    val named = clause match {
-      case tree: TypeTree => Some(tree.toType)
-      case term: TermTree => Some(term.tpe).collect { case tpe: Type => tpe }
-      case _              => None
-    }
-    !clause.pos.isZeroExtent && named.flatMap(World.classNamed).contains(parent)
-  }
-
-  // The cases a family counts, through its sealed levels.
-  private def leaves(parent: ClassSymbol): List[Symbol] = ownCases(parent).flatMap {
-    case cls: ClassSymbol if cls != parent && Shapes.isFamily(cls) => leaves(cls)
-    case leaf                                                      => List(leaf)
-  }
-
   // A family read from its top, left where a subtype is under two of its levels: it is one case,
   // and would be counted once per level.
   private def familyOnce(tree: ClassDef, env: Env): Either[String, Held] = {
-    val reached = leaves(tree.symbol)
+    val reached = Sums.leaves(tree.symbol)
     reached.diff(reached.distinct).headOption match {
       case Some(twice) => Left(s"a subtype reached twice: ${twice.displayFullName}")
       case None        => family(tree, env)
@@ -489,9 +452,7 @@ final private[compiled] class Stored(world: World)(using Context) {
       ref: TypeRef,
       arguments: List[TypeOrWildcard],
       env: Env
-  ): Either[String, Held] = {
-    def applied(constructor: Type) =
-      World.proper(arguments).flatMap(types => of(constructor.appliedTo(types), env))
+  ): Either[String, Held] =
     ref.optSymbol match {
       // A type parameter, bare or applied (`F[A]`): what it is bound to, whatever its arguments.
       case Some(binder) if env.binders.contains(binder) => Right(env.binders(binder))
@@ -501,57 +462,83 @@ final private[compiled] class Stored(world: World)(using Context) {
       // A generic class named without its arguments is a type constructor.
       case Some(c: ClassSymbol) if c.typeParams.sizeIs != arguments.size =>
         Right(Held(EffectiveOmega, List(Unbound.Syntax(s"type constructor: ${c.name}"))))
-      case Some(c: ClassSymbol) =>
-        World.proper(arguments).flatMap(types => each(types, env).map(types -> _)).flatMap {
-          (types, sizes) =>
-            world.library(c) match {
-              case Some(name)                         => Algebra.standard(name, sizes, env.input)
-              case None if world.readByDeclaration(c) =>
-                declared(c, sizes, env.copy(written = c.typeParams.zip(types.map(_ -> env)).toMap))
-              case None => Left(s"a class of a dependency: ${c.displayFullName}")
-            }
-        }
+      case Some(c: ClassSymbol) => classNamed(c, arguments, env)
       // The empty tuple is a base type, though the library spells it as an alias of a singleton.
       case Some(member: TypeMemberSymbol) if Stored.EmptyTuple.matches(member.displayFullName) =>
         BaseTypes.get("EmptyTuple").map(Held(_)).toRight(s"a type: ${ref.showBasic}")
-      case Some(member: TypeMemberSymbol) =>
-        (member.typeDef, ref.optAliasedType, ref.bounds) match {
-          // A named tuple, `NamedTuple[names, values]`, stores its values' tuple, as the method
-          // side reads it (`StdlibModel`).
-          case (_: TypeMemberDefinition.OpaqueTypeAlias, _, _)
-              if member.displayFullName == "scala.NamedTuple$.NamedTuple" && arguments.sizeIs == 2 =>
-            World.proper(arguments).flatMap(types => of(types.last, env))
-          case (_: TypeMemberDefinition.OpaqueTypeAlias, _, _) =>
-            opaque(member, env)(written(member, arguments, env))
-          // A match type alias is applied to its arguments, where the compiler reduces it.
-          case (_, Some(body), _) if Stored.matches(body) => applied(body)
-          // An alias of the module in an object or a package is read where it is written, its
-          // arguments where they are.
-          case (_, Some(_), _) if world.ofModule(member) && World.inObjects(member) =>
-            written(member, arguments, env)
-          // An alias a class declares is read as its prefix sees it, at the use site, which
-          // mixes what the alias names with what the prefix does: not where either side is inside
-          // an opaque type's scope, where the two sites may differ.
-          case (_, Some(_), _) if world.ofModule(member) && (scoped(member) || scoped(env.site)) =>
-            Left(s"an alias of a class beside an opaque type's scope: ${member.displayFullName}")
-          case (_, Some(body), _) => applied(body)
-          // An export's alias is a member bounded by one type on both sides: that type.
-          case (_, _, bounds) if PathTypes.exported(bounds) => applied(bounds.high)
-          // An abstract member nothing fixed is what each instance chooses: the instance of a
-          // class around the site (`this.M`), else one a path names, which is open.
-          case _ =>
-            val reason = ref.prefix match {
-              case self: ThisType if !self.cls.isModuleClass => Unbound.Member(member.name.toString)
-              case _ => Unbound.Member(ref.showBasic, through = true)
-            }
-            Right(Held(EffectiveOmega, List(reason)))
-        }
+      case Some(member: TypeMemberSymbol) => memberNamed(ref, member, arguments, env)
       // A member a refinement declares (`R#X` for `R = { type X = Unit }`) has no symbol: the type
       // its bounds pin, if any (`PathTypes.pinned`).
-      case None => PathTypes.pinned(ref).fold(Left(s"a type: ${ref.showBasic}"))(applied)
-      case _    => Left(s"a type: ${ref.showBasic}")
+      case None =>
+        PathTypes.pinned(ref).fold(Left(s"a type: ${ref.showBasic}"))(applied(_, arguments, env))
+      case _ => Left(s"a type: ${ref.showBasic}")
     }
-  }
+
+  private def applied(constructor: Type, arguments: List[TypeOrWildcard], env: Env) =
+    World.proper(arguments).flatMap(types => of(constructor.appliedTo(types), env))
+
+  private def classNamed(
+      c: ClassSymbol,
+      arguments: List[TypeOrWildcard],
+      env: Env
+  ): Either[String, Held] =
+    World.proper(arguments).flatMap(types => each(types, env).map(types -> _)).flatMap {
+      (types, sizes) =>
+        world.library(c) match {
+          case Some(name)                         => Algebra.standard(name, sizes, env.input)
+          case None if world.readByDeclaration(c) =>
+            declared(c, sizes, env.copy(written = c.typeParams.zip(types.map(_ -> env)).toMap))
+          case None => Left(s"a class of a dependency: ${c.displayFullName}")
+        }
+    }
+
+  private def memberNamed(
+      ref: TypeRef,
+      member: TypeMemberSymbol,
+      arguments: List[TypeOrWildcard],
+      env: Env
+  ): Either[String, Held] =
+    (member.typeDef, ref.optAliasedType, ref.bounds) match {
+      // A named tuple, `NamedTuple[names, values]`, stores its values' tuple, as the method
+      // side reads it (`StdlibModel`).
+      case (_: TypeMemberDefinition.OpaqueTypeAlias, _, _)
+          if member.displayFullName == "scala.NamedTuple$.NamedTuple" && arguments.sizeIs == 2 =>
+        World.proper(arguments).flatMap(types => of(types.last, env))
+      case (_: TypeMemberDefinition.OpaqueTypeAlias, _, _) =>
+        opaque(member, env)(written(member, arguments, env))
+      case (_, Some(body), _) => aliasNamed(member, body, arguments, env)
+      // An export's alias is a member bounded by one type on both sides: that type.
+      case (_, _, bounds) if PathTypes.exported(bounds) => applied(bounds.high, arguments, env)
+      // An abstract member nothing fixed is what each instance chooses: the instance of a
+      // class around the site (`this.M`), else one a path names, which is open.
+      case _ =>
+        val reason = ref.prefix match {
+          case self: ThisType if !self.cls.isModuleClass => Unbound.Member(member.name.toString)
+          case _ => Unbound.Member(ref.showBasic, through = true)
+        }
+        Right(Held(EffectiveOmega, List(reason)))
+    }
+
+  private def aliasNamed(
+      member: TypeMemberSymbol,
+      body: Type,
+      arguments: List[TypeOrWildcard],
+      env: Env
+  ): Either[String, Held] =
+    // A match type alias is applied to its arguments, where the compiler reduces it.
+    if (Stored.matches(body)) applied(body, arguments, env)
+    // An alias of the module in an object or a package is read where it is written, its
+    // arguments where they are.
+    else if (world.ofModule(member) && World.inObjects(member)) written(member, arguments, env)
+    // An alias a class declares is read as its prefix sees it, at the use site, which mixes what
+    // the alias names with what the prefix does: not where either side is inside an opaque
+    // type's scope, where the two sites may differ.
+    else if (world.ofModule(member) && opaqueScoped(member, env))
+      Left(s"an alias of a class beside an opaque type's scope: ${member.displayFullName}")
+    else applied(body, arguments, env)
+
+  private def opaqueScoped(member: TypeMemberSymbol, env: Env): Boolean =
+    scoped(member) || scoped(env.site)
 
   // An alias of the module, opaque or not, read where it is written (its body at the alias, rule
   // F decided there), with its parameters bound to the arguments as they read where they are
@@ -598,38 +585,43 @@ final private[compiled] class Stored(world: World)(using Context) {
 
   // A class of the module: a concrete one or an enum is what it stores with its type parameters
   // bound to `arguments`; an open one is a reason.
-  private def declared(c: ClassSymbol, arguments: List[Held], env: Env): Either[String, Held] = {
-    val name = c.name.toString
+  private def declared(c: ClassSymbol, arguments: List[Held], env: Env): Either[String, Held] =
     if (env.system.isEmpty && env.visiting(c)) Left(Stored.Reaches(c))
     else if (env.isValue && !world.ofModule(c))
       Left(s"a value of a class of a dependency: ${c.displayFullName}")
-    else if (c.isEnum && c.isCaseClass)
-      Right(
+    else unread(c).fold(concrete(c, arguments, env))(Right(_))
+
+  // A class of the module whose values are not read: an enum case's class, and an open one, to
+  // which any subtype anywhere may add values.
+  private def unread(c: ClassSymbol): Option[Held] =
+    if (c.isEnum && c.isCaseClass)
+      Some(
         Held(
           EffectiveOmega,
           List(Unbound.Refusal(s"enum case type not read: ${c.displayFullName}"))
         )
       )
-    // Any subtype anywhere may add values to an open trait or abstract class.
-    else if (c.isAbstractClass && !c.isEnum && !Shapes.isFamily(c))
-      Right(Held(EffectiveOmega, List(Unbound.Open(name))))
     else
-      for {
-        // Inside a system a concrete class named over arguments that read its values is read in
-        // place at them (no variable: its key would hold sizes the fixed point changes), where no
-        // field is by-name or a function, nor any type argument holds one (which the ν completion
-        // reads of a variable alone); one reached again so is refused (`variable`).
-        held <- env.system.fold(expand(c, arguments, env))(values =>
-          if (
-            arguments.exists(_.refs.nonEmpty) && !env.visiting(c) && World.strict(c) &&
-            !c.typeParams.flatMap(env.written.get).exists((tpe, _) => World.deferred(tpe))
-          )
-            expand(c, arguments, env)
-          else variable(c, arguments)(values)
-        )
-        thrown <- if (env.isValue) undecided(c) else Right(false)
-      } yield held.copy(undecided = held.undecided || thrown)
-  }
+      Option.when(c.isAbstractClass && !c.isEnum && !Shapes.isFamily(c))(
+        Held(EffectiveOmega, List(Unbound.Open(c.name.toString)))
+      )
+
+  private def concrete(c: ClassSymbol, arguments: List[Held], env: Env): Either[String, Held] =
+    for {
+      held <- env.system.fold(expand(c, arguments, env))(values =>
+        if (inPlace(c, arguments, env)) expand(c, arguments, env)
+        else variable(c, arguments)(values)
+      )
+      thrown <- if (env.isValue) undecided(c) else Right(false)
+    } yield held.copy(undecided = held.undecided || thrown)
+
+  // Inside a system a concrete class named over arguments that read its values is read in place
+  // at them (no variable: its key would hold sizes the fixed point changes), where no field is
+  // by-name or a function, nor any type argument holds one (which the ν completion reads of a
+  // variable alone); one reached again so is refused (`Equations.variable`).
+  private def inPlace(c: ClassSymbol, arguments: List[Held], env: Env): Boolean =
+    arguments.exists(_.refs.nonEmpty) && !env.visiting(c) && World.strict(c) &&
+      !c.typeParams.flatMap(env.written.get).exists((tpe, _) => World.deferred(tpe))
 
   // While a value row reads a class of the module, what it stores is no evidence that an instance
   // is ever built (register D30: a throw builds nothing): one whose construction, an ancestor's of
@@ -659,7 +651,7 @@ final private[compiled] class Stored(world: World)(using Context) {
   // ---- recursion ----------------------------------------------------------------------------
 
   // A reading that reaches a class it is inside of is read again as a system of equations, one per
-  // class of the module it names (`variable`), and solved as a least fixed point
+  // class of the module it names (`Equations.variable`), and solved as a least fixed point
   // (`Fixpoint`; docs/site/arithmetic/counting-data.md §8): least, widened to its tier where a cycle keeps
   // growing, and completed coinductively through the fields a constructor does not demand. A cycle
   // through a function's domain has no count, nor has one a lazy field leaves incomplete, one whose
@@ -684,7 +676,7 @@ final private[compiled] class Stored(world: World)(using Context) {
     for {
       root <- reading(at(Values()))
       found <- discover(env, root)
-      keys = Stored.ordered(found.keys)
+      keys = ordered(found.keys)
       reaches = Fixpoint.reaches(found.view.mapValues(_.refs).toMap)
       _ <- keys
         .collectFirst {
@@ -718,17 +710,6 @@ final private[compiled] class Stored(world: World)(using Context) {
 
   private type Found = Either[String, Map[Instance, Held]]
 
-  // A class of the module inside a system: its value in `values`, a variable of the equation.
-  private def variable(c: ClassSymbol, arguments: List[Held])(
-      values: Values
-  ): Either[String, Held] =
-    if (arguments.exists(_.refs.nonEmpty))
-      Left(s"a class a system reads through a type argument: ${c.displayFullName}")
-    else {
-      val key = Instance(c, arguments)
-      Right(Held(values.value(key), refs = Set(key)))
-    }
-
   // A class's equation, read as the system's reading (`like`) is: for a value row (`isValue`) or a
   // definition's, for an observer or not.
   private def equation(like: Env)(values: Values)(k: Instance): Either[String, Held] =
@@ -738,28 +719,21 @@ final private[compiled] class Stored(world: World)(using Context) {
       Env(Map.empty, k.cls, isValue = like.isValue, observer = like.observer, system = Some(values))
     )
 
-  // A reading inside a system after `discovered` has read every equation over empty values: what a
-  // reading may refuse does not depend on the values, and `system` reads every equation again
-  // over the solved ones, so a refusal cannot first appear here.
-  private def settled[A, B](read: Either[String, A], none: B)(f: A => B): B =
-    read.fold(_ => none, f)
-
   // The classes a system reads from `k` on, each with its equation read over empty values. A class
   // read with ever new type arguments (`N[A](n: Option[N[(A, A)]])`) would not end: one read with
-  // more argument lists than `Stored.Instantiations` is refused, whatever order meets them.
+  // more argument lists than `Equations.Instantiations` is refused, whatever order meets them.
   // The classes a system reads from what `root` reads.
   private def discover(like: Env, root: Held): Found =
-    Stored
-      .ordered(root.refs)
+    ordered(root.refs)
       .foldLeft(Right(Map.empty): Found)((acc, k) => acc.flatMap(discovered(like)(k, _)))
 
   private def discovered(like: Env)(k: Instance, found: Map[Instance, Held]): Found =
     if (found.contains(k)) Right(found)
-    else if (found.keys.count(_.cls == k.cls) >= Stored.Instantiations)
+    else if (found.keys.count(_.cls == k.cls) >= Equations.Instantiations)
       Left(s"a class a system reads with ever new type arguments: ${k.cls.displayFullName}")
     else
       equation(like)(Values())(k).flatMap { held =>
-        Stored.ordered(held.refs).foldLeft(Right(found.updated(k, held)): Found) { (acc, next) =>
+        ordered(held.refs).foldLeft(Right(found.updated(k, held)): Found) { (acc, next) =>
           acc.flatMap(discovered(like)(next, _))
         }
       }
@@ -881,8 +855,8 @@ private[compiled] object Stored {
       size: Size,
       reasons: List[Unbound] = Nil,
       undecided: Boolean = false,
-      refs: Set[Instance] = Set.empty,
-      domains: Set[Instance] = Set.empty
+      refs: Set[Equations.Instance] = Set.empty,
+      domains: Set[Equations.Instance] = Set.empty
   ) {
     def map(f: Size => Size): Held = copy(size = f(size))
 
@@ -916,33 +890,9 @@ private[compiled] object Stored {
       isValue: Boolean = false,
       input: Boolean = false,
       observer: Option[Symbol] = None,
-      system: Option[Values] = None,
+      system: Option[Equations.Values] = None,
       written: Map[Symbol, (Type, Env)] = Map.empty
   )
-
-  // A class of the module with its type parameters bound: a definition of a system.
-  final private[compiled] case class Instance(cls: ClassSymbol, arguments: List[Held])
-
-  // A system's values so far, and the classes the fixed point left blocked.
-  final private case class Values(
-      sizes: Map[Instance, Size] = Map.empty,
-      blocked: Map[Instance, Blocked] = Map.empty
-  )
-
-  private given Store[Instance, Values] with {
-
-    extension (values: Values) {
-      def value(name: Instance): Size = values.sizes.getOrElse(name, NothingSize)
-
-      def withValues(more: Iterable[(Instance, Size)]): Values =
-        values.copy(sizes = values.sizes ++ more)
-
-      def withBlocked(more: Iterable[(Instance, Blocked)]): Values =
-        values.copy(blocked = values.blocked ++ more)
-
-    }
-
-  }
 
   // A reading that reaches a class it is inside of, which `solved` reads again as a system: no
   // other refusal may start with these words.
@@ -951,13 +901,6 @@ private[compiled] object Stored {
     def apply(c: ClassSymbol): String = words + c.displayFullName
     def unapply(why: String): Boolean = why.startsWith(words)
   }
-
-  // How many argument lists a system reads one class with: past them it would not end.
-  private val Instantiations = 8
-
-  // A system's classes in an order that does not depend on the run.
-  private def ordered(keys: Iterable[Instance]): List[Instance] =
-    keys.toList.sortBy(k => (k.cls.displayFullName, k.arguments.toString))
 
   // Whether an alias's body, under its parameters, is a match type.
   private def matches(body: Type): Boolean = body match {

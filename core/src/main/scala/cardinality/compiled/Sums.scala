@@ -5,7 +5,7 @@ import cardinality.types.Traversals
 import tastyquery.Contexts.{defn, Context}
 import tastyquery.Modifiers.{Variance, Visibility}
 import tastyquery.Symbols.*
-import tastyquery.Trees.{ClassDef, DefDef, TypeTree, ValDef}
+import tastyquery.Trees.{ClassDef, DefDef, TermTree, Tree, TypeTree, ValDef}
 import tastyquery.Types.*
 
 /** Enums and sealed families as the method side reads them (v1.md §2): the sum of their cases, each
@@ -148,33 +148,47 @@ final private[compiled] class Sums(world: World, shapes: Shapes)(using Context) 
           instantiated(value)
         case cls: ClassSymbol =>
           Shapes.tree(cls).flatMap { below =>
-            val constructor = below.rhs.constr
-            val name = cls.displayFullName
-            val accessors = below.rhs.body.collect {
-              case v: ValDef if v.symbol.isParamAccessor => v.symbol
-            }
-            val extended = world.extended(cls)
-            if (extended && !cls.isCaseClass)
-              Left(Refused(s"sealed subtype outside the closed fragment: ${cls.name}"))
-            else if (extended) Left(Uncovered(s"a sealed case class that is extended: $name"))
-            // An enum's case is read by the enum's rule, which has no such refusal.
-            else if (constructor.paramLists.count(_.isLeft) != 1 && cls.isEnum)
-              Left(Uncovered(s"an enum case with several parameter clauses: $name"))
-            else if (constructor.paramLists.count(_.isLeft) != 1)
-              Left(Refused(s"sealed subtype shape unreadable: ${cls.name}"))
-            // Rule B: a constructor the site may call (`private[p]` inside `p`) builds every value.
-            else if (!World.callable(constructor.symbol, env.site))
-              Left(Uncovered(s"a restricted constructor: $name"))
-            // The compiler gives a plain class's parameter without `val` an accessor private to
-            // the instance. It is no member: values that differ only there may be one value.
-            else if (accessors.exists(_.visibility == Visibility.PrivateThis))
-              Left(Refused(s"${Sums.Hides}${cls.name}"))
-            // A field the site may not select, or may select on `this` alone (`protected[this]`).
-            else if (!accessors.forall(World.selectable(_, env.site)))
-              Left(Uncovered(s"a restricted field: $name"))
-            else instantiated(cls).flatMap(shapes.fields(below, _, passed(cls)))
+            shapeRefusal(cls, below)
+              .orElse(accessRefusal(cls, below))
+              .toLeft(())
+              .flatMap(_ => instantiated(cls).flatMap(shapes.fields(below, _, passed(cls))))
           }
       }
+
+    // Why a class case's shape is not read: a class something extends, or several parameter
+    // clauses.
+    private def shapeRefusal(cls: ClassSymbol, below: ClassDef): Option[Unread] = {
+      val clauses = below.rhs.constr.paramLists.count(_.isLeft)
+      val name = cls.displayFullName
+      val extended = world.extended(cls)
+      if (extended && !cls.isCaseClass)
+        Some(Refused(s"sealed subtype outside the closed fragment: ${cls.name}"))
+      else if (extended) Some(Uncovered(s"a sealed case class that is extended: $name"))
+      // An enum's case is read by the enum's rule, which has no such refusal.
+      else if (clauses != 1 && cls.isEnum)
+        Some(Uncovered(s"an enum case with several parameter clauses: $name"))
+      else Option.when(clauses != 1)(Refused(s"sealed subtype shape unreadable: ${cls.name}"))
+    }
+
+    // Why the site may not build or observe every value of a class case.
+    private def accessRefusal(cls: ClassSymbol, below: ClassDef): Option[Unread] = {
+      val name = cls.displayFullName
+      val accessors = below.rhs.body.collect {
+        case v: ValDef if v.symbol.isParamAccessor => v.symbol
+      }
+      // Rule B: a constructor the site may call (`private[p]` inside `p`) builds every value.
+      if (!World.callable(below.rhs.constr.symbol, env.site))
+        Some(Uncovered(s"a restricted constructor: $name"))
+      // The compiler gives a plain class's parameter without `val` an accessor private to
+      // the instance. It is no member: values that differ only there may be one value.
+      else if (accessors.exists(_.visibility == Visibility.PrivateThis))
+        Some(Refused(s"${Sums.Hides}${cls.name}"))
+      // A field the site may not select, or may select on `this` alone (`protected[this]`).
+      else
+        Option.when(!accessors.forall(World.selectable(_, env.site)))(
+          Uncovered(s"a restricted field: $name")
+        )
+    }
 
     // The arguments this level was named with, carried to a subtype's own type parameters as its
     // parent clause passes them (`Shapes.Env.written`).
@@ -238,6 +252,45 @@ private[compiled] object Sums {
     (companion ++ values.flatMap(_.tree.toList.flatMap(World.classes))).distinct
   }
 
+  /** A family's subtypes as its own level counts them (`Stored`): a case under one of its sealed
+    * levels is that level's (a sealed trait that extends a sealed class makes its cases the class's
+    * too).
+    */
+  def ownCases(parent: ClassSymbol)(using Context): List[ClassSymbol | TermSymbol] = {
+    val children = parent.sealedChildren
+    val levels = children.collect {
+      case c: ClassSymbol if c != parent && Shapes.isFamily(c) => c
+    }
+    children.filterNot { child =>
+      val cls = child match {
+        case c: ClassSymbol => Some(c)
+        case v: TermSymbol  => v.moduleClass
+      }
+      // One whose clause names this level itself beside the sublevel extends it twice.
+      cls.exists(c =>
+        levels.exists(level => level != c && c.isSubClass(level)) &&
+          !c.tree.exists(_.rhs.parents.exists(clauseNames(_, parent)))
+      )
+    }
+  }
+
+  // Whether a parent of a template is one somebody wrote (the compiler's own have no extent) that
+  // names `parent`.
+  private def clauseNames(clause: Tree, parent: ClassSymbol)(using Context): Boolean = {
+    val named = clause match {
+      case tree: TypeTree => Some(tree.toType)
+      case term: TermTree => Some(term.tpe).collect { case tpe: Type => tpe }
+      case _              => None
+    }
+    !clause.pos.isZeroExtent && named.flatMap(World.classNamed).contains(parent)
+  }
+
+  /** The cases a family counts, through its sealed levels. */
+  def leaves(parent: ClassSymbol)(using Context): List[Symbol] = ownCases(parent).flatMap {
+    case cls: ClassSymbol if cls != parent && Shapes.isFamily(cls) => leaves(cls)
+    case leaf                                                      => List(leaf)
+  }
+
   /** How a subtype stands for its parent applied to `arguments`, by its clause: what each of its
     * own type parameters stands for, the argument of the parent's slot that carries it.
     * `C[Y] extends P[a]` holds the values of `C[t]` in `P[t]`, for every `t`, where each of the
@@ -251,22 +304,9 @@ private[compiled] object Sums {
   def carried[A](child: ClassSymbol | TermSymbol, parent: ClassSymbol, arguments: List[A])(using
       Context
   ): Option[List[A]] = {
-    // The subtype's clause and its own type parameters: a class's parents; for an object or a
-    // value case, which has none, the object's parents, those of the anonymous class a value case
-    // with its own `extends` clause is an instance of, or the value case's declared type.
-    val (parents, parameters) = child match {
-      case cls: ClassSymbol  => cls.parents -> cls.typeParams
-      case value: TermSymbol =>
-        value.moduleClass
-          .orElse(value.tree.toList.flatMap(World.classes).map(_.symbol).headOption)
-          .fold(List[TypeOrMethodic](value.declaredType))(_.parents) -> Nil
-    }
+    val (parents, parameters) = clause(child)
     val passed = parents.collectFirst {
-      case tpe: Type if World.classNamed(tpe).contains(parent) =>
-        tpe.dealias match {
-          case applied: AppliedType => applied.args
-          case _                    => Nil
-        }
+      case tpe: Type if World.classNamed(tpe).contains(parent) => passedArguments(tpe)
     }
     val filled = passed.toList.flatten.zip(parent.typeParams).zipWithIndex
     // Each parameter with the slots that carry it.
@@ -275,27 +315,14 @@ private[compiled] object Sums {
         case ((argument, slot), index) if carries(argument, parameter) => slot -> index
       }
     }
-    // A bound the slot's own bound implies: the same type, or the parameter another slot carries
-    // where the slot is bounded by that slot's parameter (`D[A <: B, B] extends Q[A, B]`).
-    val slots = bound.collect {
-      case (parameter, List((slot, _))) => (parameter: Symbol) -> slot
-    }.toMap
-    def implied(mine: Type, theirs: Type): Boolean = (mine, theirs) match {
-      case (_: TypeLambda, _) | (_, _: TypeLambda)                                => false
-      case (ref: TypeRef, other: TypeRef) if ref.optSymbol.exists(slots.contains) =>
-        ref.optSymbol.flatMap(slots.get) == other.optSymbol
-      case _ =>
-        !World.mentions(mine, parameters.toSet) &&
-        !World.mentions(theirs, parent.typeParams.toSet) && mine.isSameType(theirs)
-    }
+    val slots = new Slots(
+      parameters,
+      parent,
+      bound.collect { case (parameter, List((slot, _))) => (parameter: Symbol) -> slot }.toMap
+    )
     val fits = bound.forall {
-      case (parameter, List((slot, _))) =>
-        implied(parameter.declaredBounds.low, slot.declaredBounds.low) &&
-        implied(parameter.declaredBounds.high, slot.declaredBounds.high) &&
-        (slot.declaredVariance == parameter.declaredVariance ||
-          parameter.declaredVariance == Variance.Invariant &&
-          keepsPolarity(child, parameter, slot.declaredVariance == Variance.Covariant))
-      case _ => false
+      case (parameter, List((slot, _))) => slots.fits(child, parameter, slot)
+      case _                            => false
     }
     val settled = filled.forall {
       case ((argument, slot), _) =>
@@ -304,6 +331,57 @@ private[compiled] object Sums {
     Option.when(passed.exists(_.sizeIs == parent.typeParams.size) && settled && fits)(
       bound.map((_, carriers) => arguments(carriers.head._2))
     )
+  }
+
+  private def passedArguments(tpe: Type)(using Context): List[TypeOrWildcard] = tpe.dealias match {
+    case applied: AppliedType => applied.args
+    case _                    => Nil
+  }
+
+  // The subtype's clause and its own type parameters: a class's parents; for an object or a
+  // value case, which has none, the object's parents, those of the anonymous class a value case
+  // with its own `extends` clause is an instance of, or the value case's declared type.
+  private def clause(child: ClassSymbol | TermSymbol)(using
+      Context
+  ): (List[TypeOrMethodic], List[ClassTypeParamSymbol]) = child match {
+    case cls: ClassSymbol  => cls.parents -> cls.typeParams
+    case value: TermSymbol =>
+      value.moduleClass
+        .orElse(value.tree.toList.flatMap(World.classes).map(_.symbol).headOption)
+        .fold(List[TypeOrMethodic](value.declaredType))(_.parents) -> Nil
+  }
+
+  // A subtype's own type parameters, its parent, and the one slot each parameter carried by
+  // exactly one slot is passed to.
+  final private class Slots(
+      parameters: List[ClassTypeParamSymbol],
+      parent: ClassSymbol,
+      slots: Map[Symbol, ClassTypeParamSymbol]
+  )(using Context) {
+
+    // Whether a parameter passed to `slot` admits what the slot admits, with its variance.
+    def fits(
+        child: ClassSymbol | TermSymbol,
+        parameter: ClassTypeParamSymbol,
+        slot: ClassTypeParamSymbol
+    ): Boolean =
+      implied(parameter.declaredBounds.low, slot.declaredBounds.low) &&
+        implied(parameter.declaredBounds.high, slot.declaredBounds.high) &&
+        (slot.declaredVariance == parameter.declaredVariance ||
+          parameter.declaredVariance == Variance.Invariant &&
+          keepsPolarity(child, parameter, slot.declaredVariance == Variance.Covariant))
+
+    // A bound the slot's own bound implies: the same type, or the parameter another slot carries
+    // where the slot is bounded by that slot's parameter (`D[A <: B, B] extends Q[A, B]`).
+    private def implied(mine: Type, theirs: Type): Boolean = (mine, theirs) match {
+      case (_: TypeLambda, _) | (_, _: TypeLambda)                                => false
+      case (ref: TypeRef, other: TypeRef) if ref.optSymbol.exists(slots.contains) =>
+        ref.optSymbol.flatMap(slots.get) == other.optSymbol
+      case _ =>
+        !World.mentions(mine, parameters.toSet) &&
+        !World.mentions(theirs, parent.typeParams.toSet) && mine.isSameType(theirs)
+    }
+
   }
 
   // Whether an invariant parameter passed to a variant slot adds no values there. `C[S] extends
