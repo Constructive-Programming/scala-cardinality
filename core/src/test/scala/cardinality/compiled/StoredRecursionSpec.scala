@@ -15,6 +15,9 @@ class StoredRecursionSpec extends Specification {
     a function's result inside a field defers the cycle      $nestedLazyCycles
     a name held strictly and lazily in one field is refused  $uncompleted
     an empty arm or factor holds no edge                      $emptyParts
+    a sum's arm or a field outside its cycle at its ν value   $lazyArms
+    a parent held in a cycle holds its children outside it    $heldParents
+    an arm's holes decide what a lap holds                    $holes
     a constructor position takes the estimate's size          $positions
     a recursive position over hidden parameters, by rule B   $hiddenPositions
     a recursion with no count is refused                      $refusals
@@ -69,6 +72,78 @@ class StoredRecursionSpec extends Specification {
       |sealed trait Tp
       |final case class Ta1(t: () => Tp) extends Tp
       |final case class Tb1(b: Boolean, a: Ta1) extends Tp
+      |sealed trait Pt
+      |final class Pa(t: => Pt) extends Pt
+      |final class Pb(h: Boolean, t: => Pb) extends Pt
+      |sealed trait Qt
+      |final class Qa(t: => Qt) extends Qt
+      |final class Qb(h: Boolean, t: => Qt) extends Qt
+      |sealed trait Ut
+      |sealed trait Ui extends Ut
+      |final class Ua(t: => Ut) extends Ut
+      |final class Ub(h: Boolean, t: => Ub) extends Ui
+      |sealed trait Mt
+      |final class Ma(t: => Mt) extends Mt
+      |final class Mb(h: Boolean, t: => Mb) extends Mt
+      |final case class Mc(b: Boolean) extends Mt
+      |final class Ra(t: => Ra, c: Rc)
+      |final case class Rc(b: Rb)
+      |final class Rb(h: Boolean, t: => Rb)
+      |sealed trait Bq
+      |final class Bq1(h: Boolean, t: => Bq1) extends Bq
+      |final class Bq2(t: => Bq2, b: Bq) extends Bq
+      |sealed trait Bo
+      |final case class Bo1(s: String) extends Bo
+      |final class Bo2(t: => Bo2, b: Bo) extends Bo
+      |final class Rx(t: => Rx, c: Rp)
+      |sealed trait Rp
+      |final case class Rp1(s: String) extends Rp
+      |final case class Rp2(r: Rx) extends Rp
+      |sealed trait Np
+      |sealed trait Nq extends Np
+      |final case class Nqo(s: String) extends Nq
+      |final class Nc(t: => Nc, p: Np) extends Nq
+      |sealed trait Op
+      |final case class Op1(s: String) extends Op
+      |final case class Op2(h: Oh) extends Op
+      |final class Oh(t: => Oh, o: Option[Op])
+      |sealed trait Up
+      |final case class Up1(s: String) extends Up
+      |final case class Up2(h: Uh) extends Up
+      |final class Uh(t: => Uh, u: => Up)
+      |sealed trait Fp
+      |final case class Fp1(s: String) extends Fp
+      |final case class Fp2(h: Fh) extends Fp
+      |final class Fh(t: => Fh, f: Boolean => Fp)
+      |enum En { case A(s: String); case B(t: () => En, e: En) }
+      |enum Em { case A; case B(t: () => Em, e: Em) }
+      |sealed trait Cq
+      |final case class Cq1(s: String) extends Cq
+      |final case class Sh(c: Cq) extends Cq
+      |final class Lh(t: => Cq) extends Cq
+      |final class Tt(l: => Tt, r: => Tt)
+      |final class Nf(f: Int => Nf)
+      |final class Rbt(b: Boolean, l: => Rbt, r: => Rbt)
+      |sealed trait Bqi
+      |final class Bqs(h: Boolean, t: => Bqs) extends Bqi
+      |final class Bi(t: => Bi, x: Int, b: Bqi) extends Bqi
+      |sealed trait Gp
+      |final case class Go(s: String) extends Gp
+      |final class Gl(t: => Gr) extends Gp
+      |final case class Gr(x: Int, p: Gp)
+      |final case class Nd(v: Int, next: Option[() => Nd])
+      |final case class Ck(p: (Int, () => Ck))
+      |sealed trait Ci
+      |final case class Ci1(i: Int) extends Ci
+      |final case class Si(n: Int, c: Ci) extends Ci
+      |final class Li(t: => Ci) extends Ci
+      |final class Eb(t: => Eb, e: Either[Long => Boolean, Eb])
+      |final class Sl(t: => Sl, e: Either[Set[Long], Sl])
+      |final case class Ed(e: Either[Long => Boolean, (() => Ed, () => Ed)])
+      |final class Ek7(t: => Ek7, e: Either[Int, (Boolean, Option[Ek7])])
+      |final class Ek8(t: => Ek8, e: Either[Int, Option[Ek8]])
+      |final class Sa(t: => Sb)
+      |final case class Sb(s: String, x: Set[Sa])
       |final case class Kx(kids: List[Kx], f: () => Kx)
       |final case class Ks(p: (Ks, () => Ks))
       |final case class Za(h: Boolean, f: () => Za, g: () => Zb)
@@ -157,19 +232,21 @@ class StoredRecursionSpec extends Specification {
   // A by-name field does not demand its value: `Lz` has no finite value (μ is 0) and the one lazy
   // knot `lazy val l: Lz = Lz(l)`, νX.X = 1. `Bits` is an endless Boolean stream: the per-lap label
   // space 2 raised to ω, ω. `Fn` has no finite value (F = F^2 from 0 stays 0), and its function
-  // field branches on two inputs: the completion saturates at ω. `Rose` is R = 1 + R, ω, and its
-  // strict `Option` branches too: ω.
+  // field holds no label: two holes are no choice, νX.X^2 = 1 (it read ω, a wrong number: every
+  // `Fn` is the one knot `lazy val f: Fn = Fn(_ => f)`). `Rose` is R = 1 + R, ω, and its strict
+  // `Option` is one hole: the one endless tower beside the finite ones, ω.
   private def lazyCycles =
-    List("Lz", "Bits", "Fn", "Rose").map(definition) must_== List("1", "ω", "ω", "ω")
+    List("Lz", "Bits", "Fn", "Rose").map(definition) must_== List("1", "ω", "1", "ω")
 
   // A field holding the cycle only under a function's result, at any depth, defers it too; each
-  // lap reads the field with the cycle as one value (the label space) and as two (linear in it, one
-  // hole, or a branch). `Ltd` holds (Boolean, () => Ltd): 2 per lap, one hole, 2^ω = ω (it read 0:
-  // a wrong number, in both front ends). `Lu` (Unit, () => Lu): 1 per lap, the one knot, 1. `Lw`
-  // has two holes: binary trees, ω. `Lo` holds Boolean and Option[() => Lo] (1 + X: not linear, a
-  // branch), ω. `Lby` is () => (Boolean, Lby): 2 per lap, ω. `Lcf` a context function's result,
-  // ω. `Lsd` branches over String inputs with 2 labels per lap: finite labels, ω (a finite base
-  // over an infinite domain stays countable); so does `Fd` over `Int => Boolean` inputs. `Lst` a list of thunks: per lap List[Unit] = ω arities, ε₀. `Out(p: In)` and
+  // lap reads the field with the cycle as one value (the label space). `Ltd` holds (Boolean, () =>
+  // Ltd): 2 per lap, one hole, 2^ω = ω (it read 0: a wrong number, in both front ends). `Lu` (Unit,
+  // () => Lu): 1 per lap, the one knot, 1. `Lw` has two holes and no label: the one knot, 1 (it
+  // read ω as binary trees, which have no labels to tell apart). `Lo` holds Boolean and Option[()
+  // => Lo]: 2 × 2 per lap, ω. `Lby` is () => (Boolean, Lby): 2 per lap, ω. `Lcf` a context function's result
+  // over two inputs: one continues, the other holds any `Lcf` (ω of them), ε₀. `Lsd` over String
+  // inputs and `Fd` over `Int => Boolean` ones likewise, ε₀ (the three read ω before the owner's
+  // ruling that a hole off the path is a label, §8). `Lst` a list of thunks: per lap List[Unit] = ω arities, ε₀. `Out(p: In)` and
   // `In(b, f: () => Out)` cycle through a strict field and a lazy one: 1 × 2 per lap, ω each. `Ta1`'s
   // thunk returns a `Tp`, `Ta1` or `Tb1(b, Ta1)`: the parent's two children branch, ω each, `Tp`
   // too. `Kx` cycles strictly through its list beside its thunk: `Kx(Nil, () => k)` ties it, ω
@@ -195,7 +272,7 @@ class StoredRecursionSpec extends Specification {
       "K9"
     )
       .map(definition) must_==
-      List("ω", "1", "ω", "ω", "ω", "ω", "ω", "ω", "ε₀", "ω", "ω", "ω", "ω", "ω", "ε₀", "0")
+      List("ω", "1", "1", "ω", "ω", "ε₀", "ε₀", "ε₀", "ε₀", "ω", "ω", "ω", "ω", "ω", "ε₀", "0")
 
   // An arm with no value continues nothing: `Zb.Never` holds a `Nothing`, so `Za` is the endless
   // stream of its Boolean, 2^ω = ω (the empty arm in the cycle read 0). A name under an empty factor
@@ -203,6 +280,110 @@ class StoredRecursionSpec extends Specification {
   // `Ib` inside it read as a label: ε₀).
   private def emptyParts =
     List("Za", "Ia", "Ib").map(definition) must_== List("ω", "ω", "ω")
+
+  // A sum's arm outside its cycle that holds only lazy values has μ 0 and its ν value beside it.
+  // `Pb` is an endless Boolean stream, 2^ω = ω, and `Pt` holds every `Pb`: with `Pb` at ω, Pt = Pa +
+  // ω and Pa = Pt is ω, so `Pt` and `Pa` are ω (they read 1: the one `Pa` tower, a wrong number).
+  // `Qb` continues the parent's own cycle: two children branch, ω each. `Ub` sits under a nested
+  // sum `Ui` outside the cycle: Ui = Ub = ω, Ut = Ua + Ui = ω (`Ut`, `Ua` read 1). `Mc` is a strict
+  // child beside the lazy `Mb`: Mt = Ma + Mb + 2 = ω whichever way. `Ra` holds `Rc`, a definition
+  // outside its cycle over the stream `Rb`: Rc = ω, so `Ra` is a stream of ω labels, ω^ω = ε₀ (it
+  // read 0: `Rc` at its μ value emptied the lap).
+  private def lazyArms = expect(
+    "Pt" -> "ω",
+    "Pa" -> "ω",
+    "Pb" -> "ω",
+    "Qt" -> "ω",
+    "Qa" -> "ω",
+    "Qb" -> "ω",
+    "Ut" -> "ω",
+    "Ui" -> "ω",
+    "Ua" -> "ω",
+    "Ub" -> "ω",
+    "Mt" -> "ω",
+    "Ma" -> "ω",
+    "Mb" -> "ω",
+    "Mc" -> "2",
+    "Ra" -> "ε₀",
+    "Rc" -> "ω",
+    "Rb" -> "ω"
+  )
+
+  // A field that holds a sealed parent of its cycle strictly holds, each lap, either a child in the
+  // cycle or one outside it. `Bq2(t: => Bq2, b: Bq)`: `b` is a `Bq1` (an endless Boolean stream, ω)
+  // or a `Bq2`, so `Bq2` is a stream of ω labels that branches, ε₀, and `Bq` holds it, ε₀ (both read
+  // ω: the parent read as one value per lap). `Bo2` likewise over `Bo1(s: String)`, ε₀. `Rx(t: =>
+  // Rx, c: Rp)` with `Rp` = `Rp1(s: String)` | `Rp2(Rx)`: ε₀, and `Rp`, `Rp2` hold it, ε₀.
+  private def heldParents = expect(
+    "Bq" -> "ε₀",
+    "Bq1" -> "ω",
+    "Bq2" -> "ε₀",
+    "Bo" -> "ε₀",
+    "Bo1" -> "ω",
+    "Bo2" -> "ε₀",
+    "Rx" -> "ε₀",
+    "Rp" -> "ε₀",
+    "Rp1" -> "ω",
+    "Rp2" -> "ε₀"
+  )
+
+  // An arm with two holes continues through one and holds any value of its node in the others,
+  // the cycle's own included (owner's ruling, §8): a label like any other. `Nc(t: => Nc, p: Np)`:
+  // `p` is any `Np` (an `Nqo(s: String)` under the sealed `Nq`, or an `Nc`), ω labels or more per
+  // lap, ε₀, and so are `Np`, `Nq` (they read ω). `Oh`, `Uh`, `Fh` hold their cycle's parent in a
+  // strict `Option`, a by-name field and a function field beside their own tail: any `Op` per lap,
+  // ε₀ (they read ω). `En.B(t, e: En)` and `Em.B(t, e: Em)`: `e` is any `En` (`Em`), ω of them, ε₀
+  // (they read ω). `Rbt(b, l, r)`: `r` is any `Rbt`, of which there are ω (Boolean-labelled), so ε₀.
+  // `Bi(t: => Bi, x: Int, b: Bqi)`: `b` beside the tail is a second hole, any `Bqi`, ε₀. A capacity
+  // label leaves the degree readable (the fields' width grows once per hole): `Gr(x: Int, p: Gp)`
+  // with `Gp` = `Go(s: String)` | `Gl(t: => Gr)` holds `p` once, 2^32 labels per lap, ω; `Nd(v:
+  // Int, next: Option[() => Nd])` and `Ck(p: (Int, () => Ck))` one hole each, ω; `Ci` is `Cq` with
+  // `Int` labels, ω each. A wide constant beside the cycle does not hide a second hole: `Eb(t: =>
+  // Eb, e: Either[Long => Boolean, Eb])` and `Sl` over `Set[Long]` hold any `Eb` (`Sl`) beside the
+  // tail, ε₀; `Ed(e: Either[Long => Boolean, (() => Ed, () => Ed)])` two holes, any `Ed` off the
+  // path, ε₀. Nor does it hide that a field holds the cycle: `Ek8(t: => Ek8, e: Either[Int,
+  // Option[Ek8]])` and `Ek7` (with a Boolean beside the `Option`) hold any of themselves beside the
+  // tail, ε₀ (they read ω: the sum's width hid `e`'s name). `Sb(s: String, x: Set[Sa])` beside
+  // `Sa(t: => Sb)`: a String label and a set of any `Sa` per lap, ε₀. A one-hole
+  // arm keeps one value per lap: `Sh(c: Cq)` ends the unfolding when `c` is a `Cq1`, so `Cq` is
+  // Lh/Sh words, ω, not ε₀. Holes alone are no choice: `Tt(l: => Tt, r: => Tt)` and `Nf(f: Int =>
+  // Nf)` are the one knot each, νX.X·X = 1 (they read ω).
+  private def holes = expect(
+    "Np" -> "ε₀",
+    "Nq" -> "ε₀",
+    "Nqo" -> "ω",
+    "Nc" -> "ε₀",
+    "Op" -> "ε₀",
+    "Oh" -> "ε₀",
+    "Uh" -> "ε₀",
+    "Fh" -> "ε₀",
+    "En" -> "ε₀",
+    "Em" -> "ε₀",
+    "Cq" -> "ω",
+    "Sh" -> "ω",
+    "Lh" -> "ω",
+    "Tt" -> "1",
+    "Nf" -> "1",
+    "Rbt" -> "ε₀",
+    "Bqi" -> "ε₀",
+    "Bi" -> "ε₀",
+    "Gr" -> "ω",
+    "Nd" -> "ω",
+    "Ck" -> "ω",
+    "Ci" -> "ω",
+    "Si" -> "ω",
+    "Li" -> "ω",
+    "Eb" -> "ε₀",
+    "Sl" -> "ε₀",
+    "Ed" -> "ε₀",
+    "Ek7" -> "ε₀",
+    "Ek8" -> "ε₀",
+    "Sa" -> "ε₀",
+    "Sb" -> "ε₀"
+  )
+
+  private def expect(expected: (String, String)*) =
+    expected.map((name, _) => name -> definition(name)) must_== expected
 
   // `Op.Q` holds an opaque alias of a thunk of itself, read inside its scope (rule F): an endless
   // Boolean stream, ω, which the completion does not take apart; it read 0 (`Q` demanded strictly).
@@ -228,17 +409,18 @@ class StoredRecursionSpec extends Specification {
   // its observed fields only. `Ha(h: Boolean, b: => Hb)`: `Hb` shows nothing, one value, 2 × 1 = 2;
   // `Hb(x: Int, a: => Ha)` 2^32 × 1 (the estimate's capacity). `Hn(h: Boolean, next: => Hz)`: `Hz`'s
   // one subtype `Hn` shows nothing, 2 × 1. `Ho(e: => He)`: `He` is `Ho` (1) or the case class
-  // `Ht(i: Int => He)`, whose `i` is a field: He = 1 + He^(2^32), countably many, ω; `Ht`'s
-  // position `Int => He` is ω. `Hw(v: Hv)` reaches no class again: the method side's refusal stands.
-  // A class with no value has none whatever the constructor observes: `Hk` holds a `Nothing`, so
-  // `Hm`'s position is empty, 0, and so is `Hk`'s (no `Hm` without a `Hk`); `Hc` and `Hd` need each
-  // other strictly, no value, 0 each. A part beside the cycle the method side refuses keeps the
-  // refusal in either order: `Shut` is never built, so `Shut#In` is refused in `Hp` and `Hp2`, and
-  // in `Hq` and `Hq2`, which reach them.
+  // `Ht(i: Int => He)`, whose `i` is a field: finitely He = 1 + He^(2^32), ω, and endlessly each
+  // `Ht` lap continues through one input while the others hold any `He`, ω labels, ε₀ (owner's
+  // ruling, §8; it read ω); `Ht`'s position `Int => He` is ε₀. `Hw(v: Hv)` reaches no class again:
+  // the method side's refusal stands. A class with no value has none whatever the constructor
+  // observes: `Hk` holds a `Nothing`, so `Hm`'s position is empty, 0, and so is `Hk`'s (no `Hm`
+  // without a `Hk`); `Hc` and `Hd` need each other strictly, no value, 0 each. A part beside the
+  // cycle the method side refuses keeps the refusal in either order: `Shut` is never built, so
+  // `Shut#In` is refused in `Hp` and `Hp2`, and in `Hq` and `Hq2`, which reach them.
   private def hiddenPositions =
     List("Ha", "Hb", "Hn", "Ho", "Ht", "Hw", "Hm", "Hk", "Hc", "Hd", "Hp", "Hp2").map(
       constructor
-    ) must_== List("2", "≤2^32", "2", "ω", "ω", "?", "0", "0", "0", "0", "?", "?")
+    ) must_== List("2", "≤2^32", "2", "ε₀", "ε₀", "?", "0", "0", "0", "0", "?", "?")
 
   // `Neg` reaches itself through a function's domain, where the numeric equation is no count
   // (Cantor). `GS[A]` continues through `=> GS[A]`, a class named with arguments: a field the

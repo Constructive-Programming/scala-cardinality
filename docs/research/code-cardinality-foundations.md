@@ -132,6 +132,16 @@ equations are read as least fixed points. A declaration may not supply its own i
   measured is excluded from its own supplied slots — but it is the same discipline: circular
   "definitions" do not create inhabitants.
 
+**Lazy recursion (stored side, type-arithmetic.md §8; owner's ruling).** A cycle through a lazy
+position is the greatest fixed point, counted as its per-lap label space raised to ω under the
+finite-program reading (D2). The label space is what a lap may choose: an arm's fields, which of
+several continuing arms or children. Holes alone choose nothing (`νX.X·X` = 1, the one knot). An
+arm with one hole ends the unfolding where it takes a value outside the cycle; an arm with two
+holes or more continues through one and holds, in the others, any value of their node — the
+cycle's own type included — which is a label like any other (`Rb(b: Boolean, l: => Rb, r: => Rb)`:
+`r` ranges over ω values each lap, `ε₀`). An arm's holes are read from how its fields' width grows with the cycle's, once per
+hole.
+
 **Boundary.** Least-fixed-point semantics justifies *reading* a recursive type; it does not
 justify assuming a program terminates. Divergence is excluded by model assumption, not proven
 away, and any recursive signature our fragment cannot decide stays `?`.

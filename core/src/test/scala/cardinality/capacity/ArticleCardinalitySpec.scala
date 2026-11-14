@@ -225,10 +225,10 @@ class ArticleCardinalitySpec extends Specification {
     ) === EffectiveEpsilon0} (finite lists + infinite streams, collapsed to the ε₀ tier)
     a function field also unfolds the cycle  ${src(
       "sealed trait E; final class One(e: => E) extends E; case class Two(i: Int => E) extends E"
-    ) === EffectiveOmega + EffectiveOmega} (νX.(X + (Int → X)), §4 finite-program reading)
+    ) === EffectiveEpsilon0 + EffectiveEpsilon0} (νX.(X + (Int → X)): a Two lap holds any E at the inputs off the path, ω labels, §8)
     a self-referring label still unfolds     ${src(
       "final class M3(m: => M3, o: Option[M3])"
-    ) === EffectiveOmega} (the Option arms Some(tower) beside the hole)
+    ) === EffectiveEpsilon0} (o holds None or any M3 beside the tail, ω labels per lap, §8)
     recursion without a seed                 ${target(
       tpe("[A] => (A => A) => A"),
       NothingSize,
