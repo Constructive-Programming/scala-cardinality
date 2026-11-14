@@ -297,7 +297,7 @@ class TypeMemberScopeSpec extends Specification {
       type Fst[T] = T match { case (f, s) => f }
       def ev[T, U](x: Fst[T], e: T =:= U): Fst[U] = ???
     """)("ev") === refusal(
-      "stuck match types on Scopes$package$.ev[T] meet type evidence that mentions it"
+      "stuck match types on ev[T] meet type evidence that mentions it"
     )
 
   // `bar` is Foo's own member, selected without reflection: the refinement's constraint is what is

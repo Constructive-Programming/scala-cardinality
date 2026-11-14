@@ -329,7 +329,7 @@ not read` and refuses more, never differently. Choose the dependencies with
 `sbt "cardinalityReportOf <path>..."` runs the same report over a library the build does not
 compile itself: its binary jar, which carries its TASTy, read against the project's dependency
 classpath, beside its `-sources.jar`, which names and places the rows. Either jar alone is
-refused. That is how a dependency's types get measured from outside its build:
+refused, with one error at the jar that names the missing one. That is how a dependency's types get measured from outside its build:
 
 ```bash
 # eo-core, the `core` module of the sister project `eo`, as published

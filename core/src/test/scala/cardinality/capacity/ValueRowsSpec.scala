@@ -68,7 +68,7 @@ class ValueRowsSpec extends Specification {
       .and(found(("vr.h", Value)) === s"unresolved[$unheld: Foo]")
       .and(
         found(("vr.vint", Value)) ===
-          "unresolved[value not decided: scala.&[scala.Int, scala.Predef.String]]"
+          "unresolved[value not decided: Int & String]"
       )
       .and(
         found(("vb.p", Value)) ===
@@ -76,7 +76,7 @@ class ValueRowsSpec extends Specification {
       )
       .and(
         found(("vb.i", Value)) ===
-          "unresolved[value not decided: vr.a$package.I]"
+          "unresolved[value not decided: vr.I]"
       )
       .and(
         found(("vb.p2", Value)) ===

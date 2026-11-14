@@ -47,15 +47,11 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
       an extension on its own type parameter may answer anything     ${Pending.knownLoss(
       binderExtension
     )}
-      a member an argument's or a subclass's class may override      ${Pending.knownLoss(
-      overriddenMembers
-    )}
+      a member an argument's or a subclass's class may override      $overriddenMembers
       implicit search through extensions, context functions, eta     ${Pending.knownLoss(
       searchForms
     )}
-      a type test on an array reads its element type                 ${Pending.knownLoss(
-      arrayTests
-    )}
+      a type test on an array reads its element type                 $arrayTests
     Code the compiler may insert around the body
       an unsupplied wildcard the compiler took nothing from          $channels
       an inline conversion refuses only the bodies it is applied in  $inlineConversion
@@ -703,7 +699,7 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
       .and(
         refused(
           anonymous("Use.s"),
-          "calls inline method given_Conversion_Int_String, which uses scala.compiletime.codeOf"
+          "calls inline method <given@1>, which uses scala.compiletime.codeOf"
         )
       )
   }

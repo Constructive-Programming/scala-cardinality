@@ -374,7 +374,7 @@ class TypeMemberSpec extends Specification {
           "def pick[T](x: Fst[T], y: Fst[T], z: Fst3[T]): Fst[T] = ???",
         "pick"
       ),
-      "stuck match types on Members$package$.pick[T] have no common reducing instantiation: arities 2, 3"
+      "stuck match types on pick[T] have no common reducing instantiation: arities 2, 3"
     )
 
   // K[A] = Option[A] for every A: None, Some(x), Some(y) — 3.

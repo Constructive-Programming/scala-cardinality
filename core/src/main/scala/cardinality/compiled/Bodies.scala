@@ -91,7 +91,7 @@ private[compiled] object Bodies {
   }
 
   // Whether a term reads a parameter's default (as the argument a parent's clause leaves out) whose
-  // body always throws: the default is evaluated where it is passed (the old `Builds.omitted`).
+  // body always throws: the default is evaluated where it is passed (a throw supplies nothing).
   private def defaulted(term: TermTree)(using Context): Boolean = term match {
     case Apply(fun, _)     => defaulted(fun)
     case TypeApply(fun, _) => defaulted(fun)

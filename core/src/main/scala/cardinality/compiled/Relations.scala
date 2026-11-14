@@ -16,12 +16,12 @@ final private[compiled] class Relations(world: World, of: Relations.Read)(using 
   import Shapes.Env
   import Unread.Refused
 
-  // A union read as the tagged sum of its alternatives, where one exists, as the old front end
-  // reads it (`UnionSums`). Type equalities first, by the compiler's subtyping: an alternative
-  // below another is that one (one class spelled twice, `Null` below a reference type), and a
-  // top-like one (`AnyRef`, `Matchable` are `Any`) takes them all. `Nothing` and `Null` are empty
-  // (null-free model). What remains is a sum where its values are told apart: distinct constants,
-  // or alternatives of runtime classes no instance has two of (the closed world,
+  // A union read as the tagged sum of its alternatives, where one exists (sums,
+  // counting-type-inhabitants.md). Type equalities first, by the compiler's subtyping: an
+  // alternative below another is that one (one class spelled twice, `Null` below a reference type),
+  // and a top-like one (`AnyRef`, `Matchable` are `Any`) takes them all. `Nothing` and `Null` are
+  // empty (null-free model). What remains is a sum where its values are told apart: distinct
+  // constants, or alternatives of runtime classes no instance has two of (the closed world,
   // `ClosedProgram.mixes`; a primitive is its box).
   def union(written: List[Type], env: Env): Either[Unread, Shape] = {
     val kept = maximal(written.map(t => if (top(t)) defn.AnyType else t))(
@@ -47,12 +47,13 @@ final private[compiled] class Relations(world: World, of: Relations.Read)(using 
     }
   }
 
-  // An intersection, as the old front end reads it (`SingletonIntersections.intersection`): the
-  // narrowest parts are kept (`Relations.narrowest`); `Singleton` keeps only a singleton or the
-  // empty type; distinct static objects or enum value cases share no value. Classes are met in the
-  // closed world (`World.meet`): the sum of the classes whose instances are of every part, none
-  // where two parts share no instance. Any other meet is refused. Each part kept is read first, so
-  // that what a part needs is the row's reason, as there.
+  // An intersection, read as the meet of its parts: the narrowest parts are kept
+  // (`Relations.narrowest`, by the compiler's subtyping: `T & Any` is `T`, `x.type & A` is
+  // `x.type` for an `x: A`); `Singleton` keeps only a singleton or the empty type; distinct static
+  // objects or enum value cases share no value. Classes are met in the closed world (`World.meet`):
+  // the sum of the classes whose instances are of every part, none where two parts share no
+  // instance. Any other meet is refused. Each part kept is read first, so that what a part needs is
+  // the row's reason.
   def intersection(written: List[Type], env: Env): Either[Unread, Shape] = {
     val (marked, parts) = written.partition(World.classNamed(_).contains(defn.SingletonClass))
     val narrowest = Relations.narrowest(parts)
@@ -85,8 +86,8 @@ final private[compiled] class Relations(world: World, of: Relations.Read)(using 
   // A member that varies across instances (abstract, or overridden by a class of the program),
   // own or inherited, of the measured definition's name and arity, where one instance may be of
   // the record's class and of the class the definition is a member of: on such a value it may
-  // be the definition itself, whose calls re-enter it (the old front end's `selfView`,
-  // capabilities C6), which the model does not split: refused, as there. A value built before
+  // be the definition itself, whose calls re-enter it (a self view, capabilities C6), which
+  // the model does not split: refused. A value built before
   // the receiver (`preceding`) is never it. A constructor row and a local definition measure no
   // member.
   def clash(c: ClassSymbol, env: Env): Boolean = (env.site, env.site.owner) match {

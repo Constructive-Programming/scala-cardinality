@@ -14,10 +14,10 @@ final private[compiled] class Evidence(world: World)(using Context) {
 
   // An anonymous contextual parameter (of `evidence`) is found by implicit search alone. A body is
   // counted, not searched, and what one declares tells nothing of the others; what encloses its
-  // method is shallower and loses (`ContextualScope` of the old front end). So its competitors are
-  // the contextual parameters at its method or deeper (`competitors`) and the binders the measured
-  // definition's context-function result puts around every body (`wrapping`, None where they are
-  // not read), each of which must be told apart from it (`apart`).
+  // method is shallower and loses (implicit search prefers the nearer scope). So its competitors
+  // are the contextual parameters at its method or deeper (`competitors`) and the binders the
+  // measured definition's context-function result puts around every body (`wrapping`, None where
+  // they are not read), each of which must be told apart from it (`apart`).
   def searched(
       evidence: List[ValDef],
       competitors: List[ValDef],
@@ -60,14 +60,14 @@ final private[compiled] class Evidence(world: World)(using Context) {
 
   // Whether search tells each anonymous parameter apart from every other contextual candidate it
   // competes with: one of its very type at its own site makes it ambiguous (refused); each other
-  // one must be of a different class, read by its declaration or final (the old reading knows only
-  // those classes' bases) and not `Null`, neither class extending the other; or of its class over
+  // one must be of a different class, read by its declaration or final (any other class is not
+  // read yet) and not `Null`, neither class extending the other; or of its class over
   // distinct rigid parameters (`unrelated`); or one is an unbounded rigid type parameter and the
   // other a distinct one or a class type neither top nor bottom (only those relate to every such
-  // parameter in a body; the old `ContextualEvidence.unrelated` over atoms). A context function
+  // parameter in a body: distinct atoms are unrelated). A context function
   // also answers searches for its result: not told apart. A binder is declared by no site, so it
-  // is never ambiguous. Otherwise it is not read yet. A refusal of the model is reported first, as
-  // the old front end reports every one.
+  // is never ambiguous. Otherwise it is not read yet. A refusal of the model is reported first,
+  // ahead of any verdict not read yet.
   private def apart(
       evidence: List[ValDef],
       parameters: List[ValDef],
@@ -108,7 +108,7 @@ final private[compiled] class Evidence(world: World)(using Context) {
   // Whether a class's body leaves its constructor's contextual parameters alone in a search from
   // inside it, as a member reads its receiver's (a constructor's own row searches no body):
   // written without parents or a self type, importing nothing and declaring nothing contextual but
-  // its parameters (the old `ContextualScope` reads the template's candidates).
+  // its parameters (the template's candidates are what search finds there).
   private def quiet(owner: ClassSymbol): Boolean =
     owner.tree.exists { cls =>
       Shapes.parentless(cls) && World.ownSelf(owner) && cls.rhs.body.forall {
@@ -121,8 +121,8 @@ final private[compiled] class Evidence(world: World)(using Context) {
 
   // The receivers whose anonymous contextual parameters (a context bound's evidence) search from
   // the measured definition finds: each such parameter competes with every contextual parameter at
-  // its class or deeper, those of the classes inside it and the definition's own (`deeper`), as the
-  // old `ContextualScope` places them (a shallower one loses), and every template from its class
+  // its class or deeper, those of the classes inside it and the definition's own (`deeper`), by
+  // implicit search's scoping (a shallower one loses), and every template from its class
   // down to the definition, objects included, is `quiet`. Any other receiver is left to
   // `Readings.plainInputs`, which leaves the row uncovered.
   def receiverSearch(
@@ -175,8 +175,8 @@ private object Evidence {
 
   /** Whether two applications of one class are never subtypes of each other in a body: their
     * arguments are unbounded type parameters held rigid there (a method's, or the class's own
-    * through `this`), distinct at some place, whatever the variance (`[A: Show, B: Show]`; the old
-    * `ContextualEvidence.unrelated`, distinct atoms).
+    * through `this`), distinct at some place, whatever the variance (`[A: Show, B: Show]`: distinct
+    * parametric atoms).
     */
   private def unrelated(left: Type, right: Type)(using Context): Boolean = {
     def parameters(tpe: Type) = tpe.dealias match {

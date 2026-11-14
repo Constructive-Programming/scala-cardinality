@@ -68,7 +68,7 @@ class MethodUnionNullabilitySpec extends Specification {
     ).count must beLike {
       case Count.Unresolved(reasons) =>
         reasons.exists(
-          _.contains("overlap and discrimination proof: .P | .Q")
+          _.contains("overlap and discrimination proof: P | Q")
         ) must
           beTrue
     }

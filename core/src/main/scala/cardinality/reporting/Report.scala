@@ -134,14 +134,9 @@ object Report {
   final case class Error(path: String, message: String)
 
   /** One stored-value row as the report reads it: the size cell — `?` for a row with reasons, `—`
-    * for a definition with no size of its own — and the summary class the row counts under.
+    * for a definition with no size of its own.
     */
-  final case class DefinitionRow(
-      source: String,
-      definition: Definition,
-      size: String,
-      sizeClass: String
-  )
+  final case class DefinitionRow(source: String, definition: Definition, size: String)
 
   object DefinitionRow {
 
@@ -149,8 +144,7 @@ object Report {
       DefinitionRow(
         source,
         definition,
-        if (unresolved(definition)) "?" else definition.size.fold("—")(_.render),
-        SizeClass(definition).label
+        if (definition.unbound.nonEmpty) "?" else definition.size.fold("—")(_.render)
       )
 
   }
@@ -177,9 +171,14 @@ object Report {
     // The front end answers each source in order; a path that could not be read stands where it
     // was listed.
     val answers = rows.sources.iterator
+    // No compiled classes of the sources' own at all: a sources jar's are missing, not some.
+    val unclassed = binaries.isEmpty && environment.classes.forall(_.output.isEmpty)
     val answered = found.flatMap {
-      case (_, Left(error))    => List(Left(error))
-      case (_, Right(sources)) => sources.map(_ => answers.next())
+      case (_, Left(error))       => List(Left(error))
+      case (path, Right(sources)) =>
+        val mine = sources.map(_ => answers.next())
+        if (unclassed && Locations.jar(path) && !Files.isDirectory(path)) unbuilt(path, mine)
+        else mine
     }
     // The rows of a binary jar are named and placed by its sources, which a sources jar holds.
     val unsourced = Option.when(binaries.nonEmpty && sources.isEmpty)(
@@ -194,6 +193,23 @@ object Report {
       Locations.placed(found.map((path, read) => path -> read.fold(_ => Nil, _.map(_._1)))),
       rows.warnings
     )
+  }
+
+  // A sources jar given with no compiled classes but the classpath: one error, the hint, not one
+  // per source.
+  private def unbuilt(
+      path: Path,
+      answers: List[Either[Error, Source]]
+  ): List[Either[Error, Source]] = {
+    val (uncompiled, rest) = answers.partition(_.left.exists(_.message == TastyFrontEnd.Uncompiled))
+    if (uncompiled.isEmpty) answers
+    else
+      rest :+ Left(
+        Error(
+          path.toString,
+          "no compiled classes for its sources: give the library's binary jar beside its sources jar"
+        )
+      )
   }
 
   // For a jar of compiled classes (TASTy or class files), whether it holds sources too; nothing for
@@ -271,14 +287,6 @@ object Report {
 
   private def plural(count: Int, noun: String): String =
     s"$count $noun${if (count == 1) "" else "s"}"
-
-  // A row is a question when something in its types is outside the calculator's vocabulary, when
-  // its own parameters are what the size depends on, or when an open abstraction unbounds it. A
-  // countable or ε₀-tier size is not a question by itself: since the solver learned to count
-  // recursive and lazy types, `ω` is the answer for a definition like
-  // `case class St(head: Boolean, tail: => St)`, and an opaque row reads its representation where
-  // it is defined — the kind says the representation is hidden to everyone else.
-  private def unresolved(definition: Definition): Boolean = definition.unbound.nonEmpty
 
   private val entryReasons =
     lens[MethodAnalysis.Entry](_.count)
@@ -377,7 +385,7 @@ object Report {
   // sizes from the largest down — ε₀, then ω, then finite capacities and exact counts — and the
   // definitions with no cardinality of their own — abstract types — last. Names break ties.
   private def order(definition: Definition): (Int, BigInt, BigInt, Int, BigInt, String) =
-    if (unresolved(definition)) (0, BigInt(0), BigInt(0), 0, BigInt(0), definition.name)
+    if (definition.unbound.nonEmpty) (0, BigInt(0), BigInt(0), 0, BigInt(0), definition.name)
     else
       definition.size match {
         case Some(size) =>

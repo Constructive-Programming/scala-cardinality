@@ -149,12 +149,12 @@ class BinderBoundsSpec extends Specification {
     """)
     def recursive(name: String, binders: String) =
       refused(counts, s"R.$name", s"recursive bound not read: $binders")
-    recursive("fbound", "R$.fbound[A]")
-      .and(recursive("toBool", "R$.toBool[A]"))
-      .and(recursive("toInt", "R$.toInt[A]"))
-      .and(recursive("mutual", "R$.mutual[A], R$.mutual[B]"))
-      .and(recursive("option", "R$.option[A]"))
-      .and(recursive("chain", "R$.chain[A], R$.chain[B]"))
+    recursive("fbound", "R.fbound[A]")
+      .and(recursive("toBool", "R.toBool[A]"))
+      .and(recursive("toInt", "R.toInt[A]"))
+      .and(recursive("mutual", "R.mutual[A], R.mutual[B]"))
+      .and(recursive("option", "R.option[A]"))
+      .and(recursive("chain", "R.chain[A], R.chain[B]"))
   }
 
   def evidenceRecursion =

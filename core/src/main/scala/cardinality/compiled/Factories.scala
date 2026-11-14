@@ -7,9 +7,8 @@ import tastyquery.Symbols.*
 import tastyquery.Traversers.TreeTraverser
 import tastyquery.Trees.*
 
-/** Rule B for a final class no constructor callable from the site builds (v1.md §2, register D42),
-  * as the scalameta front end reads it: its value is one of what the site may call to build one,
-  * over the fields the site observes.
+/** Rule B for a final class no constructor callable from the site builds (v1.md §2, register D42):
+  * its value is one of what the site may call to build one, over the fields the site observes.
   *
   *   - A builder is a secondary constructor callable from the site, or a factory: a method or a
   *     single `val` of a template of the module callable there (no method's local definition),

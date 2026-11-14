@@ -58,3 +58,12 @@ checkTasty := {
   assert(text.contains("? optics.Composed[A] class optics/Optic.scala:5 depends on its instantiation (A)"))
   assert(text.contains("1 optics.Id object optics/Optic.scala:4"))
 }
+
+// The sources jar alone: one hint at the jar, not one error per source.
+val checkSourcesAlone = taskKey[Unit]("Check the hint a sources jar given alone gets.")
+checkSourcesAlone := {
+  val text = IO.read(cardinalityReportFile.value)
+  val hint = "give the library's binary jar beside its sources jar"
+  assert(text.split(java.util.regex.Pattern.quote(hint), -1).length == 2, text)
+  assert(!text.contains("no compiled classes for this source"), text)
+}

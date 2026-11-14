@@ -57,8 +57,8 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
   private val paths = new PathTypes(of)
 
   /** The shape of `tpe` read from `env`'s site, its type parameters bound as `env` says. */
-  // A value `preceding` is the one a class written as the whole type names (the old front end
-  // anchors it at that type): what it is read through or holds is not.
+  // A value `preceding` (built before the measured declaration, capabilities C6a) is the one a
+  // class written as the whole type names: what it is read through or holds is not.
   def of(tpe: Type, env: Env): Either[Unread, Shape] = {
     val parts = env.copy(preceding = false)
     PathTypes.follow(tpe) match {
@@ -130,7 +130,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
         }
     }
 
-  // A literal type's one value, named as the old front end names it (`LiteralTypes`); a floating
+  // A literal type's one value, named by `LiteralTypes` (the report's spelling); a floating
   // zero is read too, since the compiled constant keeps its sign.
   private def literal(constant: ConstantType): Either[Unread, String] =
     LiteralTypes.identity(constant.value.value).toRight(Uncovered(s"a type: ${constant.showBasic}"))
@@ -138,10 +138,10 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
   // A written `p.type` has the one value p (v1.md §2): its goal is terminal. A method's parameter
   // is that value of its declared type, under the identity its binding has (`Readings`). A static
   // object read by its declaration is one value only where it is written without a parent and
-  // declares types alone, as the old front end reads it (the compiler's own members and parents
-  // aside). Any other static path (an object or value of the standard library, an enum's value
-  // case) is a value of its own name. A constructor's `val`, a local value and a path through an
-  // instance are not read yet.
+  // declares types alone, so nothing it holds tells it apart (the compiler's own members and
+  // parents aside). Any other static path (an object or value of the standard library, an enum's
+  // value case) is a value of its own name. A constructor's `val`, a local value and a path through
+  // an instance are not read yet.
   private def singleton(path: TermRef, env: Env): Either[Unread, Shape] =
     path.optSymbol match {
       case Some(term: TermSymbol) if term.owner.isTerm =>
@@ -466,7 +466,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
   // of its fields, each one the site observes as itself (`exposed`), from which every member
   // computes; where it may not, it is one of what the site may call to build one (`Factories`). A
   // template whose construction always throws, or a class written `final abstract`, has no value
-  // at all: the empty sum, as the old front end reads a record. A member that may be the measured
+  // at all: the empty sum (register D26: no value is built). A member that may be the measured
   // definition on another receiver is refused (`Relations.clash`). Left for later steps, each
   // named: a sealed class, a self type narrower than the class, a field
   // the site does not observe as itself, a restricted constructor of a class something may extend,
@@ -504,7 +504,8 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
             s"capability record member may be the measured declaration on its receiver: $name.${env.site.name}"
           )
         )
-        // The old front end refuses a concrete case class open to extension: not read yet.
+        // A concrete case class open to extension (closed world: a supplied subclass): not read
+        // yet.
         _ <- refused(
           c.isCaseClass && !c.isAbstractClass && !fixed,
           "of a case class something extends"
@@ -547,10 +548,9 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
 
   /** What a member a subclass supplies gives a body that holds the instance (`where` names that
     * instance in a reason): a value of its type, or one function from all of a method's parameters
-    * to its result; an abstract given with a `using` clause is such a method (the old front end
-    * read it as a value of its result type: a listed correction). A one-valued result (`Unit`, an
-    * opaque type outside its scope) supplies nothing, whatever its inputs: every body builds it
-    * without the member.
+    * to its result; an abstract given with a `using` clause is such a method (not a value of its
+    * result type). A one-valued result (`Unit`, an opaque type outside its scope) supplies nothing,
+    * whatever its inputs: every body builds it without the member.
     */
   def member(member: ValOrDefDef, where: String, env: Env): Either[Unread, Option[Shape]] = {
     val symbol = member.symbol
@@ -581,7 +581,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
       // it from any other body, to which it supplies nothing. But the instance exists only where
       // some class implements it: a type built from nothing (its atoms rigid) constrains nothing;
       // any other may empty the environment (`inline def neg: A => Nothing` beside an `a: A`),
-      // which is not decided (the old `DeferredInline`).
+      // which is not decided.
       case _ if symbol.isInline && !inlineSite =>
         read.flatMap { shape =>
           Either.cond(
@@ -672,8 +672,8 @@ private[compiled] object Shapes {
     * where any invariant type constructor does (`F[_]`, `F[_[_]]`), applied as an uninterpreted
     * head over its arguments' identities (`key`). A proper parameter with bounds is an atom too,
     * its bounds being proofs beside it (`Bounds`). A constructor with a bound, or with a variance
-    * on a parameter of its own, is refused, as the old front end refuses it (`Kinds.refusal` of
-    * `types`; its view bound is no Scala 3); one declared variant itself is not read yet.
+    * on a parameter of its own, is refused (hkt: a bound or a variance constrains which
+    * constructors instantiate it); one declared variant itself is not read yet.
     */
   def binder(owner: Symbol, parameter: TypeParamSymbol, copies: List[Symbol] = Nil)(using
       Context
@@ -698,7 +698,7 @@ private[compiled] object Shapes {
 
   // Bounds that say nothing: `Nothing` below and `Any` above, or for a constructor a type lambda
   // over parameters whose bounds say nothing in turn. Read from the bounds, not from what is
-  // written: `F[_] <: Any`, which the old front end refused, says nothing.
+  // written: `F[_] <: Any` says nothing.
   private def plain(bounds: TypeBounds)(using Context): Boolean = {
     def top(tpe: Type): Boolean = tpe match {
       case lambda: TypeLambda => lambda.paramTypeBounds.forall(plain) && top(lambda.resultType)
@@ -851,8 +851,8 @@ private[compiled] object Shapes {
     copies.zip(c.typeParams).flatMap((copy, parameter) => held.get(parameter).map(copy -> _))
 
   /** The component a match type's single case projects, as (arity, 1-based index): a pattern
-    * `TupleN` over distinct binders of the case, whose result is one of them (the TASTy counterpart
-    * of the old `MethodProjections.projection`; `Tuple1` is no tuple syntax there).
+    * `TupleN` over distinct binders of the case, whose result is one of them (a projection: one
+    * implementation, the component itself; `Tuple1` is not taken, only arity 2 and above).
     */
   private def projection(cases: List[MatchTypeCase])(using Context): Option[(Int, Int)] =
     cases match {

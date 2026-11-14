@@ -321,7 +321,7 @@ class InferredResultsSpec extends Specification with InventoryFixtures {
   def transparentInline =
     refused(
       count("object Tn { transparent inline def t = true }", "Tn.t"),
-      "transparent inline result: the call site observes the expansion's type, not the declared scala.Boolean"
+      "transparent inline result: the call site observes the expansion's type, not the declared Boolean"
     )
 
 }

@@ -320,7 +320,7 @@ class StdlibModelSpec extends Specification {
       .map(name =>
         refused(
           count(code, name),
-          "Array of an abstract element type is not read: scala.Array (building one needs " +
+          "Array of an abstract element type is not read: Array (building one needs " +
             "ClassTag evidence, and the reading has no polarity)"
         )
       )
@@ -499,7 +499,7 @@ class StdlibModelSpec extends Specification {
     (count(code, "O.boxed").render === "2^(2^32)")
       .and(count(code, "O.keyed") === Count.Finite(0))
       .and(count(code, "O.opt") === Count.Finite(27))
-      .and(refused(count(code, "O.eq"), "open stdlib type with unmodelled members: scala.Equals"))
+      .and(refused(count(code, "O.eq"), "open stdlib type with unmodelled members: Equals"))
   }
 
   // An unapplied entry in a higher-kinded position is an operator (D14), applied in its own scope:

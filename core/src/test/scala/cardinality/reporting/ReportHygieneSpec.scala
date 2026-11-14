@@ -24,14 +24,14 @@ class ReportHygieneSpec extends Specification with AfterAll {
       so is one behind aliases of aliases                   $nestedAliases
       a source name shaped like a placeholder is its own    $placeholderName
       so is one that only starts like a placeholder         $placeholderPrefix
-      a literal type reads as written in rows and reasons   ${Pending.oldBehavior(literalRows)}
+      a literal type reads as written in rows and reasons   $literalRows
       a refinement reads one way however it is laid out     ${Pending.oldBehavior(
       refinementLayouts
     )}
       an operator name stays apart from its result's colon  ${Pending.oldBehavior(operatorNames)}
       a signature drops its layout and trailing comma       $signatureLayout
-      curried clauses read one way however laid out         ${Pending.oldBehavior(curriedClauses)}
-      a braceless match type result reads as valid Scala    ${Pending.oldBehavior(bracelessResult)}
+      curried clauses read one way however laid out         $curriedClauses
+      a braceless match type result reads as valid Scala    $bracelessResult
       a literal shaped like a placeholder is the literal    $placeholderLiteral
       every reason spells a refinement as the row does      ${Pending.knownLoss(refinedReasons)}
       so does one whose result is inferred                  $inferredResult
@@ -152,8 +152,8 @@ class ReportHygieneSpec extends Specification with AfterAll {
     (found.map(_.signature) === List("f(x: \"a  b\" & Int): Int", "f(x: \"a b\" & Int): Int"))
       .and(
         found.map(reasons) === List(
-          List("unsupported intersection relationship: \"a  b\" & Int"),
-          List("unsupported intersection relationship: \"a b\" & Int")
+          List("an intersection with a part that is no class: \"a  b\" & Int"),
+          List("an intersection with a part that is no class: \"a b\" & Int")
         )
       )
   }

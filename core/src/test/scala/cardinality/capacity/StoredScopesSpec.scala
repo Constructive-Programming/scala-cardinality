@@ -1,6 +1,5 @@
 package cardinality.capacity
 
-import cardinality.Pending
 import cardinality.analysis.inhabitation.Inhabitation.Count
 import org.specs2.Specification
 import org.specs2.execute.Result
@@ -21,9 +20,7 @@ class StoredScopesSpec extends Specification {
     An explicit enum companion holds the enum's cases
       a wildcard, a selector, a path and a bare name bind the case     $enumCompanion
       a singleton case is a term only, a plain object no enum          $enumTerms
-      constructor slots lent to the method side refuse alike          ${Pending.knownLoss(
-      enumLending
-    )}
+      constructor slots lent to the method side refuse alike          $enumLending
       case parameters read in the companion, the body imports cases    $enumCases
 
     A package holds what its package object and exports pass on
@@ -56,9 +53,9 @@ class StoredScopesSpec extends Specification {
     count must beLike { case Count.Unresolved(rs) => rs.exists(_.contains(reason)) must beTrue }
 
   // `object E` beside `enum E` holds `E.A`: under `import E.*`, an explicit selector, a qualified
-  // path, and bare inside `object E`, `A` is the case class — not another file's `type A = Unit`
-  // (1) — and the case class is not read as a type of its own, so each row is refused (the TASTy
-  // front end names the case `A`). The sealed `S` sums `L(a: A)`, refused too. `E.X` stays the
+  // path, and bare inside `object E`, `A` is the case class — not another file's `type A = Unit` (1)
+  // — and the case class is not read as a type of its own, so each row is refused (the reason names
+  // the case by its path, `en.E.A`). The sealed `S` sums `L(a: A)`, refused too. `E.X` stays the
   // companion's own alias (2).
   def enumCompanion = {
     val found = rowsOf(
@@ -79,7 +76,7 @@ class StoredScopesSpec extends Specification {
            |""".stripMargin,
       "en/b.scala" -> "package en\ntype A = Unit"
     )
-    val refusal = "enum case type not read: A"
+    val refusal = "enum case type not read: en.E.A"
     refusedWith(found(("en.Sel.U1", Class)), refusal)
       .and(refusedWith(found(("en.Qual.U2", Class)), refusal))
       .and(refusedWith(found(("en.Wild.U3", Class)), refusal))
@@ -112,7 +109,7 @@ class StoredScopesSpec extends Specification {
     )
     (found(("g.UseG.Ug", Class)) === "2")
       .and(found(("g.UseC.P", Class)) === "≤2^17")
-      .and(refusedWith(found(("g.UseH.Uh", Class)), "enum case type not read: Boolean"))
+      .and(refusedWith(found(("g.UseH.Uh", Class)), "enum case type not read: g.H.Boolean"))
   }
 
   // The method side reads a constructor's slots through the estimate: refused there, the slot has
@@ -154,15 +151,15 @@ class StoredScopesSpec extends Specification {
       "ec/b.scala" -> "package ec\ntype A = Unit\ntype T = Unit"
     )
     val found = rowsOf(files*)
-    val refusal = "enum case type not read: A"
+    val refusal = "enum case type not read: ec.E.A"
     refusedWith(found(("ec.E", Enum)), refusal)
-      .and(refusedWith(found(("ec.E2", Enum)), refusal))
+      .and(refusedWith(found(("ec.E2", Enum)), "enum case type not read: ec.E2.A"))
       .and(refusedWith(found(("ec.Use", Class)), refusal))
       .and(refusedWith(found(("ec.E#W", Alias)), refusal))
       .and(refusedWith(found(("ec.E#In", Class)), refusal))
       .and(found(("ec.G", Enum)) === "3")
       .and(found(("ec.HI", Alias)) === "≤2^33")
-      .and(refusedCount(constructor("ec.E.C.<init>", files*), "enum case type not read: ec.E$.A"))
+      .and(refusedCount(constructor("ec.E.C.<init>", files*), "enum case type not read: ec.E.A"))
   }
 
   private val base = "basep/Base.scala" -> "package basep\ntrait Base { type Boolean = Int }"

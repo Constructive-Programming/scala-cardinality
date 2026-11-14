@@ -13,8 +13,8 @@ private[compiled] object Capabilities {
   import Unread.Uncovered
 
   // A method capability: one function from its parameters to its result, which `result` and
-  // `inputs` read with its own type parameters bound, as the scalameta front end reads them
-  // (`PolymorphicMembers.close`); a one-valued result supplies nothing, whatever its inputs are.
+  // `inputs` read with its own type parameters bound, as `PolymorphicMembers.close`
+  // binds them; a one-valued result supplies nothing, whatever its inputs are.
   def method(method: TermSymbol, own: List[Symbol], env: Shapes.Env)(using
       Context
   )(
@@ -37,8 +37,8 @@ private[compiled] object Capabilities {
     Traversals.sequence(parameters.map { symbol =>
       val parameter = symbol.asInstanceOf[TypeParamSymbol]
       val (name, bounds) = (parameter.name.toString, parameter.declaredBounds)
-      // The old front end reads any constructor here as rigid (`MemberSyntax`): a bound or a
-      // variance it does not refuse is not read yet.
+      // Any constructor here is read as rigid: a bound or a variance the model does not refuse
+      // is not read yet.
       val read = Shapes.binder(method, parameter).left.map {
         case Unread.Refused(_) =>
           Uncovered(s"a type parameter of another kind than an invariant F[_]: $name")

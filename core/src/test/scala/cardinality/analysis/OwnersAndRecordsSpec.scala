@@ -474,7 +474,8 @@ class OwnersAndRecordsSpec extends Specification {
       .and(
         refused(
           found("V.f"),
-          "inline method: calls inline method VO.g, which uses scala.compiletime.codeOf"
+          "inline method: selects g on this, which a call site may type as a subclass of V that " +
+            "overrides g inline, and inline method VO.g uses scala.compiletime.codeOf"
         )
       )
   }

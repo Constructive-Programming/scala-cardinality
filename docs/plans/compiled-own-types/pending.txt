@@ -1,9 +1,6 @@
 (a) pins old behavior | NamespaceScopingSpec | an object's abstract type member stays open
-(a) pins old behavior | ReportHygieneSpec | a braceless match type result reads as valid Scala
-(a) pins old behavior | ReportHygieneSpec | a literal type reads as written in rows and reasons
 (a) pins old behavior | ReportHygieneSpec | a refinement reads one way however it is laid out
 (a) pins old behavior | ReportHygieneSpec | an operator name stays apart from its result's colon
-(a) pins old behavior | ReportHygieneSpec | curried clauses read one way however laid out
 (c) known loss | AliasOverrideIdentitySpec | does not capture a caller binder in an alias body
 (c) known loss | AliasOverrideIdentitySpec | guards imported names in the alias declaration scope
 (c) known loss | ArticleCardinalitySpec | C cannot be manufactured
@@ -66,7 +63,6 @@
 (c) known loss | EnvironmentCompletenessSpec | an object with a parent outside the sources refuses the name
 (c) known loss | EnvironmentSoundnessSpec | keep a capture a final implementation reads past a shadow
 (c) known loss | EnvironmentSoundnessSpec | read a parent that is an inherited member class
-(c) known loss | EnvironmentSoundnessSpec | read an extension's clauses at its method's level
 (c) known loss | EnvironmentSoundnessSpec | refuse a name an unsupplied parent may declare
 (c) known loss | EnvironmentSoundnessSpec | refuse a parent reached with two instantiations
 (c) known loss | EnvironmentSoundnessSpec | refuse a self type this reading does not enumerate
@@ -83,7 +79,6 @@
 (c) known loss | GroundEnvironmentSpec | a member reading the receiver is refused
 (c) known loss | GroundEnvironmentSpec | a self type's members shadow the builtin
 (c) known loss | GroundEnvironmentSpec | a singleton beside a value takes the estimate's reading
-(c) known loss | GroundEnvironmentSpec | an enum's cases shadow it after a wildcard import
 (c) known loss | GroundTypesSpec | an export binds a ground name; a given import binds none
 (c) known loss | HigherKindedBindingSpec | a bounded binder's evidence is not provably unrelated
 (c) known loss | HigherKindedBindingSpec | a foreign callee reports only itself
@@ -103,10 +98,8 @@
 (c) known loss | InferredResultsSpec | an instance of a class outside the sources is read as written
 (c) known loss | InlineMethodsSpec | a conversion is read by its type, wherever it may be found
 (c) known loss | InlineMethodsSpec | a cycle of inline calls is decided as one
-(c) known loss | InlineMethodsSpec | a member an argument's or a subclass's class may override
 (c) known loss | InlineMethodsSpec | a member that does not apply falls back to an extension
 (c) known loss | InlineMethodsSpec | a passing-looking method calling a failing one
-(c) known loss | InlineMethodsSpec | a type test on an array reads its element type
 (c) known loss | InlineMethodsSpec | an extension on its own type parameter may answer anything
 (c) known loss | InlineMethodsSpec | an inline parameter inspected by a callee
 (c) known loss | InlineMethodsSpec | implicit search through extensions, context functions, eta
@@ -119,7 +112,6 @@
 (c) known loss | InlineScopesSpec | a qualified this names its own template
 (c) known loss | InlineScopesSpec | classOf of an array of a type variable reifies the variable
 (c) known loss | InlineScopesSpec | library and Predef results applied again
-(c) known loss | InlineScopesSpec | only a template extending the receiver overrides its member
 (c) known loss | InlineScopesSpec | this in an anonymous class, a local class, a local given
 (c) known loss | KindedIdentitySpec | overloads that differ only in a binder's kind stay apart
 (c) known loss | MethodAnalysisSpec | bind a renamed import, not the name it leaves behind
@@ -221,7 +213,6 @@
 (c) known loss | StdlibModelSpec | dependency namespaces are listed from their artifacts
 (c) known loss | StdlibModelSpec | listed stdlib namespaces shadow no model name
 (c) known loss | StoredFactoriesSpec | no factory: no space
-(c) known loss | StoredScopesSpec | constructor slots lent to the method side refuse alike
 (c) known loss | StoredValueSoundnessSpec | a bottom pin is the standard library's Nothing
 (c) known loss | StoredValueSoundnessSpec | a bound reads alike only beside its parent
 (c) known loss | StoredValueSoundnessSpec | a case is passed over only when provably disjoint
@@ -244,7 +235,6 @@
 (c) known loss | SyntaxFeaturesSpec | a match type is stuck on a named tuple
 (c) known loss | SyntaxFeaturesSpec | a named tuple and its tuple share a runtime class
 (c) known loss | SyntaxFeaturesSpec | a whole-body binder hides outer evidence of its type
-(c) known loss | SyntaxFeaturesSpec | an inline method counts unless its expansion reads its call
 (c) known loss | SyntaxFeaturesSpec | local definitions read the enclosing method's binders
 (c) known loss | SyntaxFeaturesSpec | runtime type evidence reveals its type argument
 (c) known loss | TargetViewsSpec | `super.m` runs a parent's definition
@@ -290,8 +280,6 @@
 (c) known loss | TopTypesUnionSpec | one union alias applied twice to one runtime class
 (c) known loss | TopTypesUnionSpec | two alternatives of one runtime class
 (c) known loss | TransparentInlineSpec | a closed transparent result is still narrowed at the call site
-(c) known loss | TransparentInlineSpec | a declared top type hides what callers observe
-(c) known loss | TransparentInlineSpec | a narrower class, None, or a declared singleton
 (c) known loss | TransparentInlineSpec | a transparent result of an open class may be a subclass
 (c) known loss | TypeMemberBoundarySpec | a member scrutinee is spelled by its path
 (c) known loss | TypeMemberBoundarySpec | a nested class's fields are what a member builds

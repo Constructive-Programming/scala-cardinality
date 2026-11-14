@@ -324,7 +324,7 @@ class TypeMemberBoundarySpec extends Specification {
   def boundedScrutinee =
     refused(
       entries(projections + "def b1[T, U <: T](x: Fst[T], u: U): Fst[T] = ???")("b1"),
-      "stuck match types on Members$package$.b1[T] meet a bound that mentions it"
+      "stuck match types on b1[T] meet a bound that mentions it"
     )
 
   // `case Int` before `case _` needs a disjointness proof the reading does not have (MT2 reduces

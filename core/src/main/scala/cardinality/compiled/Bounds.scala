@@ -8,15 +8,14 @@ import tastyquery.Contexts.*
 import tastyquery.Symbols.*
 import tastyquery.Types.*
 
-/** The bounds of a proper type parameter or abstract type member, read from its symbol, as the old
-  * front end's `BinderBounds` reads them from syntax (hkt R5): a subtype bound is an ambient proof,
-  * never a value. `A <: U` is `A <:< U` and `A >: L` is `L <:< A`; `A <: Any` and `A >: Nothing`
-  * say nothing, and `AnyRef` (`Object`), `Matchable` or `AnyVal` above says nothing of the values.
-  * Only a bound that is another type parameter, a rigid application (an endpoint) or a closed type
-  * is a proof; a trait or class of the module is closed where its shape reads (a capability
-  * record's values are read through its members). A bound to a structural type that is none of them
-  * needs coercion analysis: the model's refusal, as before. As there, a bound is read only for a
-  * parameter the shapes mention, and for the parameters its bounds mention in turn.
+/** The bounds of a proper type parameter or abstract type member, read from its symbol (hkt R5): a
+  * subtype bound is an ambient proof, never a value. `A <: U` is `A <:< U` and `A >: L` is
+  * `L <:< A`; `A <: Any` and `A >: Nothing` say nothing, and `AnyRef` (`Object`), `Matchable` or
+  * `AnyVal` above says nothing of the values. Only a bound that is another type parameter, a rigid
+  * application (an endpoint) or a closed type is a proof; a trait or class of the module is closed
+  * where its shape reads (a capability record's values are read through its members). A bound to a
+  * structural type that is none of them needs coercion analysis: the model's refusal. A bound is
+  * read only for a parameter the shapes mention, and for the parameters its bounds mention in turn.
   *
   * A class bound (`Object`, `AnyVal`) admits no type unless every structural lower bound below it
   * is an instance of that class (`[A >: Flag <: AnyVal]`: Scala rejects every call, E057). Which

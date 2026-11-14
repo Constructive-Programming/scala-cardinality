@@ -14,9 +14,7 @@ class TransparentInlineSpec extends Specification {
 
   def is = s2"""
     A transparent result is what the expansion returns
-      a declared top type hides what callers observe                 ${Pending.knownLoss(
-      transparent
-    )}
+      a declared top type hides what callers observe                 $transparent
       a transparent result of an open class may be a subclass        ${Pending.knownLoss(
       transparentSubclass
     )}
@@ -24,9 +22,7 @@ class TransparentInlineSpec extends Specification {
       transparentClosed
     )}
       a transparent function result is refused too                   $transparentFunction
-      a narrower class, None, or a declared singleton                ${Pending.knownLoss(
-      transparentResults
-    )}
+      a narrower class, None, or a declared singleton                $transparentResults
     An inline method that is not transparent
       an inline parameter of a top type is read only by inline match $inlineTop
   """
@@ -110,12 +106,12 @@ class TransparentInlineSpec extends Specification {
     reasonContains(
       "import ext.Schema\ntransparent inline def tf(s: Schema): Int => Unit = _ => ()" + schema,
       "tf",
-      "not the declared scala.Function1[scala.Int, scala.Unit]"
+      "not the declared Function1[Int, Unit]"
     ).and(
       reasonContains(
         "import ext.Schema\ntransparent inline def t(s: Schema): Unit = ()" + schema,
         "t",
-        "not the declared scala.Unit"
+        "not the declared Unit"
       )
     )
 

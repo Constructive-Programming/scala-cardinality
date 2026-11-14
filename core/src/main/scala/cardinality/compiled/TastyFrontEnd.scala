@@ -23,6 +23,9 @@ private[cardinality] object TastyFrontEnd {
   /** How a row says that the compiled front end does not read it yet. */
   val Uncovered = "not read from compiled classes yet"
 
+  /** Why a source that defines something and has no compiled classes is not read. */
+  val Uncompiled = "no compiled classes for this source"
+
   def rows(module: FrontEnd.Module): FrontEnd.Rows =
     module.environment.classes match {
       case None          => refused(module.sources, "no compiled classes supplied")
@@ -112,8 +115,8 @@ private[cardinality] object TastyFrontEnd {
         // A source that defines nothing has no classes and no rows; one that defines something
         // and has no classes was not compiled.
         case Nil if Defining.findFirstIn(text).isEmpty => Right(Report.Source(path, Nil, Nil))
-        case Nil     => error("no compiled classes for this source")
-        case several =>
+        case Nil                                       => error(Uncompiled)
+        case several                                   =>
           error(s"compiled from more than one source: ${several.sorted.mkString(", ")}")
       }
     }
@@ -167,7 +170,9 @@ private[cardinality] object TastyFrontEnd {
               defined.kind,
               defined.params,
               row.toOption.flatMap(_.size),
-              row.fold(why => List(Definition.Unbound.Refusal(s"$Uncovered: $why")), _.unbound),
+              row
+                .fold(why => List(Definition.Unbound.Refusal(s"$Uncovered: $why")), _.unbound)
+                .map(spelled),
               defined.tree.pos.startLine + 1
             )
           },
@@ -179,12 +184,30 @@ private[cardinality] object TastyFrontEnd {
               source.signature(method.shown),
               method.shown.pos.startLine + 1,
               method.kind,
-              read.fold(why => Count.Unresolved(List(s"$Uncovered: $why")), _._1),
+              spelled(read.fold(why => Count.Unresolved(List(s"$Uncovered: $why")), _._1)),
               read.fold(_ => Nil, _._2)
             )
           }
         )
       )
+  }
+
+  // A reason names what it quotes as the source would (`Source.spelled`).
+  private def spelled(count: Count): Count = count match {
+    case Count.Unresolved(reasons) => Count.Unresolved(reasons.map(Source.spelled))
+    case other                     => other
+  }
+
+  private def spelled(unbound: Definition.Unbound): Definition.Unbound = {
+    import Definition.Unbound.*
+    unbound match {
+      case Member(name)  => Member(Source.spelled(name))
+      case Open(name)    => Open(Source.spelled(name))
+      case Unknown(name) => Unknown(Source.spelled(name))
+      case Syntax(what)  => Syntax(Source.spelled(what))
+      case Refusal(what) => Refusal(Source.spelled(what))
+      case other         => other
+    }
   }
 
 }

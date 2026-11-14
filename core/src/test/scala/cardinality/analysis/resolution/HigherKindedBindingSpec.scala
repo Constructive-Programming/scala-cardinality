@@ -528,10 +528,10 @@ class HigherKindedBindingSpec extends Specification {
     """)
     (counts("T.f") must beLike {
       case Count.Unresolved(reasons) =>
-        reasons must contain("ambiguous anonymous evidence: .Default[A]")
+        reasons must contain("ambiguous anonymous evidence: Default[A]")
     }).and(counts("FT2.twice") must beLike {
       case Count.Unresolved(reasons) =>
-        reasons must contain("ambiguous anonymous evidence: FT2.this.C[G]")
+        reasons must contain("ambiguous anonymous evidence: C[G]")
     })
   }
 

@@ -43,14 +43,14 @@ import tastyquery.Types.*
   *   - A type is read where it is written: a class's fields at the class, the body of an alias of
   *     an object or a package at the alias, an alias's arguments where they are. So an opaque type
   *     is its representation inside its scope and one value outside it (rule F), wherever the
-  *     reading started, as the old estimate reads it. (The method side follows aliases first and
+  *     reading started (docs/type-arithmetic.md). (The method side follows aliases first and
   *     decides at the use site: `Shapes`.)
   *   - A reference to a concrete class, an enum or a sealed family of the module, or of a
   *     dependency with TASTy outside the standard library and the JDK, is what it stores with its
   *     arguments bound; one to an open class, an unbound type parameter, an abstract type member, a
   *     class named without its arguments, an enum case's class or `AnyVal` is a reason.
   *   - A definition that reaches itself is a system of equations, one per class of the module it
-  *     names, solved by the old estimate's fixed point (`solved`, `Fixpoint`).
+  *     names, solved as a least fixed point (`solved`, `Fixpoint`).
   *
   * What it does not read yet is a `Left`, naming what it met. The main ones: a sealed family with a
   * subtype it does not read whole (`family`), a recursion through a function's domain, one a lazy
@@ -112,8 +112,8 @@ final private[compiled] class Stored(world: World)(using Context) {
       .exists(world.unbuilt(_))
 
   // Whether a class holds what its public builders build (rule B): its constructor is restricted
-  // and it has no type parameter. A class with type parameters keeps its fields' product, as the
-  // old estimate (`capacity.Factories`) reads it.
+  // and it has no type parameter. A class with type parameters keeps its fields' product (its
+  // factories' instantiations are not read).
   private def built(tree: ClassDef): Boolean =
     !tree.rhs.constr.symbol.isPublic && tree.symbol.typeParams.isEmpty
 
@@ -284,9 +284,9 @@ final private[compiled] class Stored(world: World)(using Context) {
             else if (world.extended(cls))
               Left(s"a family with a subtype something extends: ${cls.displayFullName}")
             // A subtype nothing extends is final in the closed world, written so or not. One
-            // not written final whose parent is outside the module is left, for parity alone:
-            // the old estimate refuses it (it did not read that parent) and counts its `final`
-            // twin, and what such a parent declares is the index's to say.
+            // not written final whose parent is outside the module is left undecided, though its
+            // `final` twin counts (a known gap); what such a parent declares is the index's
+            // to say.
             else if (
               !Shapes.isFinal(cls) && World.ancestors(cls).exists(base => !world.ofModule(base))
             )
@@ -308,8 +308,8 @@ final private[compiled] class Stored(world: World)(using Context) {
     else Traversals.sequence(children.map(subtype)).map(Algebra.sum)
   }
 
-  // The row of a family that an enum's value case extends directly is the old estimate's: no size
-  // and its refusal, whatever the other cases hold. (A reference to such a family, and a family
+  // The row of a family that an enum's value case extends directly has no size and its
+  // refusal, whatever the other cases hold. (A reference to such a family, and a family
   // that has one under a sealed level, is a `Left` of `family`.)
   private def strayed(parent: ClassSymbol): Option[Row] =
     ownCases(parent).collectFirst {
@@ -598,7 +598,12 @@ final private[compiled] class Stored(world: World)(using Context) {
     else if (env.isValue && !world.ofModule(c))
       Left(s"a value of a class of a dependency: ${c.displayFullName}")
     else if (c.isEnum && c.isCaseClass)
-      Right(Held(EffectiveOmega, List(Unbound.Refusal(s"enum case type not read: $name"))))
+      Right(
+        Held(
+          EffectiveOmega,
+          List(Unbound.Refusal(s"enum case type not read: ${c.displayFullName}"))
+        )
+      )
     // Any subtype anywhere may add values to an open trait or abstract class.
     else if (c.isAbstractClass && !c.isEnum && !Shapes.isFamily(c))
       Right(Held(EffectiveOmega, List(Unbound.Open(name))))
@@ -621,8 +626,8 @@ final private[compiled] class Stored(world: World)(using Context) {
   }
 
   // While a value row reads a class of the module, what it stores is no evidence that an instance
-  // is ever built (register D30, the old `Builds`): one whose construction, an ancestor's of the
-  // module or, for an enum, a class case's always throws leaves the row undecided. An enum with
+  // is ever built (register D30: a throw builds nothing): one whose construction, an ancestor's of
+  // the module or, for an enum, a class case's always throws leaves the row undecided. An enum with
   // parameters and a value case is not read: its clause's arguments are not read here.
   private def undecided(c: ClassSymbol): Either[String, Boolean] = {
     val cases = if (c.isEnum) c.sealedChildren else Nil
@@ -648,12 +653,12 @@ final private[compiled] class Stored(world: World)(using Context) {
   // ---- recursion ----------------------------------------------------------------------------
 
   // A reading that reaches a class it is inside of is read again as a system of equations, one per
-  // class of the module it names (`variable`), and solved by the old estimate's fixed point
+  // class of the module it names (`variable`), and solved as a least fixed point
   // (`Fixpoint`; docs/type-arithmetic.md §8): least, widened to its tier where a cycle keeps
   // growing, and completed coinductively through the fields a constructor does not demand. A cycle
   // through a function's domain has no count, nor has one a lazy field leaves incomplete, one whose
   // widened value its own equation does not reach again (an intersection's bound, a factor of 0,
-  // as the old reading refuses an instantiation it does not settle), or a class read with ever new
+  // an instantiation it does not settle), or a class read with ever new
   // type arguments. The row's reasons are those of every class read; a definition's own row
   // (`self`) is its value in the system.
   private def solved(env: Env, self: Option[Instance] = None)(
@@ -816,8 +821,8 @@ final private[compiled] class Stored(world: World)(using Context) {
     (strict ++ (all -- deferred), deferred)
   }
 
-  // A field that continues a cycle where its constructor does not demand it, as the old estimate
-  // classifies one (`Solver.continuation`): `=> X`, `=> Option[X]` and `() => X`
+  // A field that continues a cycle where its constructor does not demand it (coinductive
+  // completion, docs/type-arithmetic.md §8): `=> X`, `=> Option[X]` and `() => X`
   // deterministically, a strict `Option[X]`, and `D => X` (not a context function) with a domain
   // that names no class of the system, where `X` is a class of the system named without arguments.
   private def continuation(

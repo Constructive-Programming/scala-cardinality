@@ -135,7 +135,8 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
               } yield count
             case _ => bounded(counted(tree, around, methods, scope, _))
           }).map(_ -> captures(tree, around, methods)).left.flatMap {
-            // A row the model refuses lists no captures, as the old front end's does not.
+            // A row the model refuses (`?`) lists no captures: it has no count to attribute
+            // them to.
             case Unread.Refused(reason) => Right(Count.Unresolved(List(reason)) -> Nil)
             case Uncovered(what)        => Left(what)
           }
@@ -146,7 +147,7 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
 
   // A `transparent inline` result is refused first (rule X: callers see the expansion's type).
   // A goal with one value has one implementation whatever the environment holds (v1.md §2), so
-  // the result is read next, before what an inline body does, as the old front end reads it;
+  // the result is read next, before what an inline body does (a one-valued goal settles it);
   // else the count is the solver's over the parameters and what the receivers hold.
   private def counted(
       tree: ValOrDefDef,
@@ -194,8 +195,8 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
           solved(env, result, around).left.flatMap {
             // A sum receiver not read cannot change a goal of infinitely many literals once the
             // context is not absurd: the solver's ω over the rest proves the rest is not, and an
-            // enum with a case built from nothing keeps it so (finite programs bound it at ω), as
-            // the old front end's `SealedReceivers` reads it.
+            // enum with a case built from nothing keeps it so (finite programs bound it at ω): a
+            // sum receiver adds choices only to a goal already countable.
             case unread @ Uncovered(why)
                 if why.startsWith(Receivers.Unsplit) &&
                   ClosedSpaces.count(result).map(Count.of).contains(Count.Countable) =>
@@ -254,8 +255,8 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
 
   // An enum without type parameters (a case of a generic one may be of one instantiation alone)
   // one of whose cases the reading shows built from nothing: a value case, or a class case, each
-  // parameter of it and of the enum of a closed nonempty space, its templates ever built. A sealed trait is not taken, as
-  // the old front end does not take it; a recursive field is not shown nonempty.
+  // parameter of it and of the enum of a closed nonempty space, its templates ever built. A sealed
+  // trait is not taken (not read yet); a recursive field is not shown nonempty.
   private def builtFromNothing(c: ClassSymbol, site: Symbol): Boolean = {
     def ground(k: ClassSymbol) = k.tree.exists(t =>
       Shapes.parameters(t.rhs.constr).forall { p =>
@@ -324,8 +325,8 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
       .sequence(owners.collect { case term: TermSymbol => term }.map { term =>
         term.tree match {
           // A class-body statement is the primary constructor's: a definition in one reads the
-          // instance as a member does, its constructor parameters among what the class holds (the
-          // old front end walks it in the template). The parents' arguments, which the primary
+          // instance as a member does, its constructor parameters among what the class holds (it
+          // runs inside the template). The parents' arguments, which the primary
           // constructor owns too, are evaluated before the instance exists. A secondary
           // constructor's body reads the instance its first call built, whose fields that call's
           // arguments fix: not read yet.
@@ -356,7 +357,7 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
   // name, and the parameters a scope between that method and the definition binds again (a
   // block's definition, an inner method's parameter, a class's member or self alias, the
   // definition's own parameter), which it cannot name: those are left out of its environment
-  // (`BodyScopes` and `HeldCaptures` of the old front end), unless other code around the definition
+  // (a name it cannot write is no capture), unless other code around the definition
   // holds one for it (`kept`). A contextual one stays within implicit search's reach, which a
   // name does not end: not read. A definition elsewhere in the method that shares the name hides
   // nothing. A case clause around the definition is read where its pattern binds nothing and adds
@@ -638,7 +639,7 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
     case _ => None
   }
 
-  // A case clause's pattern changes the context in two ways not read (the old `BodyScopes`): a
+  // A case clause's pattern changes the context in two ways not read yet: a
   // binder may be the scrutinee or a part of a value the environment has, and where a type
   // parameter is in scope a constructor, typed or stable-identifier pattern may add a type
   // equation.
@@ -681,8 +682,8 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
       )
   }
 
-  // Whether a hidden parameter is still a value where the definition `site` is (the old
-  // `HeldCaptures`), `None` where that is not read: concrete code adds no choice only where it
+  // Whether a hidden parameter is still a value where the definition `site` is (a held
+  // capture), `None` where that is not read: concrete code adds no choice only where it
   // computes from what the environment holds, and a hidden parameter is not among that. A holder
   // that reads it and is the parameter itself at its type (`def seed: Boolean = b`, a `lazy val`, a
   // given), and that the definition can name, keeps it; at a type with one value it shows nothing;
@@ -723,9 +724,9 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
   }
 
   // A row's captures, as the report lists them: the names its receivers supply, the parameters
-  // of the methods a local definition is written in (one a nearer scope hides among them, as the
-  // old front end lists it), and for an
-  // extension method the parameters of its `extension` clause, written before the method.
+  // of the methods a local definition is written in (one a nearer scope hides among them: the
+  // report names what the code around it binds), and for an extension method the parameters of
+  // its `extension` clause, written before the method.
   private def captures(
       tree: ValOrDefDef,
       around: List[ClassDef],
@@ -744,9 +745,9 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
   }
 
   // A parameter of a method around a definition by the name the report gives it: an anonymous one
-  // by its owner and position, as the old front end keys it (`ContextualEvidence.key`,
-  // `ContextBinders`); one of a function literal the compiler made around a context-function body
-  // by the definition whose result that is, counted over such literals from it inward.
+  // by its owner and position (`<using#i@method>`); one of a function literal the compiler
+  // made around a context-function body by the definition whose result that is
+  // (`<context#i@owner>`), counted over such literals from it inward.
   private def captureName(method: DefDef, parameter: ValDef): String = {
     def made(symbol: Symbol) = Readings.literal(symbol) && symbol.tree.exists {
       case function: DefDef => Targets.Scope.contextual(function)
@@ -763,8 +764,8 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
     }
   }
 
-  // Whether every template a member runs in is ever built (register D26, the old
-  // `ReceiverCapabilities.construction`): its own and each one its instances carry, an inner
+  // Whether every template a member runs in is ever built (register D26: code of a template
+  // never built runs in no program): its own and each one its instances carry, an inner
   // class its outer instance, an anonymous class the receiver of the code it is made in, a member
   // object the instance it belongs to; a template a static object encloses is built without the
   // object. A template whose construction, or an ancestor's of the module, always throws, the
@@ -834,8 +835,7 @@ private[compiled] object Readings {
   /** The function literals a call passes that a `for` comprehension's generators made: the
     * parameter is written before the collection, the receiver of the call (of an extension method,
     * its first argument, whatever clauses follow it). Its binder is an element of a value the
-    * environment may have (the old front end refuses it). An unknown position counts as a
-    * generator's.
+    * environment may have, which is not read yet. An unknown position counts as a generator's.
     */
   def generators(call: Apply)(using Context): List[Symbol] = {
     def receiver(fun: TermTree): Option[TermTree] = fun match {

@@ -53,9 +53,7 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
       a passing body is eliminated by the solver like its def twin      $solverTwins
       a conversion the body does not apply is never inserted           $privateConversions
       a qualifier's member wins over its implicit scope                $anchoredConversions
-      only a template extending the receiver overrides its member       ${Pending.knownLoss(
-      overridingInlines
-    )}
+      only a template extending the receiver overrides its member       $overridingInlines
   """
 
   private def pow2(exponent: Int): Count =

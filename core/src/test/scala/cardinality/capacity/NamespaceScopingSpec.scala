@@ -268,7 +268,7 @@ class NamespaceScopingSpec extends Specification {
       .and(constructor("UsesP.<init>", "S.scala" -> code) === Count.Finite(3))
       .and(
         constructor("UsesQ.<init>", "S.scala" -> code) === Count.Unresolved(
-          List("sealed family has anonymous instances in its file: Q")
+          List("sealed family has local or anonymous subclasses in its file: Q")
         )
       )
   }

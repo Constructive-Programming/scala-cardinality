@@ -43,7 +43,7 @@ class GroundEnvironmentSpec extends Specification {
       a scala.Dynamic parent supplies nothing the count reads        $dynamicParent
       a nested type of the parent's name does not doubt it           $nestedParentName
       exports bind it where they forward                             $exports
-      an enum's cases shadow it after a wildcard import              ${Pending.knownLoss(enumCases)}
+      an enum's cases shadow it after a wildcard import              $enumCases
       a wildcard import of a supplied value binds it                 $valueImport
       a name no builtin spells keeps lookup's own reason             ${Pending.rejectedFixture(
       notBuiltin
@@ -515,7 +515,7 @@ class GroundEnvironmentSpec extends Specification {
           withheld("package nowhere\ntrait Base"))
     )
     (rows("ap.Sub.f") === Count.Finite(4))
-      .and(unresolvedOn(rows("eb.E.f"), "enum case type not read: eb.E$.Int"))
+      .and(unresolvedOn(rows("eb.E.f"), "enum case type not read: eb.E.Int"))
       .and(rows("ex.f") === Count.Finite(4))
       .and(unresolvedOn(rows("rs.Sub.f"), "an enclosing class with a self type: Sub"))
       .and(rows("bp.Sub.f") === Count.Finite(4))
@@ -761,8 +761,8 @@ class GroundEnvironmentSpec extends Specification {
         ("package r19\ndef f(using Int, Int): Int = 0\ndef g(using Int): Int = summon[Int]\n" +
           "def h(using Boolean, Boolean): Boolean = true\ndef k(x: Int)(using Int): Boolean = true")
     )
-    unresolvedOn(rows("r19.f"), "ambiguous anonymous evidence: scala.Int")
-      .and(unresolvedOn(rows("r19.h"), "ambiguous anonymous evidence: scala.Boolean"))
+    unresolvedOn(rows("r19.f"), "ambiguous anonymous evidence: Int")
+      .and(unresolvedOn(rows("r19.h"), "ambiguous anonymous evidence: Boolean"))
       .and(rows("r19.g") === Count.Symbolic(pow(2, pow(2, 37))))
       .and(rows("r19.k") === Count.Symbolic(pow(2, pow(2, 64))))
   }

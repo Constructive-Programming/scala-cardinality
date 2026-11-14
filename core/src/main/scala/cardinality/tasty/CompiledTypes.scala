@@ -5,6 +5,7 @@ import scala.util.control.NonFatal
 
 import java.net.URI
 import java.nio.file.{FileSystems, Files, Path}
+import java.util.concurrent.ConcurrentHashMap
 import tastyquery.Classpaths.{ClassData, ClasspathEntry, PackageData}
 import tastyquery.Contexts.*
 import tastyquery.Names.{termName, ObjectClassTypeName, PackageFullName}
@@ -214,19 +215,28 @@ object CompiledTypes {
   }
 
   /** tasty-query reads a directory or a `.jar`; sbt 2 hands out content-addressed jars with no
-    * suffix, which are read through a `.jar`-named link.
+    * suffix, which are read through a `.jar`-named link, made once per jar (a content-addressed
+    * path keeps its content) and again only if the link is gone.
     */
-  private def readable(entry: Path): Path =
+  private[tasty] def readable(entry: Path): Path =
     if (Files.isDirectory(entry) || entry.getFileName.toString.endsWith(".jar")) entry
-    else {
-      val dir = Files.createTempDirectory("tasty-classes")
-      dir.toFile.deleteOnExit()
-      val link = dir.resolve(entry.getFileName.toString + ".jar")
-      try Files.createSymbolicLink(link, entry.toAbsolutePath)
-      catch { case NonFatal(_) => Files.copy(entry, link) }
-      link.toFile.deleteOnExit()
-      link
-    }
+    else
+      links.compute(
+        entry.toAbsolutePath.normalize,
+        (_, made) => if (made != null && Files.exists(made)) made else link(entry.toAbsolutePath)
+      )
+
+  private val links = new ConcurrentHashMap[Path, Path]
+
+  private def link(entry: Path): Path = {
+    val dir = Files.createTempDirectory("tasty-classes")
+    dir.toFile.deleteOnExit()
+    val link = dir.resolve(entry.getFileName.toString + ".jar")
+    try Files.createSymbolicLink(link, entry)
+    catch { case NonFatal(_) => Files.copy(entry, link) }
+    link.toFile.deleteOnExit()
+    link
+  }
 
   private def objectName(c: ClassSymbol): String = c.name match {
     case n: ObjectClassTypeName => n.underlying.toString

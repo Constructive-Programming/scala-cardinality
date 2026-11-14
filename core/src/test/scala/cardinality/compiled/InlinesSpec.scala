@@ -332,7 +332,7 @@ class InlinesSpec extends Specification {
       |  inline def onFinal(b: Fixed, x: Int): Int = b.f(x)
       |  inline def onOther(o: Other, x: Int): Int = o.f(x)
       |}""".stripMargin)
-    refuses(found, "calls inline method Sub.f, which uses")(
+    refuses(found, "and inline method Sub.f uses")(
       "onParam",
       "onThis",
       "onLambda",
@@ -341,7 +341,7 @@ class InlinesSpec extends Specification {
       "onSingleton",
       "onPath"
     )
-      .and(refuses(found, "calls inline method Wrap.apply, which uses")("onFunction"))
+      .and(refuses(found, "and inline method Wrap.apply uses")("onFunction"))
       .and(counts(found)("ascribed", "local", "onFinal", "onOther"))
   }
 
@@ -361,7 +361,7 @@ class InlinesSpec extends Specification {
       |}""".stripMargin,
       List(dependency)
     )
-    refuses(found, "calls inline method dep.Sub.f, which uses")("onParam")
+    refuses(found, "and inline method dep.Sub.f uses")("onParam")
       .and(counts(found)("onPlain"))
   }
 

@@ -56,7 +56,7 @@ final private[compiled] class PathTypes(of: Shapes.Reading)(using Context) {
   // An abstract type member selected on a parameter of the measured definition or of a method
   // around it (`p.X`), unbounded as the path sees it: the witness of the package the parameter's
   // value opens, an atom of the path's own, so two paths never share it and `q: p.type` is p's path
-  // (members M0, the old `TypeMembers`). Read only where the parameter's type tells none of its
+  // (docs/research/type-members.md, M1). Read only where the parameter's type tells none of its
   // values apart (only type members, or a top type), so nothing else it holds supplies the member.
   // Another method's parameter (a capability's, a constructor's read as a field) is one path per
   // call: not read.
@@ -119,7 +119,7 @@ final private[compiled] class PathTypes(of: Shapes.Reading)(using Context) {
 
   /** A class applied to wildcards (`Packed[?, R]`) is a package whose witnesses are the wildcards,
     * one each: `∃W. Packed[W, R]`. The solver opens an input package per value and refuses to build
-    * one as a result (the old `ExistentialInputs`). Read where each wildcard and the parameter it
+    * one as a result (as `ExistentialInputs` does). Read where each wildcard and the parameter it
     * stands for are unbounded and take types: a bound would give the witness proofs, which are not
     * read. None otherwise (`World.proper` refuses the wildcard).
     */
@@ -168,8 +168,7 @@ final private[compiled] class PathTypes(of: Shapes.Reading)(using Context) {
 private[compiled] object PathTypes {
 
   /** Whether a polymorphic function type is the identity's, `[A] => A => A` with `A` unbounded: its
-    * one implementation (the closed identity fragment of the old `MethodTypeLambdas`). Any other is
-    * not read yet.
+    * one implementation (by parametricity, its only total function). Any other is not read yet.
     */
   def polyIdentity(refined: TermRefinement)(using Context): Boolean =
     (World.classNamed(refined.parent).map(_.displayFullName), refined.refinedType) match {
