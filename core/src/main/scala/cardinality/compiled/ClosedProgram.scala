@@ -173,10 +173,15 @@ final private[compiled] class ClosedProgram(
     else
       Subclasses(
         (module.below.getOrElse(c, Nil) ++ outside.below.getOrElse(c, Nil)).distinct,
-        unloaded.isEmpty && module.parentsRead && listing._2.isEmpty && outside.parentsRead &&
-          moduleUnnamedRead && outsideUnnamedRead && World.owners(c).exists(listed),
+        everyRead(c),
         unnamedBelow(c, moduleUnnamed ++ outsideUnnamed)
       )
+
+  // Whether every class of the program that may extend `c`, outside the module, was listed and
+  // read.
+  private def everyRead(c: ClassSymbol): Boolean =
+    unloaded.isEmpty && module.parentsRead && listing._2.isEmpty && outside.parentsRead &&
+      moduleUnnamedRead && outsideUnnamedRead && World.owners(c).exists(listed)
 
   /** Whether no instance of `c` is of a subclass: it is written `final`, or it is an object, or it
     * is a concrete class (no trait, not `abstract`) that no class of the program extends, written
@@ -199,54 +204,81 @@ final private[compiled] class ClosedProgram(
   def overriding(owner: ClassSymbol, member: TermOrTypeSymbol): Overriding =
     overriders.getOrElseUpdate(
       (owner, member),
-      if (member.isPrivate || member.isFinalMember || World.isConstructor(member)) Overriding.No
+      if (closedMember(member)) Overriding.No
       else {
         val below = subclasses(owner)
         val ownerLine = linearized(owner)._1.toSet
-        val each = below.found.map { subclass =>
-          val (line, whole) = linearized(subclass)
-          // A line that is not whole is in no sure order: everything of it that `owner` does not
-          // extend may come before `owner`.
-          // What may override a member is before its declaring class and outside what `owner`
-          // extends (`owner` resolves the member to itself there).
-          val between =
-            if (whole) line.takeWhile(_ != member.owner).filterNot(ownerLine)
-            else line.filterNot(ownerLine)
-          val declared =
-            try
-              between.exists { k =>
-                member.matchingSymbol(k, subclass).exists { found =>
-                  found != member && !found.isPrivate &&
-                  (!found.isAbstractMember || k.isSubClass(member.owner.asClass))
-                }
-              }
-            // A signature that is not read: a declaration of the name between the two is taken
-            // for an overrider: the name alone decides (the member stays open).
-            catch {
-              case NonFatal(_) =>
-                between.exists(_.declarations.exists(d => d.name == member.name && !d.isPrivate))
-            }
-          if (declared) Overriding.Supplied
-          else if (whole || !unreadBeside(subclass, owner)) Overriding.No
-          else Overriding.Unknown
-        }
-        // A class no symbol stands for overrides what it declares, by name, and so does what it
-        // mixes in beside `owner`; a parent of it outside the program may override anything.
-        val nameless = below.unnamed.map { subclass =>
-          val between = subclass.parents.flatMap(linearized(_)._1).filterNot(ownerLine)
-          val name = member.name.toString
-          // A class file spells a method by its encoded name (`$plus` for `+`).
-          if (
-            subclass.methods(NameTransformer.encode(name)) ||
-            between.exists(_.declarations.exists(d => d.name.toString == name && !d.isPrivate))
-          ) Overriding.Supplied
-          else if (subclass.whole) Overriding.No
-          else Overriding.Unknown
-        }
+        val each = below.found.map(namedOverriding(owner, member, ownerLine, _))
+        val nameless = below.unnamed.map(unnamedOverriding(member, ownerLine, _))
         val rest = if (below.complete) Overriding.No else Overriding.Unknown
         (rest :: each ::: nameless).maxBy(_.ordinal)
       }
     )
+
+  private def closedMember(member: TermOrTypeSymbol): Boolean =
+    member.isPrivate || member.isFinalMember || World.isConstructor(member)
+
+  // How `subclass`, a class of the program extending `owner`, may override `member`.
+  private def namedOverriding(
+      owner: ClassSymbol,
+      member: TermOrTypeSymbol,
+      ownerLine: Set[ClassSymbol],
+      subclass: ClassSymbol
+  ): Overriding = {
+    val (line, whole) = linearized(subclass)
+    // A line that is not whole is in no sure order: everything of it that `owner` does not
+    // extend may come before `owner`.
+    // What may override a member is before its declaring class and outside what `owner`
+    // extends (`owner` resolves the member to itself there).
+    val between =
+      if (whole) line.takeWhile(_ != member.owner).filterNot(ownerLine)
+      else line.filterNot(ownerLine)
+    if (declaresOverrider(member, subclass, between)) Overriding.Supplied
+    else if (whole || !unreadBeside(subclass, owner)) Overriding.No
+    else Overriding.Unknown
+  }
+
+  // Whether one of the classes `between` declares, for `subclass`, a member overriding `member`.
+  private def declaresOverrider(
+      member: TermOrTypeSymbol,
+      subclass: ClassSymbol,
+      between: List[ClassSymbol]
+  ): Boolean =
+    try between.exists(k => member.matchingSymbol(k, subclass).exists(overrides(member, k, _)))
+    // A signature that is not read: a declaration of the name between the two is taken
+    // for an overrider: the name alone decides (the member stays open).
+    catch {
+      case NonFatal(_) =>
+        between.exists(_.declarations.exists(d => d.name == member.name && !d.isPrivate))
+    }
+
+  // Whether `found`, the member of `k` matching `member`, overrides it.
+  private def overrides(
+      member: TermOrTypeSymbol,
+      k: ClassSymbol,
+      found: TermOrTypeSymbol
+  ): Boolean =
+    found != member && !found.isPrivate &&
+      (!found.isAbstractMember || k.isSubClass(member.owner.asClass))
+
+  // A class no symbol stands for overrides what it declares, by name, and so does what it
+  // mixes in beside `owner`; a parent of it outside the program may override anything.
+  private def unnamedOverriding(
+      member: TermOrTypeSymbol,
+      ownerLine: Set[ClassSymbol],
+      subclass: Unnamed
+  ): Overriding = {
+    val between = subclass.parents.flatMap(linearized(_)._1).filterNot(ownerLine)
+    val name = member.name.toString
+    // A class file spells a method by its encoded name (`$plus` for `+`).
+    if (subclass.methods(NameTransformer.encode(name)) || declaresName(between, name))
+      Overriding.Supplied
+    else if (subclass.whole) Overriding.No
+    else Overriding.Unknown
+  }
+
+  private def declaresName(classes: List[ClassSymbol], name: String): Boolean =
+    classes.exists(_.declarations.exists(d => d.name.toString == name && !d.isPrivate))
 
   /** What may override `member` in the instances of `owner`'s subclasses: the declarations of its
     * name in every class a subclass's linearization holds outside `owner`'s (the subclass itself,
@@ -284,21 +316,26 @@ final private[compiled] class ClosedProgram(
     */
   def mixes(left: ClassSymbol, right: ClassSymbol): Boolean = {
     val ((leftLine, leftWhole), (rightLine, rightWhole)) = (linearized(left), linearized(right))
-    // A class of the program that extends both is among the subclasses of either: those of one
-    // that are all known settle it.
-    def reaches(c: ClassSymbol, other: ClassSymbol) = {
-      val (line, whole) = linearized(c)
-      !whole || line.contains(other)
-    }
-    def within(below: Subclasses, other: ClassSymbol) =
-      below.found.exists(reaches(_, other)) ||
-        below.unnamed.exists(u => !u.whole || u.parents.exists(reaches(_, other)))
-    !leftWhole || !rightWhole || leftLine.contains(right) || rightLine.contains(left) || {
-      val (lefts, rights) = (subclasses(left), subclasses(right))
-      if (lefts.complete) within(lefts, right)
-      else if (rights.complete) within(rights, left)
-      else true
-    }
+    !leftWhole || !rightWhole || leftLine.contains(right) || rightLine.contains(left) ||
+    sharedBelow(left, right)
+  }
+
+  // A class of the program that extends both is among the subclasses of either: those of one
+  // that are all known settle it.
+  private def sharedBelow(left: ClassSymbol, right: ClassSymbol): Boolean = {
+    val (lefts, rights) = (subclasses(left), subclasses(right))
+    if (lefts.complete) within(lefts, right)
+    else if (rights.complete) within(rights, left)
+    else true
+  }
+
+  private def within(below: Subclasses, other: ClassSymbol): Boolean =
+    below.found.exists(reaches(_, other)) ||
+      below.unnamed.exists(u => !u.whole || u.parents.exists(reaches(_, other)))
+
+  private def reaches(c: ClassSymbol, other: ClassSymbol): Boolean = {
+    val (line, whole) = linearized(c)
+    !whole || line.contains(other)
   }
 
 }
