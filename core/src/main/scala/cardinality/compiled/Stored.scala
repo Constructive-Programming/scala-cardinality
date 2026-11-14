@@ -29,9 +29,9 @@ import tastyquery.Trees.{
 }
 import tastyquery.Types.*
 
-/** What a definition stores, the size of its row (slice S2; v1.md §2, docs/type-arithmetic.md): a
-  * size and, where it is no number, the reasons (a type parameter, an open class); neither for an
-  * abstraction, which has no value of its own.
+/** What a definition stores, the size of its row (slice S2; v1.md §2,
+  * docs/site/arithmetic/counting-data.md): a size and, where it is no number, the reasons (a type
+  * parameter, an open class); neither for an abstraction, which has no value of its own.
   *
   *   - An object is one value; a concrete class is the product of what its constructor's parameters
   *     store, whatever it extends; an enum is the sum of its cases and a sealed family of its
@@ -43,8 +43,8 @@ import tastyquery.Types.*
   *   - A type is read where it is written: a class's fields at the class, the body of an alias of
   *     an object or a package at the alias, an alias's arguments where they are. So an opaque type
   *     is its representation inside its scope and one value outside it (rule F), wherever the
-  *     reading started (docs/type-arithmetic.md). (The method side follows aliases first and
-  *     decides at the use site: `Shapes`.)
+  *     reading started (docs/site/arithmetic/counting-data.md). (The method side follows aliases
+  *     first and decides at the use site: `Shapes`.)
   *   - A reference to a concrete class, an enum or a sealed family of the module, or of a
   *     dependency with TASTy outside the standard library and the JDK, is what it stores with its
   *     arguments bound; one to an open class, an unbound type parameter, an abstract type member, a
@@ -660,7 +660,7 @@ final private[compiled] class Stored(world: World)(using Context) {
 
   // A reading that reaches a class it is inside of is read again as a system of equations, one per
   // class of the module it names (`variable`), and solved as a least fixed point
-  // (`Fixpoint`; docs/type-arithmetic.md §8): least, widened to its tier where a cycle keeps
+  // (`Fixpoint`; docs/site/arithmetic/counting-data.md §8): least, widened to its tier where a cycle keeps
   // growing, and completed coinductively through the fields a constructor does not demand. A cycle
   // through a function's domain has no count, nor has one a lazy field leaves incomplete, one whose
   // widened value its own equation does not reach again (an intersection's bound, a factor of 0,
@@ -828,7 +828,7 @@ final private[compiled] class Stored(world: World)(using Context) {
   }
 
   // A field that continues a cycle where its constructor does not demand it (coinductive
-  // completion, docs/type-arithmetic.md §8): `=> X`, `=> Option[X]` and `() => X`
+  // completion, docs/site/arithmetic/counting-data.md §8): `=> X`, `=> Option[X]` and `() => X`
   // deterministically, a strict `Option[X]`, and `D => X` (not a context function) with a domain
   // that names no class of the system, where `X` is a class of the system named without arguments.
   private def continuation(

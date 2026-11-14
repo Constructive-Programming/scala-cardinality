@@ -13,8 +13,8 @@ import cardinality.capacity.{
 
 import Stored.Held
 
-/** The size algebra of the stored side (docs/type-arithmetic.md): products, sums and arrows of what
-  * types hold, and the standard library's types it models (`standard`).
+/** The size algebra of the stored side (docs/site/arithmetic/counting-data.md): products, sums and
+  * arrows of what types hold, and the standard library's types it models (`standard`).
   */
 private[compiled] object Algebra {
 

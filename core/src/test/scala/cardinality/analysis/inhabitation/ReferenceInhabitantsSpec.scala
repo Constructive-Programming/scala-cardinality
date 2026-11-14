@@ -4,7 +4,7 @@ import org.specs2.Specification
 
 /** Executable examples from Alex Knvl, "Counting type inhabitants", 24 November 2018.
   *
-  * Source and assumptions: docs/counting-type-inhabitants.md. Atoms stand for separately
+  * Source and assumptions: docs/site/arithmetic/counting-methods.md. Atoms stand for separately
   * universally quantified variables, not for concrete types of unknown finite cardinality. Equality
   * is observational: renaming, beta/eta expansion and redundant case analysis must not manufacture
   * inhabitants.

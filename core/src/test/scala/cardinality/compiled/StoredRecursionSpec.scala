@@ -4,8 +4,9 @@ import cardinality.compiled.TastyFrontEndSpec.subject
 import org.specs2.Specification
 
 /** Definitions that reach themselves in the compiled front end: a system of equations solved by the
-  * fixed point the old estimate solves its own with (`Fixpoint`; docs/type-arithmetic.md §8). Every
-  * expected size is derived in its example's comment.
+  * fixed point the old estimate solves its own with (`Fixpoint`;
+  * docs/site/arithmetic/counting-data.md §8). Every expected size is derived in its example's
+  * comment.
   */
 class StoredRecursionSpec extends Specification {
 

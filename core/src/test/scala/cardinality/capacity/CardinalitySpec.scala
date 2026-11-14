@@ -12,7 +12,7 @@ class CardinalitySpec extends Specification {
   // lazy field is a plain class's by-name parameter (`final class St(head: Boolean, tail: => St)`):
   // a case class's parameters are `val`s, which scalac does not take by name. An enum case's are
   // `val`s too: its lazy field is a thunk (`tail: () => U`), the same lazy position
-  // (docs/type-arithmetic.md §8).
+  // (docs/site/arithmetic/counting-data.md §8).
   private def tpe(code: String): Size = Rows.typeSize(code)
 
   private def src(code: String): Size = Rows.total(code)

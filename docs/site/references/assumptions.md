@@ -55,9 +55,10 @@ subclass, override or implementation exists outside them.
 - The closed world settles which templates exist, not which names resolve. An unresolved
   identity, an alias the calculator does not follow, or a scope it does not enumerate
   keeps its `?`.
-- Templates are matched by simple name. A parent outside the sources may define anything,
-  so a member only such a parent may override is refused. Two same-named templates in
-  different packages share their subclasses, so a member one overrides stays open.
+- Templates are the compiler's symbols: a parent is the class the compiler resolved, and
+  two classes of one simple name in different packages are two templates. A parent whose
+  members are not known (a class the classpath does not hold) may define anything, so a
+  member only such a parent may override is refused.
 
 ## Inline methods
 
@@ -79,6 +80,12 @@ method whose expansion fails.
 Outside its scope, an opaque type counts `1` on both sides: it reads as `Unit`, and as a
 type argument it keeps its own nominal identity. Inside its scope the representation is
 read as before. A count is never refused because a representation is hidden.
+
+## Members without a result type
+
+A member written without a result type has the type the compiler gave it: the plugins
+compile the module, and the calculator reads its compiled classes (TASTy). A source without
+compiled classes, or whose classes are another text's, is refused.
 
 ## Constructors and factories
 

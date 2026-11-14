@@ -278,7 +278,7 @@ ThisBuild / scalafixDependencies +=
 // Coverage (scoverage)
 // ----------------------------------------------------------------
 // A regression floor, not an aspiration: the suites cover the `Size` algebra and
-// the arithmetic in `docs/type-arithmetic.md`, but not every escalation arm, so
+// the arithmetic in `docs/site/arithmetic/counting-data.md`, but not every escalation arm, so
 // the baseline sits around 85% statements. Statements are gated just below that;
 // the number should ratchet up as the algebra gains tests, not be treated as a
 // target. Report-only would let coverage rot silently, and an aspirational
@@ -286,9 +286,9 @@ ThisBuild / scalafixDependencies +=
 // where the instrumented code lives.
 coverageHighlighting := true
 
-// Self-measurement (`-Dcardinality.self`, see project/plugins.sbt) reports one module at a time:
-// the two sbt plugins' reports each read the stubs of all of sbt, and four reports at once do not
-// fit the heap `.jvmopts` gives.
+// Self-measurement (`-Dcardinality.self`, see project/plugins.sbt) runs one task at a time: the
+// loader already runs one report at a time, and this keeps the modules' compiles from overlapping
+// it as well within the heap `.jvmopts` gives.
 Global / concurrentRestrictions ++=
   (if (sys.props.contains("cardinality.self")) Seq(Tags.limitAll(1)) else Nil)
 

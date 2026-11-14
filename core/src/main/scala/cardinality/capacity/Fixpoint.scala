@@ -3,7 +3,7 @@ package cardinality.capacity
 import scala.annotation.tailrec
 
 // The fixed point a system of stored-size equations is solved by: Kleene iteration with widening,
-// and the coinductive completion of lazy cycles (docs/type-arithmetic.md §8). It knows definitions
+// and the coinductive completion of lazy cycles (docs/site/arithmetic/counting-data.md §8). It knows definitions
 // only as keys `K` and their values only through a store `S`; what a definition is, and how its
 // fields are classified, is `compiled.Stored`'s (its recursion) over the compiled trees.
 
@@ -192,7 +192,7 @@ private[cardinality] object Fixpoint {
       else owner :: reaches.getOrElse(owner, Set.empty).filter(back).toList
     }.toSet
 
-  // The greatest fixed point of lazy recursion (docs/type-arithmetic.md §8): the μ
+  // The greatest fixed point of lazy recursion (docs/site/arithmetic/counting-data.md §8): the μ
   // iterate above counts the finite constructor trees; a field the constructor never
   // demands lets a value unfold forever. A *lazy edge* is an occurrence of a defined name
   // the constructor does not demand: a continuation field (`=> X`, `() => X`, `D => X`, a

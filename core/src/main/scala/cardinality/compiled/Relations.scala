@@ -17,7 +17,7 @@ final private[compiled] class Relations(world: World, of: Relations.Read)(using 
   import Unread.Refused
 
   // A union read as the tagged sum of its alternatives, where one exists (sums,
-  // counting-type-inhabitants.md). Type equalities first, by the compiler's subtyping: an
+  // docs/site/arithmetic/counting-methods.md). Type equalities first, by the compiler's subtyping: an
   // alternative below another is that one (one class spelled twice, `Null` below a reference type),
   // and a top-like one (`AnyRef`, `Matchable` are `Any`) takes them all. `Nothing` and `Null` are
   // empty (null-free model). What remains is a sum where its values are told apart: distinct

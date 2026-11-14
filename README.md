@@ -399,7 +399,7 @@ Users of the plugin can seed the same workflow into their own repositories:
 from the TPC articles, the report-reading table, the per-stage passes — to
 `.claude/skills/cardinality-reduction/SKILL.md` (`cardinalitySkillFile` moves it),
 parameterized by the build; Mill's `<module>.cardinalitySeedSkill` writes the same template
-with Mill's commands. The task refreshes a file either plugin generated and refuses to overwrite
+with Mill's commands. The task refreshes a file that plugin generated and refuses to overwrite
 one it did not, so adopting a newer template means deleting or moving the old copy first.
 
 ### Method and constructor cardinality
@@ -488,7 +488,7 @@ and the heavier reports in
 | [scalafmt](https://scalameta.org/scalafmt/) | Formatting | `sbt scalafmtAll` | `ci.yml`, check-only, gating |
 | [scalafix](https://scalafix.com/) | Semantic rewrites (unused/organized imports, syntax bans) | `sbt scalafixAll` | `ci.yml`, check-only, gating |
 | [scoverage](https://github.com/scoverage/sbt-scoverage) | Statement/branch coverage | `sbt coverageAll` | `ci.yml`, gating on a coverage floor |
-| [scripted](https://www.scala-sbt.org/2.x/docs/en/testing-sbt-plugins.html) | Plugin end-to-end tests | `sbt plugin/scripted` | `ci.yml`, gating |
+| [scripted](https://www.scala-sbt.org/2.x/docs/en/testing-sbt-plugins.html) | Plugin end-to-end tests | `sbt plugin/scripted sbt1Plugin/scripted millPlugin/testFull` | `ci.yml`, gating |
 | [stryker4s](https://stryker-mutator.io/docs/stryker4s/) | Mutation testing | `sbt mutationAll` | `quality.yml`, on PRs, report only |
 | [CPD](https://pmd.github.io/) (PMD) | Duplicate-code detection | PMD's `pmd cpd` (see the `cpd` job) | `ci.yml`, gating, duplicates of 25+ tokens |
 | `scripts/check-file-metrics.sh` | Per-file length and comment ratio | `bash scripts/check-file-metrics.sh` | `ci.yml`, gating; warns above 800 lines or 25% comment lines, fails above 1000 or 35% |
@@ -505,8 +505,7 @@ from [sbt-typelevel-settings](https://github.com/typelevel/sbt-typelevel),
 with the broader `-Wunused:all` checks and `-Werror`: warnings
 fail both production and test compilation, locally and in CI. On Scala 3.9+
 the build enables `-opt` and `-opt-inline:<sources>`, limiting bytecode inlining
-to the current compilation's sources rather than dependencies. These optimizer
-flags are disabled while the plugin and core target sbt's Scala 3.8.4 runtime.
+to the current compilation's sources rather than dependencies.
 
 On pull requests each workflow posts its results, passing and failing alike, as
 one comment that is edited in place on every push: `ci.yml` the gates with the

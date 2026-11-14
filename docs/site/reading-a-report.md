@@ -9,10 +9,9 @@ each.
   constructor signature admits with everything in scope. `def choose[A](x: A, y: A): A`
   has 2.
 
-`Counter.source` sums the value spaces of the definitions in a source;
-`Counter.sourceSignature` sums what their members declare. A module with two
-`String => String` methods and one `String` field is $2\varepsilon_0 + \omega$ by the
-second reading and one value by the first.
+A module's stored-value estimate sums the value spaces of its definitions; what its members
+declare is the other reading. A module with two `String => String` methods and one `String`
+field is $2\varepsilon_0 + \omega$ by the second reading and one value by the first.
 
 ## A row
 

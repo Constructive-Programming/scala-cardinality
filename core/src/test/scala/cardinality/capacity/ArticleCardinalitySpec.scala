@@ -4,7 +4,7 @@ import cardinality.Pending
 import org.specs2.Specification
 import org.specs2.execute.Result
 
-// Cases from `docs/type-arithmetic.md`, condensed from Alex Knvl's "Counting type inhabitants".
+// Cases from `docs/site/arithmetic/counting-data.md`, condensed from Alex Knvl's "Counting type inhabitants".
 // Examples assert the count that document derives wherever the calculator already implements the
 // rule. The rest are `target`s: an expectation that fails today, which specs2 reports as pending
 // and turns into a failure once it starts holding, so support cannot land behind a stale marker.
