@@ -32,5 +32,11 @@
       "name" : "Overall Code Complexity",
       "weight" : 0.0
     } ]
+  }, {
+    "matching_content_path" : "core/src/main/scala/cardinality/compiled/Source.scala",
+    "rules" : [ {
+      "name" : "Primitive Obsession",
+      "weight" : 0.0
+    } ]
   } ]
 }

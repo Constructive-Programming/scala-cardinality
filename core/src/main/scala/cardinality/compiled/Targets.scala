@@ -112,17 +112,17 @@ final private class Targets(source: Source, trees: List[ClassDef])(using Context
     else if (symbol.isModuleClass) template(c, path :+ segment(c, isGiven(c), name))
     else if (!entryClass(c)) {
       val inside = path :+ segment(c, isGiven(c), name)
-      val clauses = c.rhs.constr.paramLists
-      // A class has a constructor row; a trait where it is written with a parameter clause; a
-      // given instance where it has clauses of any kind; an enum none (its cases have theirs).
-      val constructed =
-        if (isGiven(c)) clauses.exists(_.merge.nonEmpty)
-        else if (symbol.isTrait) source.parenthesized(c.pos.pointOffset, name)
-        else !enumClass(symbol)
-      if (constructed) methods += Method(inside :+ Init, c, c.rhs.constr, "constructor")
+      if (constructed(c)) methods += Method(inside :+ Init, c, c.rhs.constr, "constructor")
       template(c, inside)
     }
   }
+
+  // A class has a constructor row; a trait where it is written with a parameter clause; a given
+  // instance where it has clauses of any kind; an enum none (its cases have theirs).
+  private def constructed(c: ClassDef): Boolean =
+    if (isGiven(c)) c.rhs.constr.paramLists.exists(_.merge.nonEmpty)
+    else if (c.symbol.isTrait) source.parenthesized(c.pos.pointOffset, nameOf(c.symbol))
+    else !enumClass(c.symbol)
 
   // A definition's own name where the source spells it; an anonymous given's is its line. Any
   // other name the source does not spell there is recorded: the classes are of another text.
@@ -157,22 +157,29 @@ final private class Targets(source: Source, trees: List[ClassDef])(using Context
 
   private def statement(stat: StatementTree, path: List[String], local: Boolean): Unit =
     stat match {
-      case c: ClassDef => classDef(c, path)
-      // A given alias without clauses is a value (an `inline` one a method without clauses): in a
-      // block, a step like a local value.
-      case d: DefDef if local && d.symbol.isGivenOrUsing && d.paramLists.isEmpty =>
-        d.rhs.foreach(walk(_, path))
-      case d: DefDef if written(d) => method(d, path)
-      case v: ValDef if member(v)  =>
-        val inside = path :+ segment(v, v.symbol.isGivenOrUsing, v.name.toString)
-        methods += Method(inside, v, v, if (v.rhs.isEmpty) "declaration" else "method")
-        v.rhs.foreach(body(_, inside))
-      // Any other value with an initializer is a step of what is around it: a block's value, or
-      // one the compiler made (a pattern definition's holder).
-      case v: ValDef if local || !written(v) => v.rhs.foreach(walk(_, path))
-      case term: TermTree                    => walk(term, path)
-      case _                                 => ()
+      case c: ClassDef    => classDef(c, path)
+      case d: DefDef      => defDef(d, path, local)
+      case v: ValDef      => valDef(v, path, local)
+      case term: TermTree => walk(term, path)
+      case _              => ()
     }
+
+  // A given alias without clauses is a value (an `inline` one a method without clauses): in a
+  // block, a step like a local value.
+  private def defDef(d: DefDef, path: List[String], local: Boolean): Unit =
+    if (local && givenValue(d)) d.rhs.foreach(walk(_, path))
+    else if (written(d)) method(d, path)
+
+  private def givenValue(d: DefDef): Boolean = d.symbol.isGivenOrUsing && d.paramLists.isEmpty
+
+  // A member value is a row; any other value with an initializer is a step of what is around it:
+  // a block's value, or one the compiler made (a pattern definition's holder).
+  private def valDef(v: ValDef, path: List[String], local: Boolean): Unit =
+    if (member(v)) {
+      val inside = path :+ segment(v, v.symbol.isGivenOrUsing, v.name.toString)
+      methods += Method(inside, v, v, if (v.rhs.isEmpty) "declaration" else "method")
+      v.rhs.foreach(body(_, inside))
+    } else if (local || !written(v)) v.rhs.foreach(walk(_, path))
 
   // A value of a template somebody wrote: not an object's own value, an enum's case or a
   // constructor's parameter.
@@ -183,15 +190,9 @@ final private class Targets(source: Source, trees: List[ClassDef])(using Context
   }
 
   private def method(d: DefDef, path: List[String]): Unit =
-    if (d.name == nme.Constructor) {
-      // A secondary constructor: a row named like the class's own, its body's definitions under
-      // `<init#k>`.
-      methods += Method(path :+ Init, d, d, "method")
-      d.rhs.foreach(body(_, path :+ opened(path, "init")))
-    } else {
-      val group =
-        if (d.symbol.isExtensionMethod) List(s"<extension@${source.extensionLine(d)}>") else Nil
-      val inside = path ++ group :+ segment(d, d.symbol.isGivenOrUsing, d.name.toString)
+    if (d.name == nme.Constructor) secondary(d, path)
+    else {
+      val inside = path ++ extensionGroup(d) :+ segment(d, d.symbol.isGivenOrUsing, d.name.toString)
       methods += Method(inside, d, d, if (d.rhs.isEmpty) "declaration" else "method")
       // The compiler ascribes an inline method's body with its declared type.
       d.rhs.foreach {
@@ -199,6 +200,17 @@ final private class Targets(source: Source, trees: List[ClassDef])(using Context
         case rhs                                     => body(rhs, inside)
       }
     }
+
+  // A secondary constructor: a row named like the class's own, its body's definitions under
+  // `<init#k>`.
+  private def secondary(d: DefDef, path: List[String]): Unit = {
+    methods += Method(path :+ Init, d, d, "method")
+    d.rhs.foreach(body(_, path :+ opened(path, "init")))
+  }
+
+  // The `extension` an extension method is written under.
+  private def extensionGroup(d: DefDef): List[String] =
+    if (d.symbol.isExtensionMethod) List(s"<extension@${source.extensionLine(d)}>") else Nil
 
   // A definition's right-hand side: its own block is its body, any other expression is walked.
   // So is the block of a method whose result is a context function, which the compiler puts in a
@@ -255,37 +267,49 @@ final private class Targets(source: Source, trees: List[ClassDef])(using Context
   // The definitions a template or package holds, named under `prefix`; a body's are none.
   private def defined(c: ClassDef, prefix: List[String], top: Boolean): Unit = {
     val symbol = c.symbol
-    val name = nameOf(symbol)
-    def inside(under: List[String], top: Boolean) = {
-      c.rhs.body.foreach {
-        case nested: ClassDef                       => defined(nested, under, top = false)
-        case t: TypeMember if !t.symbol.isSynthetic => alias(t, under)
-        case _                                      => ()
-      }
-      // A top-level value is a definition row, one per name it binds; a given is a method row only.
-      if (top) c.rhs.body.foreach {
-        case v: ValDef if member(v) && !v.symbol.isGivenOrUsing =>
-          val bound = Definition.qualified(under :+ v.name.toString)
-          definitions += Defined(bound, Kind.Value, Nil, v)
-        case _ => ()
-      }
-    }
-    if (holder(symbol)) inside(prefix, top)
-    else if (symbol.isModuleClass) {
-      if (!symbol.isSynthetic && !isGiven(c)) {
-        definitions += Defined(Definition.qualified(prefix :+ name), Kind.Object, Nil, c)
-        inside(prefix :+ name, top = false)
-      }
-    } else if (!isGiven(c) && !(symbol.isEnum && symbol.isCaseClass) && !entryClass(c)) {
-      val kind =
-        if (enumClass(symbol)) Kind.Enum
-        else if (symbol.isAbstractClass) Kind.Abstract
-        else Kind.Class
+    val named = prefix :+ nameOf(symbol)
+    if (holder(symbol)) contents(c, prefix, top)
+    else if (symbol.isModuleClass) objectDefined(c, named)
+    else if (listed(c)) {
       val params = symbol.typeParams.map(_.name.toString)
-      definitions += Defined(Definition.qualified(prefix :+ name), kind, params, c)
-      inside(prefix :+ name :+ Definition.Instance, top = false)
+      definitions += Defined(Definition.qualified(named), kindOf(symbol), params, c)
+      contents(c, named :+ Definition.Instance, top = false)
     }
   }
+
+  private def objectDefined(c: ClassDef, named: List[String]): Unit =
+    if (!c.symbol.isSynthetic && !isGiven(c)) {
+      definitions += Defined(Definition.qualified(named), Kind.Object, Nil, c)
+      contents(c, named, top = false)
+    }
+
+  // A class the report lists: not a given instance's, an enum's case or a `@main` method's.
+  private def listed(c: ClassDef): Boolean =
+    !isGiven(c) && !(c.symbol.isEnum && c.symbol.isCaseClass) && !entryClass(c)
+
+  private def kindOf(symbol: ClassSymbol): Kind =
+    if (enumClass(symbol)) Kind.Enum
+    else if (symbol.isAbstractClass) Kind.Abstract
+    else Kind.Class
+
+  // The definitions in a template, named under `under`.
+  private def contents(c: ClassDef, under: List[String], top: Boolean): Unit = {
+    c.rhs.body.foreach {
+      case nested: ClassDef                       => defined(nested, under, top = false)
+      case t: TypeMember if !t.symbol.isSynthetic => alias(t, under)
+      case _                                      => ()
+    }
+    if (top) values(c, under)
+  }
+
+  // A top-level value is a definition row, one per name it binds; a given is a method row only.
+  private def values(c: ClassDef, under: List[String]): Unit =
+    c.rhs.body.foreach {
+      case v: ValDef if member(v) && !v.symbol.isGivenOrUsing =>
+        val bound = Definition.qualified(under :+ v.name.toString)
+        definitions += Defined(bound, Kind.Value, Nil, v)
+      case _ => ()
+    }
 
   // A type alias: `type F[X] = …` has its parameters, `type F = [X] =>> …` is a constructor, and
   // so is one whose body is a type lambda again (`type F[X] = [Y] =>> …`). The compiled tree is the
@@ -297,20 +321,23 @@ final private class Targets(source: Source, trees: List[ClassDef])(using Context
       case other                                 => (Nil, other)
     }
     val applied = source.spells("[", t.pos.pointOffset + t.name.toString.length)
-    val lambda = body match {
-      case _: PolyTypeDefinitionTree | TypeAliasDefinitionTree(_: TypeLambdaTree) => true
-      case _                                                                      => false
-    }
-    val kind = t.symbol.typeDef match {
-      case _: TypeMemberDefinition.OpaqueTypeAlias => Some(Kind.Opaque)
-      case _: TypeMemberDefinition.TypeAlias       =>
-        Some(if (lambda || (binders.nonEmpty && !applied)) Kind.Constructor else Kind.Alias)
-      case _: TypeMemberDefinition.AbstractType => None
-    }
     val params = if (applied) binders.map(_.name.toString) else Nil
-    kind.foreach(
+    aliasKind(t, lambda(body) || (binders.nonEmpty && !applied)).foreach(
       definitions += Defined(Definition.qualified(prefix :+ t.name.toString), _, params, t)
     )
+  }
+
+  private def aliasKind(t: TypeMember, constructor: Boolean): Option[Kind] =
+    t.symbol.typeDef match {
+      case _: TypeMemberDefinition.OpaqueTypeAlias => Some(Kind.Opaque)
+      case _: TypeMemberDefinition.TypeAlias       =>
+        Some(if (constructor) Kind.Constructor else Kind.Alias)
+      case _: TypeMemberDefinition.AbstractType => None
+    }
+
+  private def lambda(body: TypeDefinitionTree): Boolean = body match {
+    case _: PolyTypeDefinitionTree | TypeAliasDefinitionTree(_: TypeLambdaTree) => true
+    case _                                                                      => false
   }
 
   // The walk, after every field above is set: the scopes and givens first, then the rows.
