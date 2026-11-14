@@ -148,64 +148,84 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
       tree: ClassDef,
       env: Shapes.Env,
       variables: Set[Symbol]
-  ): Either[Unread, Position] = {
-    val name = parameter.name.toString
-    val tpe = parameter.tpt.toType
+  ): Either[Unread, Position] = new Place(parameter, tree, env, variables).read
+
+  // One position of the constructor: its parameter, on the class `tree`, read in `env`.
+  final private class Place(
+      parameter: ValDef,
+      tree: ClassDef,
+      env: Shapes.Env,
+      variables: Set[Symbol]
+  ) {
+    private val name = parameter.name.toString
+    private val tpe = parameter.tpt.toType
     // A ground position is one whose written type names no type parameter of the class.
-    val ground = !World.mentions(tpe, variables)
-    def estimate(observer: Option[Symbol] = None) =
-      stored.position(tree, tpe, observer).left.map(Uncovered(_))
-    // The method side reports a position's first refusal only: the estimate stands for a recursive
-    // position where no part beside the cycle is refused too (`p: (B, Outer#In)`, `B` in the
-    // cycle, keeps `Outer#In`'s refusal whichever part comes first).
-    def beside(part: Type): Option[Unread] = {
-      def parts = part.dealias match {
-        case by: ByNameType       => beside(by.resultType)
-        case applied: AppliedType =>
-          applied.args.iterator.collect { case t: Type => t }.flatMap(beside).nextOption()
-        case _ => None
+    private val ground = !World.mentions(tpe, variables)
+
+    def read: Either[Unread, Position] =
+      // A position is an input: a top type in it is one value.
+      shapes.of(tpe, env).map(TopTypes.polarized(_, false)) match {
+        case Left(Unread.Refused(reason)) if recursive(reason) =>
+          estimated.map(Constructors.fromEstimate(reason, _, ground))
+        // A recursive position the method side refuses for a parameter a class does not show:
+        // under rule B the parameter is unobserved, so each class holds the fields this
+        // constructor observes (`final class A(h: Boolean, b: => B)` beside `final class B(x: Int,
+        // a: => A)`: `b` is one value, the row 2). Hiding fields only merges values, so the
+        // position holds no more than the whole classes' estimate: an empty class stays empty,
+        // under a wrapper too (`B(x: Nothing, a: => A)`: `b: => B` is 0, `b: => Option[B]` 1).
+        case Left(Constructors.Hidden(reason)) if hidden =>
+          observed.map(Constructors.fromEstimate(reason, _, ground))
+        case Left(Unread.Refused(reason)) =>
+          Left(Uncovered(s"a constructor position the method side refuses: $reason"))
+        case shaped => shaped.flatMap(valued)
       }
+
+    private def recursive(reason: String) =
+      reason.startsWith(Shapes.Recursive) && Constructors.estimable(tpe)
+
+    private def hidden = Constructors.estimable(tpe) && stored.recursive(tree, tpe)
+
+    private def estimate(observer: Option[Symbol] = None) =
+      stored.position(tree, tpe, observer).left.map(Uncovered(_))
+
+    // The method side reports a position's first refusal only: the estimate stands for a
+    // recursive position where no part beside the cycle is refused too (`p: (B, Outer#In)`, `B`
+    // in the cycle, keeps `Outer#In`'s refusal whichever part comes first).
+    private def beside(part: Type): Option[Unread] =
       shapes.of(part, env) match {
         case Right(_)                                                            => None
-        case Left(Unread.Refused(reason)) if reason.startsWith(Shapes.Recursive) => parts
-        case Left(Constructors.Hidden(_)) if stored.recursive(tree, part)        => parts
+        case Left(Unread.Refused(reason)) if reason.startsWith(Shapes.Recursive) => parts(part)
+        case Left(Constructors.Hidden(_)) if stored.recursive(tree, part)        => parts(part)
         case Left(refusal)                                                       => Some(refusal)
       }
+
+    private def parts(part: Type): Option[Unread] = part.dealias match {
+      case by: ByNameType       => beside(by.resultType)
+      case applied: AppliedType =>
+        applied.args.iterator.collect { case t: Type => t }.flatMap(beside).nextOption()
+      case _ => None
     }
-    def recursive(observer: Option[Symbol]) =
-      beside(tpe).toLeft(()).flatMap(_ => estimate(observer))
-    // A position is an input: a top type in it is one value.
-    shapes.of(tpe, env).map(TopTypes.polarized(_, false)) match {
-      case Left(Unread.Refused(reason))
-          if reason.startsWith(Shapes.Recursive) && Constructors.estimable(tpe) =>
-        recursive(None).map(Constructors.fromEstimate(reason, _, ground))
-      // A recursive position the method side refuses for a parameter a class does not show: under
-      // rule B the parameter is unobserved, so each class holds the fields this constructor
-      // observes (`final class A(h: Boolean, b: => B)` beside `final class B(x: Int, a: => A)`:
-      // `b` is one value, the row 2). Hiding fields only merges values, so the position holds no
-      // more than the whole classes' estimate: an empty class stays empty, under a wrapper too
-      // (`B(x: Nothing, a: => A)`: `b: => B` is 0, `b: => Option[B]` 1).
-      case Left(Constructors.Hidden(reason))
-          if Constructors.estimable(tpe) && stored.recursive(tree, tpe) =>
-        recursive(None)
-          .flatMap(whole =>
-            estimate(Some(parameter.symbol.owner)).map(observed =>
-              observed.copy(size = observed.size.map(s => whole.size.fold(s)(s.min)))
-            )
-          )
-          .map(Constructors.fromEstimate(reason, _, ground))
-      case Left(Unread.Refused(reason)) =>
-        Left(Uncovered(s"a constructor position the method side refuses: $reason"))
-      case shaped =>
-        for {
-          shape <- shaped
-          // An open position over a type parameter is the shape model's alone: the estimate,
-          // which reads it only where it is ground or closed, is not asked.
-          sized <-
-            if (ground || Spaces.closed(shape)) estimate() else Right(Stored.Row(None, Nil))
-          read <- Constructors.read(name, shape, sized, ground)
-        } yield read
-    }
+
+    private def estimated =
+      beside(tpe).toLeft(()).flatMap(_ => estimate())
+
+    // The fields this constructor observes, no more than the whole classes' estimate.
+    private def observed =
+      estimated.flatMap(whole =>
+        estimate(Some(parameter.symbol.owner)).map(own =>
+          own.copy(size = own.size.map(s => whole.size.fold(s)(s.min)))
+        )
+      )
+
+    private def valued(shape: Shape) =
+      for {
+        // An open position over a type parameter is the shape model's alone: the estimate,
+        // which reads it only where it is ground or closed, is not asked.
+        sized <-
+          if (ground || Spaces.closed(shape)) estimate() else Right(Stored.Row(None, Nil))
+        read <- Constructors.read(name, shape, sized, ground)
+      } yield read
+
   }
 
 }
@@ -233,19 +253,8 @@ private[compiled] object Constructors {
     // The estimate's size is compared only where it gave no reason: with one (a type parameter),
     // the method side stands alone.
     val size = estimate.size.filter(_ => estimate.unbound.isEmpty)
-    def closed(shape: Shape) = Spaces.counted(shape) match {
-      case Left(reason) => Unresolved(List(reason))
-      // A top in an output (`f: Unit => Any`) is ω here and one value in the estimate, which
-      // reads every top as an input: the two are not compared, and the tier is the shape's.
-      case Right(Card.Omega) if TopTypes.unbounded(shape) => Estimated(Spaces.estimate(shape))
-      case Right(space) if size.exists(!agrees(space, shape, _)) =>
-        Unresolved(size.toList.map(Spaces.disagreement(name, space, _)))
-      case Right(Card.Omega) => Estimated(size.getOrElse(Spaces.estimate(shape)))
-      case Right(space)      => Exact(space)
-    }
-    def unvalued = Unread.Uncovered(s"a constructor position over a singleton or evidence: $name")
     if (ground && declined.nonEmpty) Right(Unresolved(declined))
-    else if (Spaces.closed(shape)) Right(closed(shape))
+    else if (Spaces.closed(shape)) Right(closed(name, shape, size))
     else if (Spaces.mixed(shape))
       Right(
         Unresolved(
@@ -259,15 +268,32 @@ private[compiled] object Constructors {
     // A value space of the estimate's that the method side's reading of it (`pointed`) contradicts
     // is refused, and so is the estimate's empty space where the method side has none to compare:
     // the two algebras differ on a function from an empty type.
-    else if (Spaces.valued(shape)) {
-      val pointed = Spaces.pointed(shape).map(closed)
-      if (TopTypes.holds(shape)) pointed.toRight(unvalued)
-      else
-        pointed
-          .collect { case refused: Unresolved => refused }
-          .orElse(size.filter(pointed.nonEmpty || _ != NothingSize).map(Estimated(_)))
-          .toRight(unvalued)
-    } else Right(Shaped(name, shape))
+    else if (Spaces.valued(shape)) valued(name, shape, size)
+    else Right(Shaped(name, shape))
+  }
+
+  // A closed position's value space, against the estimate's `size` where it gave one.
+  private def closed(name: String, shape: Shape, size: Option[Size]): Position =
+    Spaces.counted(shape) match {
+      case Left(reason) => Unresolved(List(reason))
+      // A top in an output (`f: Unit => Any`) is ω here and one value in the estimate, which
+      // reads every top as an input: the two are not compared, and the tier is the shape's.
+      case Right(Card.Omega) if TopTypes.unbounded(shape) => Estimated(Spaces.estimate(shape))
+      case Right(space) if size.exists(!agrees(space, shape, _)) =>
+        Unresolved(size.toList.map(Spaces.disagreement(name, space, _)))
+      case Right(Card.Omega) => Estimated(size.getOrElse(Spaces.estimate(shape)))
+      case Right(space)      => Exact(space)
+    }
+
+  private def valued(name: String, shape: Shape, size: Option[Size]): Either[Unread, Position] = {
+    def unvalued = Unread.Uncovered(s"a constructor position over a singleton or evidence: $name")
+    val pointed = Spaces.pointed(shape).map(closed(name, _, size))
+    if (TopTypes.holds(shape)) pointed.toRight(unvalued)
+    else
+      pointed
+        .collect { case refused: Unresolved => refused }
+        .orElse(size.filter(pointed.nonEmpty || _ != NothingSize).map(Estimated(_)))
+        .toRight(unvalued)
   }
 
   // A recursive position, which the method side refuses, is the estimate's (a least fixed point
@@ -277,8 +303,8 @@ private[compiled] object Constructors {
   // is the position's; otherwise the method side's refusal stands.
   private def fromEstimate(reason: String, estimate: Stored.Row, ground: Boolean): Position = {
     val declined = estimate.unbound.filterNot(_.isInstanceOf[Unbound.Unknown]).flatMap(rendered)
-    val declaration = estimate.unbound.exists(_.isInstanceOf[Unbound.Refusal])
-    if ((ground || declaration) && declined.nonEmpty) Unresolved(declined)
+    val refused = ground || estimate.unbound.exists(_.isInstanceOf[Unbound.Refusal])
+    if (refused && declined.nonEmpty) Unresolved(declined)
     else
       estimate.size
         .filter(_ => estimate.unbound.isEmpty && !estimate.undecided)
