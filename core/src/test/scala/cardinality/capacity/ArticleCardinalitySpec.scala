@@ -287,11 +287,7 @@ class ArticleCardinalitySpec extends Specification {
       BooleanSize,
       needsSubtyping
     )}
-    the intersection of disjoint types       ${target(
-      tpe("Byte & Boolean"),
-      NothingSize,
-      needsSubtyping
-    )}
+    the intersection of disjoint types       ${tpe("Byte & Boolean") === NothingSize}
   """
 
 }

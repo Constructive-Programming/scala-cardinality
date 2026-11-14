@@ -48,36 +48,38 @@ final private[compiled] class Relations(world: World, of: Relations.Read)(using 
   }
 
   // An intersection, as the old front end reads it (`SingletonIntersections.intersection`): the
-  // narrowest parts are kept, by the compiler's subtyping (`T & Any` is `T`, `x.type & A` is
-  // `x.type` for an `x: A`); `Singleton` keeps only a singleton or the empty type; distinct
-  // static objects or enum value cases share no value. Any other meet is refused. Each part kept
-  // is read first, so that what a part needs is the row's reason, as there.
+  // narrowest parts are kept (`Relations.narrowest`); `Singleton` keeps only a singleton or the
+  // empty type; distinct static objects or enum value cases share no value. Classes are met in the
+  // closed world (`World.meet`): the sum of the classes whose instances are of every part, none
+  // where two parts share no instance. Any other meet is refused. Each part kept is read first, so
+  // that what a part needs is the row's reason, as there.
   def intersection(written: List[Type], env: Env): Either[Unread, Shape] = {
     val (marked, parts) = written.partition(World.classNamed(_).contains(defn.SingletonClass))
-    val narrowest = maximal(parts.filterNot(top))((a, b) => b.isSubType(a))
+    val narrowest = Relations.narrowest(parts)
     val values = narrowest.flatMap(_.dealias match {
       case path: TermRef => path.optSymbol.filter(s => s.isModuleVal || s.isEnumCase)
       case _             => None
     })
     val apart = values.sizeIs == narrowest.size && values.distinct == values &&
       values.forall(World.inObjects)
-    (narrowest match {
-      case Nil         => of(defn.AnyType, env)
-      case List(alone) => of(alone, env)
-      case several     =>
+    Relations
+      .narrowed(narrowest)(of(_, env)) { several =>
         Traversals.sequence(several.map(of(_, env))).flatMap { _ =>
-          Either.cond(
-            apart,
-            Shape.Sum(Nil),
-            Refused(
-              "unsupported intersection relationship: " + written.map(_.showBasic).mkString(" & ")
-            )
-          )
+          if (apart) Right(Shape.Sum(Nil))
+          else
+            // An object is one value, as a family's object case is (`Sums`).
+            Relations
+              .met(world, several)(of(_, env), Shape.Product(Nil), Refused(_))
+              .map {
+                case List(single) => single
+                case several      => Shape.Sum(several)
+              }
         }
-    }).filterOrElse(
-      shape => marked.isEmpty || shape.isInstanceOf[Shape.Singleton] || shape == Shape.Sum(Nil),
-      Refused("intersection with Singleton requires a proven singleton identity")
-    )
+      }
+      .filterOrElse(
+        shape => marked.isEmpty || shape.isInstanceOf[Shape.Singleton] || shape == Shape.Sum(Nil),
+        Refused("intersection with Singleton requires a proven singleton identity")
+      )
   }
 
   // A member that varies across instances (abstract, or overridden by a class of the program),
@@ -144,20 +146,46 @@ private[compiled] object Relations {
       if (kept.exists(below(t, _))) kept else kept.filterNot(below(_, t)) :+ t
     }
 
-  /** Whether a type is `Any` or reads as it (`AnyRef`, which is `Object`, and `Matchable`;
-    * AGENTS.md).
+  /** The parts of an intersection that bound it, by the compiler's subtyping: no top (`T & Any` is
+    * `T`), and none above another (`x.type & A` is `x.type` for an `x: A`).
     */
-  def top(tpe: Type)(using Context): Boolean =
+  def narrowest(parts: List[Type])(using Context): List[Type] =
+    maximal(parts.filterNot(top))((a, b) => b.isSubType(a))
+
+  /** An intersection of its narrowest parts: `Any` for none, the one alone, `several` otherwise. */
+  def narrowed[E, A](parts: List[Type])(read: Type => Either[E, A])(
+      several: List[Type] => Either[E, A]
+  )(using Context): Either[E, A] = parts match {
+    case Nil         => read(defn.AnyType)
+    case List(alone) => read(alone)
+    case more        => several(more)
+  }
+
+  /** The values of each class an intersection's parts meet in (`World.meet`), an object `one`. */
+  def met[E, A](world: World, parts: List[Type])(
+      read: Type => Either[E, A],
+      one: A,
+      refused: String => E
+  ): Either[E, List[A]] =
+    world.meet(parts).left.map(refused).flatMap { leaves =>
+      Traversals.sequence(leaves.map {
+        case _: TermRef => Right(one)
+        case leaf       => read(leaf)
+      })
+    }
+
+  /** Whether a type is `Any` or reads as it (`AnyRef`, which is `Object`, and `Matchable`;
+    * AGENTS.md). A refinement of one (`AnyRef { def k: Int }`) is not.
+    */
+  def top(tpe: Type)(using Context): Boolean = !tpe.dealias.isInstanceOf[RefinedType] &&
     World.classNamed(tpe).exists(Set(defn.AnyClass, defn.ObjectClass, defn.MatchableClass))
 
   /** The class a value of a union's alternative carries at runtime: a class's (a primitive's box),
     * an object's, a literal's; none for any other type.
     */
   def runtimeClass(tpe: Type)(using Context): Option[ClassSymbol] = (tpe.dealias match {
-    case path: TermRef =>
-      path.optSymbol.collect { case s: TermSymbol => s }.flatMap(_.moduleClass)
     case constant: ConstantType => World.classNamed(constant.underlying)
-    case other                  => World.classNamed(other)
+    case other                  => World.instanceClass(other)
   }).map(c => Boxes.get(c.displayFullName).fold(c)(summon[Context].findStaticClass))
 
   private val Boxes = Map(

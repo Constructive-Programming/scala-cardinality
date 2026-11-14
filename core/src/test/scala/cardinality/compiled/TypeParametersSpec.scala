@@ -254,12 +254,12 @@ class TypeParametersSpec extends Specification {
       )
 
   // `keep`: `Boolean & Any` is Boolean, 2^2. `path`: `y` is `x` itself, the one A in reach, 1.
-  // `none`: two objects share no value, so no input and one function. `open`: two traits a class
-  // may both extend, refused as before; so is a Boolean claimed a singleton.
+  // `none`: two objects share no value, so no input and one function. `open`: `Two` is sealed and
+  // neither of its objects is a `Show`, so no value is both (the closed world): one function. A
+  // Boolean claimed a singleton is refused.
   private def intersections =
-    (List("Meet.keep", "Meet.path", "Meet.none").map(count) must_==
-      List(4, 1, 1).map(Count.Finite(_)))
-      .and(count("Meet.open").toString must contain("unsupported intersection relationship"))
+    (List("Meet.keep", "Meet.path", "Meet.none", "Meet.open").map(count) must_==
+      List(4, 1, 1, 1).map(Count.Finite(_)))
       .and(count("Meet.single").toString must contain("requires a proven singleton identity"))
 
 }
