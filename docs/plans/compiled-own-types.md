@@ -45,9 +45,9 @@ abstract type member reached through a path read as open, and the leftovers belo
 Merged with `origin/main` (`36cd3cd`, 2026-11-14; merge `d48de25`, follow-ups `d509b0f`,
 `1e358d1`). Main's toolchain is in: core on Scala 3.10.1 with tasty-query 1.10.0, Java 17
 bytecode, cats-eo 1.3.0. The plugins reach core through main's loader (`cardinality.Entry`,
-`plugin-loader`): `Entry.report(sources, names, output, classpath, out)`, where `output` is the
-module's compiled classes, or empty when they did not compile; stubs, `Entry.stubs` and the
-selected report's support and limits are gone. The sbt 1 plugin, the sbt 2 plugin and Mill pass
+`plugin-loader`): `Entry.report(sources, names, compiled, out)`, where `compiled` is the
+module's compiled classes with their classpath, or empty when they did not compile; stubs,
+`Entry.stubs` and the selected report's support and limits are gone. The sbt 1 plugin, the sbt 2 plugin and Mill pass
 compiled classes. The seed-skill task is main's. Main's capacity hotspots and `MemberSyntax`'s
 weak map were in deleted code, and are dropped. core-native does not compile against the TASTy
 front end, because tasty-query has no Scala Native build; it is kept unaggregated, as main had it.
