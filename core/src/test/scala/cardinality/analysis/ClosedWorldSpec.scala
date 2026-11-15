@@ -14,8 +14,7 @@ class ClosedWorldSpec extends Specification with InventoryFixtures {
   def is = s2"""
     A member no supplied template overrides is final
       in any file, through an alias, or by a mixin of another parent  $overrides
-      a parent outside the sources may override it: refused            $unknownParent
-      a compiled stub's parent is the template its qualified name is   $stubParents
+      a library parent the classpath holds is read: m stays final      $unknownParent
       in a braceless body or after an annotation                      $layout
       a literal `val` with no type, and a constructor `val`           $values
     A class no supplied template extends is final
@@ -45,35 +44,14 @@ class ClosedWorldSpec extends Specification with InventoryFixtures {
       .and(rows(mixin)("C.target") === Count.Finite(4))
   }
 
-  // D mixes in Iterator, a library parent whose members this reading does not list: it may define
-  // m, so m is neither final nor known to vary — refused, never 4 or 16.
+  // D mixes in Iterator, a library parent the classpath holds: its members are the compiler's, and
+  // none is an m, so nothing supplied overrides C's m and it is final (true). target is a Boolean
+  // of b: b, !b, true, false — 4.
   def unknownParent =
-    refused(
-      rows(
-        "abstract class C { def m: Boolean = true; def target(b: Boolean): Boolean }\n" +
-          "abstract class D extends C with Iterator[Int]"
-      )("C.target"),
-      "member may be overridden through a parent outside the sources: C.m"
-    )
-
-  // A compiled stub names the parent the compiler resolved: q.D extends q.S, not p.S, so nothing
-  // below p.T reaches D's parent outside the sources, and m is final: t carries nothing, and target
-  // ranges over the functions of b, 4. A source spelling `S` may mean either, so with a source D
-  // the parent outside the sources may override m: refused.
-  def stubParents = {
-    val p = "tasty/p.jar/p/T.scala" ->
-      "package p\ntrait T { def m: Boolean = true }\ntrait S extends T\n"
-    val q = "tasty/q.jar/q/D.scala" ->
-      "package q\ntrait S\ntrait D extends S, _root_.SignatureNotRead\n"
-    val u = "u.scala" -> "object U { def target(t: p.T)(b: Boolean): Boolean = ??? }"
-    (counts(p, q, u)("U.target") === Count.Finite(4))
-      .and(
-        refused(
-          counts(p, q.copy(_1 = "q.scala"), u)("U.target"),
-          "member may be overridden through a parent outside the sources"
-        )
-      )
-  }
+    rows(
+      "abstract class C { def m: Boolean = true; def target(b: Boolean): Boolean }\n" +
+        "abstract class D extends C with Iterator[Int]"
+    )("C.target") === Count.Finite(4)
 
   // `final` is written before the keyword, so the indentation a braceless body reads is kept, and
   // after an annotation: m is final in both — 4.
@@ -88,18 +66,16 @@ class ClosedWorldSpec extends Specification with InventoryFixtures {
 
   // `final val y = true` would be the constant `true`, and a constructor `val` spells the signature:
   // both are left as written, and the receiver asks whether a supplied template overrides them.
-  // Nothing does: y is true and R passes P's p true — 4 each. B overrides y, which is then open,
-  // and an open member's inferred type is not read: refused.
+  // Nothing does: y is true and R passes P's p true — 4 each. B overrides y, which is then open:
+  // scalac types it Boolean, a capability, so target reads b and y, 2^(2·2) = 16.
   def values = {
     val literal = "abstract class A { val y = true; def target(b: Boolean): Boolean }"
     val field =
       "class P(val p: Boolean)\nabstract class R extends P(true) { def target(b: Boolean): Boolean }"
     (rows(literal)("A.target") === Count.Finite(4))
       .and(
-        refused(
-          rows(literal + "\nabstract class B extends A { override val y = false }")("A.target"),
-          "overridable member's result type is inferred: y"
-        )
+        rows(literal + "\nabstract class B extends A { override val y = false }")("A.target") ===
+          Count.Finite(16)
       )
       .and(rows(field)("R.target") === Count.Finite(4))
   }

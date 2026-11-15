@@ -21,7 +21,7 @@ For LLMs in particular, this matters more than ever: the types are part of the
 context a model reasons over, so a smaller state space means fewer invalid
 states to hallucinate and a much better shot at correct first-try output.
 
-This project makes that feedback loop concrete: parse Scala source and it
+This project makes that feedback loop concrete: point it at a compiled Scala module and it
 reports the cardinality of the types it finds.
 
 ## Background
@@ -169,25 +169,17 @@ The [v1 implementation plan](docs/plans/v1.md) tracks the agreed counting contra
 the latest recorded eo baseline, and the remaining work. Report snapshots below
 are historical.
 
-The calculator is an early work in progress. It parses Scala source with
-[scalameta](https://scalameta.org/) and counts products, tagged sums,
+The calculator is an early work in progress. It reads a module's compiled classes (TASTy, through
+[tasty-query](https://github.com/scalacenter/tasty-query)) and counts products, tagged sums,
 exponentials, powersets and primitives, following the type arithmetic condensed
 in [docs/site/arithmetic/counting-data.md](docs/site/arithmetic/counting-data.md), and reports the cardinality
 of the definitions a source introduces — classes, enums, modules, type aliases and
-opaque types, nested definitions included.
+opaque types, nested definitions included. Every type is the compiler's; the sources only name
+and place the rows.
 
 Sizes are polynomials over three tiers — `a·ε₀ + b·ω + n` — added componentwise, so two
 countable alternatives stay `2ω` (`Either[String, String]`) instead of collapsing into one
 `ω`, while products and powers stay deliberately coarse (`(String, String)` is `ω`).
-`Counter.source` sums the value spaces of the definitions in a source;
-`Counter.sourceSignature` sums what their members declare instead, so an object with two
-`String => String` methods and one `String` field is `2ε₀ + ω`.
-Scala 3 extension methods contribute too: each method's domain includes its receiver,
-the extension group's `using` clauses, and its own parameters. Methods in an extension
-group are added separately; the receiver is not also counted as a field.
-Givens contribute their declared instance type once, including named and anonymous aliases,
-abstract declarations, and template-based instances. Parameterized givens count as factories
-over their parameter domain; methods inside a given's implementation are not counted again.
 
 Recursive types are counted as fixed points: each source is solved as a system of equations by
 Kleene iteration from the empty type, so a strict `case class Loop(next: Loop)` comes out empty
@@ -207,10 +199,11 @@ Finite and infinite families still exist, but this approximation deliberately di
 breakdown at the lazy-type boundary; it is not exact cardinal or ordinal arithmetic.
 Enclosing sums and source/signature aggregates are not normalized:
 `Either[LazyList[String], LazyList[String]]` is `2ε₀`.
-Any *branching* cycle saturates at `ω` (the §4 finite-program reading: one program per
-unfolding). Open work: coinduction blocked by a strict
-self argument or a deeply nested mention (kept at a sound under-count), parametric counts and
-sealed hierarchies spanning files — pinned as pending targets in the test suite.
+A cycle's per-lap label space is raised to `ω` (the §4 finite-program reading: one program per
+unfolding); holes alone choose nothing, so `R(l: => R, r: => R)` is the one knot, `1`. Open work:
+coinduction blocked by a strict self argument or a deeply nested mention (kept at a sound
+under-count), parametric counts and sealed hierarchies spanning files — pinned as pending targets in
+the test suite.
 
 ## Documentation
 
@@ -239,9 +232,9 @@ The renderer is [Laika](https://typelevel.org/Laika/) with its Helium theme — 
 engine the sister project [`eo`](https://github.com/Constructive-Programming/eo) uses.
 Two pieces of eo's pipeline are missing here, both because this build runs on sbt 2:
 `sbt-typelevel-site` (which wraps Laika for sbt) and `sbt-mdoc` (which compiles
-`scala mdoc` fences) have no sbt 2 builds, and mdoc would additionally collide with this
-project's `scalameta_3` dependency (`scalameta_2.13` and `scalameta_3` share package
-names). So the render step is a task in [build.sbt](build.sbt) plus
+`scala mdoc` fences) have no sbt 2 builds, and mdoc would additionally collide with the
+`scalameta_3` that core's tests use as a fixture library (`scalameta_2.13` and `scalameta_3` share
+package names). So the render step is a task in [build.sbt](build.sbt) plus
 [project/SiteRenderer.scala](project/SiteRenderer.scala), and the numbers shown in the
 pages are pinned by [the test suite](core/src/test/scala/cardinality/capacity/ArticleCardinalitySpec.scala) instead
 of being compiled from the pages.
@@ -252,20 +245,20 @@ Cloudflare Pages — a preview per pull request, production on `v*` tags — onc
 `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets exist together with the
 `scala-cardinality-docs` Pages project. Until then that workflow skips with a notice.
 
-The build has two modules:
+The build has these modules:
 
-- `core` — the calculator itself (`Counter`, the `Size` algebra, `Report`, the method analysis): a
-  pure library with no sbt types, tested with specs2.
+- `core` — the calculator itself (the TASTy front end under `cardinality.compiled`, the `Size`
+  algebra, the method side's solver, `Report`): a pure library with no sbt types, tested with
+  specs2.
 - `plugin` — `sbt-cardinality`, an sbt 2 plugin that reports on the build it is
-  added to, and on any Scala sources it is pointed at. It is tested end-to-end
+  added to, and on a library's published jars. It is tested end-to-end
   with sbt's scripted framework (`sbt plugin/scripted`).
 - `sbt1-plugin` — the same plugin for sbt 1 (Scala 2.12), tested by scripted on a real sbt 1
   (`sbt sbt1Plugin/scripted`).
 - `mill-plugin` — `mill-cardinality`, a Mill module trait, tested with Mill's testkit.
-- `core-native` — experimental: `core` as a Scala Native binary (`sbt coreNative/nativeLink`,
-  `NATIVE_RELEASE=1` for the optimized build). It gives the JVM's reports without a JVM, but cannot
-  read compiled dependencies itself (it reads a stub file rendered on the JVM) and is slower on
-  large inputs. Not published or gated.
+- `core-native` — experimental: `core` as a Scala Native binary, written for the scalameta front
+  end. It does not compile against the TASTy front end, which is tasty-query's, and tasty-query has
+  no Scala Native build; it is kept as it was until it has one. Not published or gated.
 - `plugin-loader` and `plugin-sbt` — sources compiled into the plugins, not modules: the loader all
   three reach `core` through, and the keys and report logic the two sbt plugins share.
 
@@ -283,10 +276,7 @@ addSbtPlugin("dev.constructive" % "sbt-cardinality" % "0.0.6")
 ```
 
 From 0.0.3, sbt 1 builds (1.10 or later) use the same line and the same keys: sbt
-picks the sbt 1 artifact (`sbt-cardinality_2.12_1.0`). There, dependency stubs are rendered again
-only when a dependency, the calculator or the JDK changes (each file stamped by size and
-modification time, in `target/cardinality/stubs.stamp`), kept per project rather than in a
-machine-wide cache.
+picks the sbt 1 artifact (`sbt-cardinality_2.12_1.0`).
 
 Every plugin runs one calculator call at a time per JVM: a root `cardinalityReport` over many
 modules then needs the heap of its largest module, not of all of them at once.
@@ -296,11 +286,10 @@ None of the plugins (sbt 2, sbt 1, Mill) depends on the calculator. Each resolve
 in a classloader apart from the tool's own: the plugin is built for the tool's Scala, whatever the
 calculator's is. The build tool may run on JDK 17, 21 or 25 (CI tests each).
 
-TASTy is not forwards compatible, so a calculator reads dependencies compiled by Scala up to the
-one its TASTy reader (tasty-query) is built on: 0.0.5 and later read Scala 3.0 through 3.10;
-0.0.4 and earlier read up to 3.9. A newer Scala's jars show up as `dependency stub not read: …
-TASTy signature has wrong version` at the end of the report; they need a calculator built on that
-Scala.
+TASTy is not forwards compatible, so a calculator reads code compiled by Scala up to the one its
+TASTy reader (tasty-query) is built on: 0.0.5 and later read Scala 3.0 through 3.10; 0.0.4 and
+earlier read up to 3.9. A newer Scala's classes show up as `compiled class not read: …` at the end
+of the report; they need a calculator built on that Scala.
 
 The calculator alone is `"dev.constructive" %% "scala-cardinality" % "0.0.6"`.
 
@@ -352,47 +341,39 @@ is `ω + ω`, and a module with two `String => String` methods and one `String` 
 `2ε₀ + ω`. What the calculator cannot bound, it names: a `?` row says both that the number
 reached ω or beyond and which type names stopped it from being tighter.
 
-`cardinalityReport` and `cardinalityReportSelected` also read the declarations of the project's
-`Compile / dependencyClasspath` from their compiled TASTy, Scala 2 pickles and Java `.class`
-files: each Scala 3, Scala 2 and Java class of a dependency joins the environment as a signature stub
-(`cardinality.tasty.TastyStubs`), so a row over a dependency's type gets a number, or a specific
-`?`, instead of `declaration not supplied`. Stubs are never measured or reported, supply no
-bodies, and nothing is rendered that the stdlib model reads: `scala` and the Scala library's own
-subpackages (`scala.collection`, `scala.util`, …), and the JDK classes the model holds
-(`java.lang.String`, `java.util.List`, `java.io.Serializable`, …). The rest of the JDK's `java.*`
-and `javax.*` classes render like a dependency's (`java.base` whole, another module's packages,
-such as `java.awt`, where a source or a stub names them, so `import java.awt.*` makes `List` the
-rendered `java.awt.List`), and a library's own namespace under `scala`
-(`scala.meta`) is a dependency's too. When one class file is on
-the classpath twice, the first copy the JVM would load is read; a shaded copy (TASTy that still
-declares its original package) is not read at all. A Java enum is its constants and a Java interface the record of its methods; a Java
-class's constructor state, a sealed Java type's subclasses and a raw type are not read, so a
-reading through them refuses; so does a sealed class with a local or anonymous child, which no
-stub declares. With stubs present, each target gets a fixed quota of
-300,000 logical work steps. A stub that cannot be read is listed as `dependency stub not read`
-and refuses more, never differently. Choose the dependencies with `cardinalityDependencyClasspath`
-(`:= Nil` reads sources only); in the library, `Report.of(paths, classpath)` and
-`Report.Query(..., classpath = ...)`.
+`cardinalityReport` and `cardinalityReportSelected` compile the project first and read its
+compiled classes: every type, that of a member written without a result type included, is the one
+the compiler gave it (rule T, [`docs/plans/compiled-own-types.md`](docs/plans/compiled-own-types.md)).
+A source without compiled classes is refused: under sbt, sources that do not compile give a report
+that refuses every one of them, and the task fails; under Mill the module must compile. A row the
+reading does not cover yet is `?`: `not read from compiled classes yet: <what it needs>`.
 
-The stubs are rendered once per set of dependency jars: `cardinalityDependencyStubs` is an sbt 2
-cached task, keyed by the content hashes (`HashedVirtualFileRef`) of the dependencies' jars and
-of the calculator's own, and by the JDK, whose output file (`target/out/cardinality/<project>/stubs.bin`) is declared
-with `Def.declareOutput` and so restored from sbt's machine-wide cache (or a remote one) instead
-of rendered again. A changed dependency or calculator renders again.
-In the library, `Report.of(paths, stubs = Some(file))` reads such a file instead of a classpath.
+The declarations of the project's `Compile / dependencyClasspath` are read from their compiled
+TASTy, Scala 2 pickles and Java `.class` files, as the compiler resolved them, the running JDK's
+first; they are never measured or reported. The standard library and the JDK's `java.*` classes
+the stdlib model holds are read by the model. When one class file is on the classpath twice, the
+first copy the JVM would load is read; a shaded copy (TASTy that still declares its original
+package) is not read at all. A Java enum is its constants and a Java interface the record of its
+methods; a Java class's constructor state, a sealed Java type's subclasses and a raw type are not
+read, so a reading through them refuses. A class that cannot be read is listed as `compiled class
+not read` and refuses more, never differently. Choose the dependencies with
+`cardinalityDependencyClasspath`; in the library,
+`Report.of(paths, Some(CompiledClasses(output, classpath)))` (`cardinality.tasty.CompiledClasses`).
 
-`sbt "cardinalityReportOf <path>..."` runs the same report over sources the
-build does not compile itself — a directory, a single file, or the
-`-sources.jar` a published library ships. That is how a dependency's types get
-measured from outside its build:
+`sbt "cardinalityReportOf <path>..."` runs the same report over a library the build does not
+compile itself: its binary jar, which carries its TASTy, read against the project's dependency
+classpath, beside its `-sources.jar`, which names and places the rows. Either jar alone is
+refused, with one error at the jar that names the missing one. That is how a dependency's types get measured from outside its build:
 
 ```bash
 # eo-core, the `core` module of the sister project `eo`, as published
+cs fetch dev.constructive:cats-eo_3:0.16.0
 cs fetch --sources dev.constructive:cats-eo_3:0.16.0
-sbt 'cardinalityReportOf <cache>/cats-eo_3-0.16.0-sources.jar'
+sbt 'cardinalityReportOf <cache>/cats-eo_3-0.16.0.jar <cache>/cats-eo_3-0.16.0-sources.jar'
 ```
 
-Its run over `eo-core` 0.16.0 (53 sources, 134 definitions) reads: 7 unresolved, 25
+An earlier run over `eo-core` 0.16.0, read from its sources jar alone before the switch to the
+compiled classes (docs/plans/compiled-own-types.md), reads: 7 unresolved, 25
 instantiation-dependent, 5 unbounded by an open abstraction, 2 type constructors with no value
 space, 3 with more than one value (the two `2^32` array builders and a countable `PSVec.Slice`),
 81 holding a single value (the modules and the sealed parents whose one case is a module),
@@ -417,19 +398,9 @@ Users of the plugin can seed the same workflow into their own repositories:
 `sbt cardinalitySeedSkill` writes the reduction skill template — the ranked stage hierarchy
 from the TPC articles, the report-reading table, the per-stage passes — to
 `.claude/skills/cardinality-reduction/SKILL.md` (`cardinalitySkillFile` moves it),
-parameterized by the build. The task refreshes a file it generated and refuses to overwrite
+parameterized by the build; Mill's `<module>.cardinalitySeedSkill` writes the same template
+with Mill's commands. The task refreshes a file that plugin generated and refuses to overwrite
 one it did not, so adopting a newer template means deleting or moving the old copy first.
-
-The whole project is read at once by the opt-in `cardinality.EoCheckout` runner: pointed at a
-cats-eo checkout, it takes every production source of every module — the `v1.0.0` run covers
-thirteen modules, 189 sources and 1,639 signatures — and requires that all of it parse, that
-input order cannot move a result, that row identities stay unique, and that the production
-`Report.of` path renders the same report. An optional fourth argument names a classpath file (one
-jar per line): every Scala 3 and Java class those jars declare is read from its TASTy or class
-file and joins the
-environment as a signature stub - names and types, no bodies - never as a report row (see
-[`docs/plans/bounded-dependency-resolution.md`](docs/plans/bounded-dependency-resolution.md)). Its ledger, per-module inventory and blocker buckets
-are at [`docs/baselines/eo-checkout-2026-10-27-full.md`](docs/baselines/eo-checkout-2026-10-27-full.md).
 
 ### Method and constructor cardinality
 
@@ -492,51 +463,16 @@ representations (225 rows), unresolved types (179), polymorphic capability binde
 override identity (78), and higher-kinded parameters. These are named next steps, not claims about
 the code.
 
-### Bounded selected reports
+### Selected reports
 
 ```sh
 sbt 'cardinalityReportSelected example.Accessor.get'
 ```
 
-This opt-in task analyzes selected implementation signatures, using all `Compile / sources` as
-supporting scope without reporting unrelated methods or stored-value estimates. Qualified names
-select every matching overload. Additional supporting source files/directories/jars can be supplied
-explicitly:
-
-```scala
-cardinalityQuerySupport := Seq(baseDirectory.value / "support")
-// Limits that differ from the calculator's defaults, by name (an unknown name is refused):
-cardinalityQueryLimits := Map(
-  "maxWorkPerTarget" -> 10000L,
-  "maxRequestWork" -> 1000000L,
-  "maxTotalBytes" -> 64L * 1024 * 1024
-)
-```
-
-The names are the fields of the calculator's `AnalysisQuery.Budget`, `MethodAnalysis.Limits` and
-`SourceSnapshot.Limits`.
-
-The library entry point is `Report.query(Report.Query(targets, support, targetNames))`
-with `cardinality.reporting.Report`.
-Supporting inputs remain part of the environment; unreadable or unparseable support rejects the
-request rather than authorizing counts from partial scope. The existing `cardinalityReport`,
-`cardinalityReportOf`, and `Report.of` behavior remains unchanged.
-
-Selected queries enforce acquisition/indexing limits and allocate equal target quotas before
-measurement; unused quota is not transferred. Lookup, resolution, capture-alias traversal, shape
-validation and solver work debit that quota. Exhausted queries report `?` with the frontier.
-Reports include snapshot and request fingerprints and per-target work; changes to support inputs
-or limits invalidate the keys. Input capture hashes and decodes the same bytes, checks drift with
-a second acquisition, distinguishes archive origins, and bounds files, bytes, directory/archive
-entries and compressed archive size.
-
-The byte/count limits apply to each acquisition pass; drift verification performs a second pass.
-**This is the first foundation slice, not a completed scaling or dependency feature.** Sources are
-still parsed/indexed in memory, snapshots are not atomic against arbitrary concurrent edits, and
-there is no persistent cache, classpath discovery, or new foreign-type semantics. Defaults are
-conservative admission limits, not million-line benchmark results. The
-[bounded resolution plan](docs/plans/bounded-dependency-resolution.md) tracks declaration summaries,
-persistent caching, and metadata adapters as subsequent work.
+The module's report, its method rows filtered by qualified name (every matching overload), without
+the stored-value estimates. A name no row has fails the task, unless a source could not be read.
+The library entry point is `Report.query(targets, targetNames, classes)` with
+`cardinality.reporting.Report`.
 
 ## Quality toolchain
 
@@ -552,7 +488,7 @@ and the heavier reports in
 | [scalafmt](https://scalameta.org/scalafmt/) | Formatting | `sbt scalafmtAll` | `ci.yml`, check-only, gating |
 | [scalafix](https://scalafix.com/) | Semantic rewrites (unused/organized imports, syntax bans) | `sbt scalafixAll` | `ci.yml`, check-only, gating |
 | [scoverage](https://github.com/scoverage/sbt-scoverage) | Statement/branch coverage | `sbt coverageAll` | `ci.yml`, gating on a coverage floor |
-| [scripted](https://www.scala-sbt.org/2.x/docs/en/testing-sbt-plugins.html) | Plugin end-to-end tests | `sbt plugin/scripted` | `ci.yml`, gating |
+| [scripted](https://www.scala-sbt.org/2.x/docs/en/testing-sbt-plugins.html) | Plugin end-to-end tests | `sbt plugin/scripted sbt1Plugin/scripted millPlugin/testFull` | `ci.yml`, gating |
 | [stryker4s](https://stryker-mutator.io/docs/stryker4s/) | Mutation testing | `sbt mutationAll` | `quality.yml`, on PRs, report only |
 | [CPD](https://pmd.github.io/) (PMD) | Duplicate-code detection | PMD's `pmd cpd` (see the `cpd` job) | `ci.yml`, gating, duplicates of 25+ tokens |
 | `scripts/check-file-metrics.sh` | Per-file length and comment ratio | `bash scripts/check-file-metrics.sh` | `ci.yml`, gating; warns above 800 lines or 25% comment lines, fails above 1000 or 35% |
@@ -569,8 +505,7 @@ from [sbt-typelevel-settings](https://github.com/typelevel/sbt-typelevel),
 with the broader `-Wunused:all` checks and `-Werror`: warnings
 fail both production and test compilation, locally and in CI. On Scala 3.9+
 the build enables `-opt` and `-opt-inline:<sources>`, limiting bytecode inlining
-to the current compilation's sources rather than dependencies. These optimizer
-flags are disabled while the plugin and core target sbt's Scala 3.8.4 runtime.
+to the current compilation's sources rather than dependencies.
 
 On pull requests each workflow posts its results, passing and failing alike, as
 one comment that is edited in place on every push: `ci.yml` the gates with the

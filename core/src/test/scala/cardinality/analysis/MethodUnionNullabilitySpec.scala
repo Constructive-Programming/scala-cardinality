@@ -1,8 +1,7 @@
 package cardinality.analysis
 
-import scala.meta.*
-
 import cardinality.analysis.inhabitation.*
+import cardinality.reporting.Report
 import org.specs2.Specification
 
 class MethodUnionNullabilitySpec extends Specification {
@@ -24,9 +23,9 @@ class MethodUnionNullabilitySpec extends Specification {
       respect a source declaration shadowing Null                    $shadowedNull
   """
 
-  private def entry(code: String, name: String = "pick"): MethodAnalysis.Entry =
-    MethodAnalysis
-      .analyze(List(MethodAnalysis.Input("Union.scala", dialects.Scala3(code).parse[Source].get)))
+  private def entry(code: String, name: String = "pick"): Report.Entry =
+    cardinality.Compiled
+      .analyze(List(cardinality.Compiled.Input("Union.scala", code)))
       .find(_.name == name)
       .get
 
@@ -60,7 +59,9 @@ class MethodUnionNullabilitySpec extends Specification {
   def builtins =
     entry("def pick(x: String): String | Boolean = x").count === Count.Countable
 
-  // `Both` is a `P` and a `Q`: no class test tells which alternative it was injected from.
+  // `Both` is a `P` and a `Q`: no class test tells which alternative it was injected from. The
+  // refusal names the union as the compiler spells it, from the empty package (it no longer names
+  // the witness `Both`).
   def unsupported =
     entry(
       "sealed trait P\nsealed trait Q\ncase object Both extends P with Q\ncase object Q1 extends Q\n" +
@@ -68,7 +69,7 @@ class MethodUnionNullabilitySpec extends Specification {
     ).count must beLike {
       case Count.Unresolved(reasons) =>
         reasons.exists(
-          _.contains("overlap and discrimination proof: P | Q — Both derives from Q")
+          _.contains("overlap and discrimination proof: P | Q")
         ) must
           beTrue
     }

@@ -12,21 +12,12 @@ trait CardinalityKeys {
 
   val cardinalityReportOf = inputKey[Unit](
     "Report the cardinality of the Scala sources at the given paths: files, directories, or a " +
-      "sources jar such as the one a published library ships."
+      "sources jar such as the one a published library ships, given beside the library's " +
+      "binary jar, whose compiled classes are read."
   )
 
   val cardinalityReportSelected =
-    inputKey[Unit]("Bounded implementation report for the given qualified method names.")
-
-  val cardinalityQuerySupport = settingKey[Seq[File]](
-    "Explicit supporting source roots for selected reports; never report targets."
-  )
-
-  val cardinalityQueryLimits = settingKey[Map[String, Long]](
-    "Limits of selected reports that differ from the calculator's defaults, by name: " +
-      "maxRequestWork, maxWorkPerTarget, maxTypeDepth, maxTotalBytes, ... (an unknown name is " +
-      "refused with the known ones)."
-  )
+    inputKey[Unit]("The implementation report of the given qualified method names alone.")
 
   val cardinalityReportFile = settingKey[File](
     "Where a report is written, under the project's target directory by default."

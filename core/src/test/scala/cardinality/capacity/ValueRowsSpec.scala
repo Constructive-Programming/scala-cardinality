@@ -25,9 +25,11 @@ class ValueRowsSpec extends Specification {
   // bound (`Int & String` is empty, its bound 2^32): refused. An unresolved declared type may be
   // empty: its reason, not 1 — `Foo => Nothing` too, inhabited exactly when `Foo` is empty. Read
   // from another package, through a wildcard import or a path, the class and the alias are refused
-  // alike: the reading that meets them is the value row's own.
+  // alike: the reading that meets them is the value row's own. Each reason spells the type as the
+  // compiler names it (`vr.P`, the alias `I` in its file's package object, `scala.&`).
   def valueReasons = {
     val files = List(
+      cardinality.Compiled.withheldFile("package vr\nclass Foo"),
       "vr/a.scala" ->
         """|package vr
            |val y: Int = 3
@@ -51,6 +53,7 @@ class ValueRowsSpec extends Specification {
            |""".stripMargin
     )
     val found = rowsOf(files*)
+    val unheld = "not read from compiled classes yet: a member the classpath does not hold"
     (found(("vr.y", Value)) === "1")
       .and(found(("vr.u", Value)) === "1")
       .and(found(("vr.ok", Value)) === "1")
@@ -59,21 +62,21 @@ class ValueRowsSpec extends Specification {
       .and(
         found(
           ("vr.p", Value)
-        ) === "unresolved[value not decided: P]"
+        ) === "unresolved[value not decided: vr.P]"
       )
-      .and(found(("vr.q", Value)) === "unresolved[Foo]")
-      .and(found(("vr.h", Value)) === "unresolved[Foo]")
+      .and(found(("vr.q", Value)) === s"unresolved[$unheld: Foo]")
+      .and(found(("vr.h", Value)) === s"unresolved[$unheld: Foo]")
       .and(
         found(("vr.vint", Value)) ===
           "unresolved[value not decided: Int & String]"
       )
       .and(
         found(("vb.p", Value)) ===
-          "unresolved[value not decided: P]"
+          "unresolved[value not decided: vr.P]"
       )
       .and(
         found(("vb.i", Value)) ===
-          "unresolved[value not decided: I]"
+          "unresolved[value not decided: vr.I]"
       )
       .and(
         found(("vb.p2", Value)) ===

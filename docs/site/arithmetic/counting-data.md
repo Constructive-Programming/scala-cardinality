@@ -455,7 +455,8 @@ fields no longer need a base case.
 | Conaturals (`pred: => Option[CoNat]`) | $\nu X.\, (1 + X)$ | $\omega$: finite depths and the single infinite one, normalized at completion |
 | `LazyList[A]` | $\nu X.\, (1 + A\cdot X)$ | $1$ if $a=0$; $\omega$ if $a$ is nonempty and finite; $\varepsilon_0$ if $a=\omega$ |
 | Stream without an end (`head: A`, `tail: => Stream[A]`) | $\nu X.\, (A\cdot X)$ | $0$ if $a=0$; $1$ if $a=1$; $\omega$ if $a$ is finite and $\ge 2$; $\varepsilon_0$ if $a=\omega$ |
-| Unfolding that branches per argument (`One(e: => E)`, `Two(i: Int => E)`) | $\nu X.\, (X + (\mathit{Int} \to X))$ | $\omega$ under the §4 finite-program reading — a function field is also never demanded while constructing, so `lazy val e = One(Two(_ => e))` and per-`int` choices all unfold further. An empty per-lap label space stays $0$, and a label space that reaches $\varepsilon_0$ is not demoted |
+| Unfolding that branches per argument (`One(e: => E)`, `Two(i: Int => E)`) | $\nu X.\, (X + (\mathit{Int} \to X))$ | $\varepsilon_0$ — a function field is also never demanded while constructing, so `lazy val e = One(Two(_ => e))` and per-`int` choices all unfold further; a `Two` lap continues through one input and holds any `E` ($\omega$ of them) at the others, a label like any other. An empty per-lap label space stays $0$ |
+| Holes without a label (`R(l: => R, r: => R)`, `F(f: Int => F)`) | $\nu X.\, X\cdot X$, $\nu X.\, X^{\mathit{Int}}$ | $1$: every value is the one knot `lazy val r: R = R(r, r)`; holes alone choose nothing |
 
 Compare the eager rows: $\mu X.\, X$ is $0$ but $\nu X.\, X$ is $1$, and a stream without
 an end has no finite values at all. With $a \ge 2$ an infinite stream is a function
@@ -562,14 +563,30 @@ The current API and representation have important limits:
   abstract traits and sealed classes are folded from their concrete subtypes in the same unit.
   Cycles through recognized continuations — holes (`=> X`, `=> Option[X]`, `() => X`), strict
   `Option[X]` fields, and function fields `D => X` with inhabited `D` — also take the greatest fixed
-  point: a deterministic cycle adds its per-lap label space raised to $\omega$, any branch (two
-  continuations in one arm, an `Option` field beside a hole, a domain with two or more inputs, a
-  sealed parent with several continuing children) saturates at $\omega$ under the §4 finite-program
-  reading, one program per unfolding; `LazyList` and `Stream` follow the same rule. A cycle demanded
-  outright — strict self argument, tuple, `Set[X]`, function domain — blocks coiteration: totals
-  keep the least-fixed-point value, and a row on or reading a blocked cycle that a by-name or
-  function field closes is `?` (`lazy cycle not completed`), because a lazy knot builds values that
-  value omits (see [stored-value names](https://github.com/Constructive-Programming/scala-cardinality/blob/main/docs/research/stored-value-names.md)).
+  point: a cycle adds its per-lap label space raised to $\omega$ under the §4 finite-program reading
+  (finite labels $\omega$, infinite ones $\varepsilon_0$, one label $1$); `LazyList` and `Stream` follow the same
+  rule. The label space is what each lap may choose: an arm's fields, which of several continuing
+  arms or of a sealed parent's children in the cycle. Holes alone are no choice: `R(l: => R, r: =>
+  R)` and `F(f: Int => F)` are the one knot, $\nu X.\, X\cdot X = 1$. An arm with one hole ends the unfolding
+  where it takes a value outside the cycle (the finite part counts it); an arm with two holes or
+  more continues through one while the others hold any value of their node, the cycle's own type
+  included, so that is a label like any other (owner's ruling: `Bq2(t: => Bq2, b: Bq)` beside the
+  stream `Bq1 extends Bq` is $\varepsilon_0$, and so is `Rb(b: Boolean, l: => Rb, r: => Rb)`, whose `r` holds
+  any of $\omega$ trees). Each lap re-reads the
+  definitions outside the cycle at the other cycles' completed values, so a sum's arm that holds
+  only lazy values ($\mu = 0$) counts (`Pt` = `Pa(t: => Pt)` | the Boolean stream `Pb`: $\omega$). An arm's
+  holes are read from how its fields' width grows with the cycle's, once per hole. A name under a
+  by-name type or a function's result at any depth of a field (`p: (Boolean, () => X)`,
+  `Option[() => X]`) continues the cycle too; a strict field may lie on it (`Cell(s: S)` beside
+  `S(h: Boolean, t: => Cell)`), and a sealed parent passes through its children. A cycle is a
+  strongly-connected group of the definitions that hold a value (each built in finitely many strict
+  steps around lazy knots: `Kx(Nil, () => k)` for `Kx(kids: List[Kx], f: () => Kx)`), read without
+  the arms that hold none and the names under an empty factor. Each lap reads a field with the
+  cycle as one value (its label space), and an arm's degree in the cycle at one, two and three. A
+  definition that holds no value keeps $\mu = 0$ (`K9(k: K9, m: => K9)`); a field naming the cycle both
+  strictly and lazily (`Ks(p: (Ks, () => Ks))`) cannot be read, and a row on or reading such a
+  cycle is `?` (`lazy cycle not completed`), because a lazy knot may build values $\mu$ omits (see
+  [stored-value names](https://github.com/Constructive-Programming/scala-cardinality/blob/main/docs/research/stored-value-names.md)).
 - A growing recursive component is widened to its tier, as §8 describes: a name that can reach
   itself and keeps growing is replaced by the tier it has grown into, so the iteration terminates.
   Separately, completion of each lazy/coinductive type combines its $\mu$ estimate and infinite
@@ -593,7 +610,7 @@ it separates implemented rules from executable **targets**:
 | Parametric identity, projections, composition, contradiction, Option transformations | Pending: needs parametricity, which the type traversal does not model |
 | Recursive types (eager) with no base constructor | Asserted: least fixed points of the equation system; $\mu X.\, X$ counts $0$ |
 | Recursive types (eager) with a base constructor | Asserted: productive recursion widened to $\omega$, and an $\varepsilon_0$ payload never demoted |
-| Lazy (coinductive) recursion through recognized continuations — holes, strict `Option[X]` fields, inhabited function fields `D => X`, sealed-parent pass-throughs | Asserted: deterministic cycles add their label space raised to $\omega$, then lazy-type completion normalizes the combined total ($\nu X.\, X = 1$, conaturals $= \omega$, endless $\nu X.\, (2\cdot X) = \omega$, `LazyList[String]` $= \varepsilon_0$); branching cycles saturate at $\omega$ (§4 finite-program reading), an empty label space stays $0$, and a chain of consumers sees the settled value |
+| Lazy (coinductive) recursion through recognized continuations — holes, strict `Option[X]` fields, inhabited function fields `D => X`, sealed-parent pass-throughs | Asserted: each cycle adds its per-lap label space raised to $\omega$, then lazy-type completion normalizes the combined total ($\nu X.\, X = 1$, conaturals $= \omega$, endless $\nu X.\, (2\cdot X) = \omega$, `LazyList[String]` $= \varepsilon_0$); a cycle's label space counts its choices, not its holes ($\nu X.\, X\cdot X = 1$; a second hole holds any value of its node, so Boolean-labelled binary trees are $\varepsilon_0$), an empty label space stays $0$, and a chain of consumers sees the settled value |
 | Coiteration blocked by a strict self argument (`x: X`) or a mention nested past the recognized forms (tuples, `Set[X]`, function domains, `Either`) | Totals keep the least-fixed-point value; rows on a blocked cycle a by-name or function field closes are `?` (`lazy cycle not completed`), never the under-count |
 | Union and intersection overlap beyond identical syntax | Pending: needs overlap and subtyping information |
 | Functions from countably infinite domains | Asserted at $\omega$ into a finite codomain and $\varepsilon_0$ into an infinite one (§4) |

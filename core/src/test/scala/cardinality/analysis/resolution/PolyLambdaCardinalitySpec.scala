@@ -1,8 +1,7 @@
 package cardinality.analysis.resolution
 
-import scala.meta.*
-
-import cardinality.analysis.*
+import cardinality.Compiled.withheld
+import cardinality.Pending
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 
@@ -18,26 +17,30 @@ class PolyLambdaCardinalitySpec extends Specification {
       keeps nested lambda shadowing lexical                      $shadowing
       measures constructor fields through beta reduction          $constructor
       refuses an external constructor inside the lambda           $external
-      refuses constrained lambda binders                         $bounds
-      refuses unapplied lambdas and wrong arity                    $arity
+      reduces a constrained lambda the compiler applied           $bounds
+      refuses unapplied lambdas and wrong arity                    ${Pending.rejectedFixture(arity)}
       resolves an alias body in its declaration's scope            $aliasScope
     Closed polymorphic identity
       introduces the unique total parametric identity             $identity
       application adds no choices or opaque iteration             $application
       does not supply an arbitrary missing result                  $missing
       keeps poly binder shadowing separate from outer binders      $polyShadowing
-      leaves other rank-polymorphic functions unresolved           $rankN
-      reads a nested context function as a function               $evidence
+      leaves other rank-polymorphic functions unresolved           ${Pending.knownLoss(rankN)}
+      reads a nested context function as a function               ${Pending.knownLoss(evidence)}
       retains unknown external dependencies                       $dependency
       refuses incomplete environments beside an identity result    $environment
   """
 
   private def count(code: String, name: String = "use"): Count =
-    MethodAnalysis
-      .analyze(List(MethodAnalysis.Input("Poly.scala", dialects.Scala3(code).parse[Source].get)))
+    cardinality.Compiled
+      .analyze(cardinality.Compiled.inputs("Poly.scala" -> code))
       .find(_.name == name)
       .get
       .count
+
+  // `External`, a class the fixtures name and no source declares: they are compiled against it and
+  // the analysis is not given it (`Compiled.withheld`).
+  private val externalClass = withheld("class External")
 
   private def unresolved(code: String, reason: String) =
     count(code) must beLike {
@@ -61,10 +64,14 @@ class PolyLambdaCardinalitySpec extends Specification {
     count("case class C[A](x: ([x] =>> x)[A], y: A)", "C.<init>") === Count.Finite(4)
 
   def external =
-    unresolved("def use[A](x: A): ([x] =>> ZIO[Unit, Unit, x])[A] = ???", "ZIO")
+    unresolved(
+      "def use[A](x: A): ([x] =>> ZIO[Unit, Unit, x])[A] = ???" + withheld("class ZIO[R, E, A]"),
+      "ZIO"
+    )
 
+  // `([x <: A] =>> x)[A]` is A, its bound met: use is A => A — 1.
   def bounds =
-    unresolved("def use[A](x: A): ([x <: A] =>> x)[A] = ???", "constrained type lambda")
+    count("def use[A](x: A): ([x <: A] =>> x)[A] = ???") === Count.Finite(1)
 
   def arity =
     unresolved("def use: [x] =>> x = ???", "unapplied type lambda").and(
@@ -100,11 +107,13 @@ class PolyLambdaCardinalitySpec extends Specification {
   // declares still refuse. With nothing undeclared, `[b] => b => b ?=> b` is outside the closed
   // identity fragment (a rank-n function), not a context function the reading stops at.
   def evidence = {
-    val undeclared = count("def use: [b] => b => Type[b] ?=> Expr[Any] = ???")
+    val quoted = "def use: [b] => b => Type[b] ?=> Expr[Any] = ???" +
+      withheld("class Type[A]\nclass Expr[A]")
+    val unnamed = count(quoted)
     val declared = count("def use: [b] => b => b ?=> b = ???")
-    unresolved("def use: [b] => b => Type[b] ?=> Expr[Any] = ???", "declaration not supplied: Type")
+    unresolved(quoted, "declaration not supplied: Type")
       .and(
-        List(undeclared, declared)
+        List(unnamed, declared)
           .flatMap(reasons)
           .exists(_.contains("context function")) must beFalse
       )
@@ -117,12 +126,20 @@ class PolyLambdaCardinalitySpec extends Specification {
   }
 
   def dependency =
-    unresolved("def use: [a] => a => External[a] = ???", "External")
+    unresolved(
+      "def use: [a] => a => External[a] = ???" + withheld("class External[A]"),
+      "External"
+    )
 
   // The identity alone has one implementation in every environment, the unresolved one included;
   // beside a Boolean the environment decides again.
   def environment =
-    (count("def use(x: External): [a] => a => a = ???") === Count.Finite(1))
-      .and(unresolved("def use(x: External): ([a] => a => a, Boolean) = ???", "External"))
+    (count("def use(x: External): [a] => a => a = ???" + externalClass) === Count.Finite(1))
+      .and(
+        unresolved(
+          "def use(x: External): ([a] => a => a, Boolean) = ???" + externalClass,
+          "External"
+        )
+      )
 
 }

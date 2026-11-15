@@ -33,7 +33,7 @@ object Skill {
       )
     val changed = !existing.contains(skill)
     if (changed) {
-      Files.createDirectories(output.getParent)
+      Files.createDirectories(output.toAbsolutePath.getParent)
       val _ = Files.write(output, skill.getBytes(UTF_8))
     }
     changed

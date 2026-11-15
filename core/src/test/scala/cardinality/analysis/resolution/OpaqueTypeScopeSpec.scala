@@ -34,13 +34,13 @@ class OpaqueTypeScopeSpec extends Specification {
       compile the visibility rules with Scala, not just parsing  $compiledVisibility
   """
 
-  private def inputs(files: (String, String)*): List[MethodAnalysis.Input] =
+  private def inputs(files: (String, String)*): List[cardinality.Compiled.Input] =
     files.toList.map { (path, code) =>
-      MethodAnalysis.Input(path, dialects.Scala3(code).parse[Source].get)
+      cardinality.Compiled.Input(path, code)
     }
 
   private def count(name: String, files: (String, String)*): Count =
-    MethodAnalysis.analyze(inputs(files*)).find(_.name == name).get.count
+    cardinality.Compiled.analyze(inputs(files*)).find(_.name == name).get.count
 
   // Outside its scope an opaque type is one value (rule F): its representation stays hidden, so
   // nothing yields an `A` from it.
@@ -88,7 +88,7 @@ class OpaqueTypeScopeSpec extends Specification {
         |}
         |""".stripMargin
     )
-    val methods = MethodAnalysis.analyze(source)
+    val methods = cardinality.Compiled.analyze(source)
     (methods.size === 6).and(methods.map(_.count) === List.fill(6)(Count.Finite(1)))
   }
 
@@ -191,7 +191,7 @@ class OpaqueTypeScopeSpec extends Specification {
         "Type.scala" ->
           "package sample; opaque type T[A] = A; trait Parent[A] { val value: T[A] }",
         "Use.scala" ->
-          "package sample; class Child[A] extends Parent[A] { def get: A = ??? }"
+          "package sample; abstract class Child[A] extends Parent[A] { def get: A = ??? }"
       )
     )
 

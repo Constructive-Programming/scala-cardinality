@@ -1,7 +1,5 @@
 package cardinality.analysis.inhabitation
 
-import scala.meta.*
-
 import cardinality.analysis.*
 import org.specs2.Specification
 
@@ -30,9 +28,9 @@ class EvidenceTransportCardinalitySpec extends Specification {
   """
 
   private def count(code: String, name: String = "use"): Count =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(
-        List(MethodAnalysis.Input("Evidence.scala", dialects.Scala3(code).parse[Source].get))
+        List(cardinality.Compiled.Input("Evidence.scala", code))
       )
       .find(_.name == name)
       .get

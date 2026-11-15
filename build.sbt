@@ -34,9 +34,9 @@ lazy val root = (project in file("."))
     publish / skip := true
   )
 
-// The cardinality calculator itself: a pure library (scalameta parsing + the
-// Size algebra) with no sbt types anywhere, so every behavior is testable with
-// plain specs2.
+// The cardinality calculator itself: a pure library (the compiled classes read with tasty-query,
+// and the Size algebra) with no sbt types anywhere, so every behavior is testable with plain
+// specs2.
 lazy val core = project
   .settings(
     name := "scala-cardinality",
@@ -47,27 +47,47 @@ lazy val core = project
       "dev.constructive" %% "cats-eo" % "1.3.0",
       "dev.constructive" %% "cats-eo-generics" % "1.3.0",
       "dev.constructive" %% "cats-eo-schemes" % "1.3.0",
-      "org.scalameta" %% "scalameta" % "4.17.4",
-      // Compiled dependency declarations (TASTy); 1.10.0 is built on Scala 3.10.0 and reads TASTy
-      // up to 28.10, so dependencies compiled by Scala 3.0 through 3.10.
+      // Compiled classes (TASTy); 1.10.0 is built on Scala 3.10.0 and reads TASTy up to 28.10, so
+      // code compiled by Scala 3.0 through 3.10.
       "ch.epfl.scala" %% "tasty-query" % "1.10.0",
       "org.typelevel" %% "cats-core" % "2.13.0",
       "org.specs2" %% "specs2-core" % "4.23.0" % Test,
-      "org.specs2" %% "specs2-cats" % "4.23.0" % Test
+      "org.specs2" %% "specs2-cats" % "4.23.0" % Test,
+      // Test only, and not for reading code: a compiled library whose jars specs read as a
+      // dependency (`DependencyRowsSpec`, `DependencyClassesSpec`, `ProgramRowsSpec`), and the
+      // parser `Overriders` writes a fixture's overriders with.
+      "org.scalameta" %% "scalameta" % "4.17.4" % Test,
+      // Test fixtures are compiled in-process (`cardinality.Compiled`), as the build plugins compile
+      // a module before reading it: the compiler's types are the only inferred types (rule T).
+      "org.scala-lang" %% "scala3-compiler" % scalaVersion.value % Test
     ),
+    // Forked, with the classpath the fixtures are compiled against passed in: sbt's test worker
+    // loads the tests through a classloader of its own, so `java.class.path` is not it.
+    Test / fork := true,
+    Test / javaOptions ++= {
+      val converter = fileConverter.value
+      val classpath = (Test / fullClasspath).value.map(entry => converter.toPath(entry.data))
+      Seq(
+        "-Xmx6g",
+        "-Xss8m",
+        // The forked JVM's temporary files go where sbt's own do.
+        s"-Djava.io.tmpdir=${sys.props("java.io.tmpdir")}",
+        s"-Dcardinality.test.classpath=${classpath.mkString(java.io.File.pathSeparator)}"
+      )
+    },
     // Coverage floors live here, not in the common settings: `plugin` is thin
     // sbt wiring exercised by scripted tests, which run outside scoverage's
     // instrumentation, so a floor there would be red by construction.
     coverageFailOnMinimum := true,
-    coverageMinimumStmtTotal := 80
+    coverageMinimumStmtTotal := 90
   )
 
-// Experimental: `core` as a Scala Native binary (`sbt coreNative/nativeLink`). The same sources,
-// minus the TASTy reader: tasty-query has no Native build, and a native binary holds no JDK to
-// read. `core-native` supplies a stand-in for `TastyStubs` (a classpath is reported as not read; a
-// stub file rendered on the JVM is still read), a SHA-256 `MessageDigest` (absent from Scala
-// Native's Java library) and a main. Its reports match the JVM's; it is slower on large inputs.
-// Not aggregated: nothing here is published, tested or gated.
+// Experimental: `core` as a Scala Native binary (`sbt coreNative/nativeLink`), written for the
+// scalameta front end: the same sources minus the TASTy reader, with a stand-in for `TastyStubs`,
+// a SHA-256 `MessageDigest` (absent from Scala Native's Java library) and a main. It does not
+// compile against the TASTy front end, which is all tasty-query: tasty-query publishes JVM and
+// Scala.js builds only (1.10.0), and a native binary holds no JDK to read. Kept as it was, until
+// tasty-query has a Native build. Not aggregated: nothing here is published, tested or gated.
 lazy val coreNative = (project in file("core-native"))
   .enablePlugins(ScalaNativePlugin)
   .settings(
@@ -98,16 +118,19 @@ lazy val coreNative = (project in file("core-native"))
     )
   )
 
-// JMH benchmarks over a real checkout (bench/README.md). Not aggregated by `root`: benchmarks run
-// on demand, never in CI, and publish nothing.
+// Measurement over a frozen corpus (bench/README.md). Not aggregated by `root`: it runs on demand,
+// never in CI, and publishes nothing.
 lazy val bench = project
-  .enablePlugins(JmhPlugin)
   .dependsOn(core)
   .settings(
     name := "scala-cardinality-bench",
     scalaVersion := coreScalaVersion,
     publish / skip := true,
-    coverageEnabled := false
+    coverageEnabled := false,
+    // `bench/runMain cardinality.bench.CorpusRun` (scripts/measure-corpus.sh): a JVM of its own per
+    // run, with the heap and stack a whole-module report needs.
+    Compile / run / fork := true,
+    Compile / run / javaOptions ++= Seq("-Xmx16g", "-Xss8m")
   )
 
 // The three build-tool plugins share one way to reach `core`: none depends on it. Each resolves
@@ -255,7 +278,7 @@ ThisBuild / scalafixDependencies +=
 // Coverage (scoverage)
 // ----------------------------------------------------------------
 // A regression floor, not an aspiration: the suites cover the `Size` algebra and
-// the arithmetic in `docs/type-arithmetic.md`, but not every escalation arm, so
+// the arithmetic in `docs/site/arithmetic/counting-data.md`, but not every escalation arm, so
 // the baseline sits around 85% statements. Statements are gated just below that;
 // the number should ratchet up as the algebra gains tests, not be treated as a
 // target. Report-only would let coverage rot silently, and an aspirational
@@ -263,9 +286,9 @@ ThisBuild / scalafixDependencies +=
 // where the instrumented code lives.
 coverageHighlighting := true
 
-// Self-measurement (`-Dcardinality.self`, see project/plugins.sbt) reports one module at a time:
-// the two sbt plugins' reports each read the stubs of all of sbt, and four reports at once do not
-// fit the heap `.jvmopts` gives.
+// Self-measurement (`-Dcardinality.self`, see project/plugins.sbt) runs one task at a time: the
+// loader already runs one report at a time, and this keeps the modules' compiles from overlapping
+// it as well within the heap `.jvmopts` gives.
 Global / concurrentRestrictions ++=
   (if (sys.props.contains("cardinality.self")) Seq(Tags.limitAll(1)) else Nil)
 
@@ -301,7 +324,7 @@ addCommandAlias("mutationAll", "core/stryker")
 // Two deviations from `eo`'s setup, both forced by sbt 2: its `sbt-typelevel-site`
 // plugin has no sbt 2 build, so the render step lives in `project/SiteRenderer.scala`
 // instead of a plugin; and `sbt-mdoc` cannot be used here at all, because it puts
-// `scalameta_2.13` on the classpath of a project that depends on `scalameta_3` (see
+// `scalameta_2.13` on the classpath of a project whose tests use `scalameta_3` (see
 // `project/plugins.sbt`). Docs examples are therefore pinned by the test suite rather
 // than compiled from the pages.
 // `siteRender` is declared at the build level so `sbt siteRender` resolves, but only the

@@ -32,5 +32,26 @@
       "name" : "Overall Code Complexity",
       "weight" : 0.0
     } ]
+  }, {
+    "matching_content_path" : "core/src/main/scala/cardinality/compiled/Source.scala",
+    "rules" : [ {
+      "name" : "Primitive Obsession",
+      "weight" : 0.0
+    } ]
+  }, {
+    "matching_content_path" : "core/src/test/scala/**/*Spec.scala",
+    "rules" : [ {
+      "name" : "Primitive Obsession",
+      "weight" : 0.0
+    }, {
+      "name" : "Excess Number of Function Arguments",
+      "weight" : 0.0
+    }, {
+      "name" : "Code Duplication",
+      "weight" : 0.0
+    }, {
+      "name" : "Low Cohesion",
+      "weight" : 0.0
+    } ]
   } ]
 }

@@ -1,0 +1,4 @@
+scala-cardinality — 0 sources, 0 definitions
+  stored-value estimates: constructor inputs only; a finite capacity prints as the bound ≤2^b, marked (lossy) when it holds floating point
+  ?: no single number here — the reason after the row says what would give one
+  could not read Broken.scala: no compiled classes supplied

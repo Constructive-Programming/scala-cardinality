@@ -128,8 +128,8 @@ Three buckets, in order of value:
 
 1. **Type-duplicated helpers**: functions differing only in the type operated on. One
    generic function takes the varying operation as a parameter.
-2. **Hand-rolled machinery**: folds or loops that restate `TypeSubstitution.hylo`,
-   `localCata`, `plated`, `Graphs.reachable` or a cats combinator. Swap them.
+2. **Hand-rolled machinery**: folds or loops that restate `Traversals.hylo`,
+   `localCata`, `Traversals.plated`, `Graphs.reachable` or a cats combinator. Swap them.
 3. **Concrete-typed structural functions**: containers in and out, no domain logic. Add a
    type parameter only with a second caller; generalizing a single caller is speculation.
 

@@ -1,13 +1,15 @@
 package cardinality.analysis
 
+import cardinality.Pending
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 import org.specs2.matcher.MatchResult
 
-/** Inferred results, typed only where syntax fixes them: overridden declarations, literals,
-  * ascriptions, explicit construction and calls of declared methods (environment completeness §5).
-  * Every fixture is valid Scala 3.9.0 except where a name outside the sources is the point; each
-  * expected number is derived in the comment beside it.
+/** Inferred results are the compiler's (rule T, `CompiledClasses`): every fixture is compiled first
+  * (`cardinality.Compiled`), and a member written without a type reads the type scalac gave it. A
+  * fixture the compiler rejects (a name outside the sources is the point) is read as written: its
+  * untyped members refuse, the compiler's inference is not imitated. Each expected number is
+  * derived from the compiled type in the comment beside it.
   */
 class InferredResultsSpec extends Specification with InventoryFixtures {
   import Inhabitation.Count
@@ -20,21 +22,32 @@ class InferredResultsSpec extends Specification with InventoryFixtures {
       an overload or a private parent member is not overridden       $overloads
       an overridden abstract type member is the subclass's           $overriddenMember
       an abstract var's accessors or a given type their implementer  $variableOverrides
-      an override of a declaration not supplied is refused           $unsuppliedOverride
-      an implicit parent's member is refused                         $implicitParents
-      a dependent or extension override is refused                   $overrideRefusals
+      a parent not supplied refuses the source's untyped members     ${Pending.rejectedFixture(
+      unsuppliedOverride
+    )}
+      an implicit parent's member is typed by the parent             $implicitParents
+      a dependent, extension or context-bound override               ${Pending.knownLoss(
+      overrideRefusals
+    )}
       a call of a declared method with explicit type arguments       $calls
-      a call needing inference or another reading is refused         $callRefusals
-      a call an import, export, extension or parent may bind         $callBindings
+      a call needing inference reads the inferred result             $callRefusals
+      a source that does not compile refuses its untyped members     ${Pending.rejectedFixture(
+      callBindings
+    )}
       a creator application reads the case class it creates          $creatorApplications
-      a creator application that may call another term is refused    $creatorRefusals
-      a singleton ascription, written or aliased, is refused         $singletonAscriptions
-      a call's singleton result is widened or refused                $singletonCalls
-      an instance of a class outside the sources is read as written  $outsideCreation
+      a companion apply or a nearer term is the callee               ${Pending.knownLoss(
+      creatorRefusals
+    )}
+      a singleton ascription, written or aliased, is widened         $singletonAscriptions
+      a call's singleton result is widened                           $singletonCalls
+      an instance of a class outside the sources is read as written  ${Pending.knownLoss(
+      outsideCreation
+    )}
       a transparent inline method's result is refused                $transparentInline
   """
 
-  // `true` is a scala.Boolean even where `Boolean` names Int (2); `()` is Unit (1); `3` an Int.
+  // `true` is a scala.Boolean even where `Boolean` names Int (2); `()` is Unit (1); `3` an Int;
+  // `null` a `Null`, which reads as no value, as a written `Null` result does (0).
   def literals = {
     val found = rows("""object I { def lit = true; def unit() = (); def int = 3; def nul = null }
       |object Sh { type Boolean = Int; def lit = false }""".stripMargin)
@@ -42,15 +55,15 @@ class InferredResultsSpec extends Specification with InventoryFixtures {
       .and(found("I.unit") === Count.Finite(1))
       .and(found("I.int") === Count.Finite(BigInt(2).pow(32)))
       .and(found("Sh.lit") === Count.Finite(2))
-      .and(refused(found("I.nul"), "inferred result type not resolved: literal null"))
+      .and(found("I.nul") === Count.Finite(0))
   }
 
-  // `(x: A)` is an A: x (1). A union ascription is kept by the compiler (fixture imp/c.scala); this
-  // reading refuses it, which costs only precision.
+  // `(x: A)` is an A: x (1). A union ascription is kept by the compiler: `Int | String`, an output
+  // with a `String` side, is ω.
   def ascriptions = {
     val found = rows("object I { def asc[A](x: A) = (x: A); def u = (1: Int | String) }")
     (found("I.asc") === Count.Finite(1))
-      .and(refused(found("I.u"), "inferred result type not resolved: union ascription"))
+      .and(found("I.u") === Count.Countable)
   }
 
   // Scala 3.9.0 types an overriding member by the member it overrides (fixtures: `Some(1)`
@@ -117,24 +130,24 @@ class InferredResultsSpec extends Specification with InventoryFixtures {
   }
 
   // Every template extends `Any` and `Object`; a case class or object `Product` and `Equals`, an enum
-  // `scala.reflect.Enum` with both: scalac types `productElement` as `Any` (1), `clone` as `Object`
-  // and `canEqual` as `Boolean` — never by the body.
+  // `scala.reflect.Enum` with both: scalac types `productElement` as `Any`, `clone` as `Object` and
+  // `toString` as `String` (outputs: ω each), `canEqual` as `Boolean` (2) — never by the body.
   def implicitParents = {
     val found = rows("""final case class G(a: Int) { def productElement(n: Int) = true }
       |case object CO { def productElement(n: Int) = true }
       |final class K { override def clone() = new K }
       |enum E { case A; def canEqual(x: Any) = true }
       |object R { override def toString = "r" }""".stripMargin)
-    val reason = "inferred result type not resolved: a member that may override a declaration of"
-    refused(found("G.productElement"), s"$reason Product")
-      .and(refused(found("CO.productElement"), s"$reason Product"))
-      .and(refused(found("K.clone"), s"$reason Any"))
-      .and(refused(found("E.canEqual"), s"$reason Equals"))
-      .and(refused(found("R.toString"), s"$reason Any"))
+    (found("G.productElement") === Count.Countable)
+      .and(found("CO.productElement") === Count.Countable)
+      .and(found("K.clone") === Count.Countable)
+      .and(found("E.canEqual") === Count.Finite(2))
+      .and(found("R.toString") === Count.Countable)
   }
 
-  // A dependent overridden result; an extension method of a template with a parent (scalac types
-  // `O`'s `f` by `P`'s `Any`); a context bound, whose evidence clause is not compared.
+  // scalac types `OD.f` by the dependent `x.type`: x (1); `O`'s extension `f` by `P`'s `Any`, an
+  // output: ω; `OB.g` by `Any` too, but its context bound names `Ordering`, which no source or the
+  // stdlib model declares: refused, as with the result written.
   def overrideRefusals = {
     val found = rows("""trait PD { def f(x: Any): x.type }
       |object OD extends PD { def f(x: Any) = x }
@@ -142,14 +155,9 @@ class InferredResultsSpec extends Specification with InventoryFixtures {
       |object O extends P { extension (x: Int) def f = true }
       |trait PB { def g[A: Ordering](x: A): Any }
       |object OB extends PB { def g[A: Ordering](x: A) = true }""".stripMargin)
-    refused(found("OD.f"), "inferred result type not resolved: dependent result of an overridden f")
-      .and(refused(found("OB.g"), "overriding member g, whose parameter types are not matched"))
-      .and(
-        refused(
-          found("O.<extension@4>.f"),
-          "inferred result type not resolved: an extension method that may override an inherited one"
-        )
-      )
+    (found("OD.f") === Count.Finite(1))
+      .and(refused(found("OB.g"), "declaration not supplied: Ordering"))
+      .and(found("O.<extension@4>.f") === Count.Countable)
   }
 
   def unsuppliedOverride = {
@@ -159,10 +167,12 @@ class InferredResultsSpec extends Specification with InventoryFixtures {
       |trait P3 { def getAsBoolean(): Any }
       |final class G extends P3 with java.util.function.BooleanSupplier { def getAsBoolean() = true }
       |""".stripMargin)
-    val reason = "inferred result type not resolved: a member that may override a declaration of"
-    refused(found("Q.f"), s"$reason Ext")
-      .and(refused(found("F.apply"), s"$reason Int => Boolean"))
-      .and(refused(found("G.getAsBoolean"), s"$reason java.util.function.BooleanSupplier"))
+    // `Ext` is not supplied, so the source does not compile: no untyped member has a type.
+    val reason =
+      "inferred result type not resolved: written without a type, in a source not compiled"
+    refused(found("Q.f"), reason)
+      .and(refused(found("F.apply"), reason))
+      .and(refused(found("G.getAsBoolean"), reason))
   }
 
   // The callee's declared result under the explicit arguments: id[A](x) is an A (1), opt[A](x) an
@@ -182,8 +192,9 @@ class InferredResultsSpec extends Specification with InventoryFixtures {
       .and(found("Wrap.same") === Count.Finite(1))
   }
 
-  // `C` inherits `Base.g`, which outranks the package's `g` of another file: the lookup of a term
-  // through a template with parents is not attempted.
+  // scalac infers each: `id(x)` an A (x: 1); `curried[A](x)` an `A => A` (y => x or y => y: 2);
+  // `Ov.h` the `Int` overload; `C.h` the inherited `Base.g`'s `Int`, which outranks the package's
+  // `g` of another file (2^32 each).
   def callRefusals = {
     val found = counts(
       "a.scala" -> ("package p\ndef id[A](x: A): A = x\ndef curried[A](x: A)(y: A): A = x\n" +
@@ -192,16 +203,15 @@ class InferredResultsSpec extends Specification with InventoryFixtures {
         "def g(x: Int): Option[Int] = None"),
       "b.scala" -> "package p\ntrait Base { def g(x: Int): Int = x }\nclass C extends Base { def h = g(1) }"
     )
-    refused(found("p.call"), "call of id needing type-argument inference")
-      .and(refused(found("p.call5"), "partial application of curried"))
-      .and(refused(found("p.Ov.h"), "call of g, not one declared method"))
-      .and(refused(found("p.C.h"), "call of g, which a template may inherit"))
+    (found("p.call") === Count.Finite(1))
+      .and(found("p.call5") === Count.Finite(2))
+      .and(found("p.Ov.h") === Count.Finite(BigInt(2).pow(32)))
+      .and(found("p.C.h") === Count.Finite(BigInt(2).pow(32)))
   }
 
-  // Each callee is bound by something other than the one declaration the walk would reach: the
-  // overload `P.f(String)` C inherits (scalac: Boolean, true 2), an explicit import, an export and an
-  // extension method outranking `Outer.f`, an import outranking another file's package member, and
-  // a dependent result.
+  // `nowhere` is no name the sources declare, so the source does not compile: every member written
+  // without a type refuses, whatever the callee (the inherited overload, an import, an export, an
+  // extension, a dependent or recursive result, a parameter's application).
   def callBindings = {
     val found = counts(
       "a.scala" -> "package cb\ndef g(x: Int): Int = 1",
@@ -219,18 +229,12 @@ class InferredResultsSpec extends Specification with InventoryFixtures {
         |object Dep { def id(x: Any): x.type = x; def k(y: Any) = id(y); def r = r; def u = nowhere(1) }
         |object Par { def k(h: Int => Boolean) = h(1) }""".stripMargin
     )
-    val reason = "inferred result type not resolved: call of"
-    refused(found("cb.C.g2"), s"$reason f, which a template may inherit from P")
-      .and(refused(found("cb.Outer.Imp.h"), s"$reason f, which an import may bind"))
-      .and(refused(found("cb.Outer.Exp.h"), s"$reason f, which an export may define"))
-      .and(refused(found("cb.Outer.Ext.h"), s"$reason f, an extension method"))
-      .and(refused(found("cb.Use.f"), s"$reason g, which an import may bind"))
-      .and(refused(found("cb.Dep.k"), "inferred result type not resolved: dependent result of id"))
-      .and(refused(found("cb.Dep.r"), "inferred result type not resolved: recursive call"))
-      .and(refused(found("cb.Dep.u"), s"$reason nowhere, not a method an enclosing scope declares"))
-      .and(
-        refused(found("cb.Par.k"), "inferred result type not resolved: application of a parameter")
-      )
+    val reason =
+      "inferred result type not resolved: written without a type, in a source not compiled"
+    List("cb.C.g2", "cb.Outer.Imp.h", "cb.Outer.Exp.h", "cb.Outer.Ext.h", "cb.Use.f", "cb.Dep.k")
+      .appendedAll(List("cb.Dep.r", "cb.Dep.u", "cb.Par.k"))
+      .map(name => refused(found(name), reason))
+      .reduce(_ and _)
   }
 
   // `CBox[A](a)` and `new CBox[A](a)` are a `CBox[A]`: its one field holds `a` (1). `Box[A](a)` and
@@ -246,7 +250,9 @@ class InferredResultsSpec extends Specification with InventoryFixtures {
       .and(found("J.mk2") === Count.Finite(1))
   }
 
-  // A companion `apply` or a nearer term `Box` would be the callee, not the constructor.
+  // A companion `apply` or a nearer term `Box` is the callee: `UseF.mk` is the `Fact[A]` the companion
+  // builds and `UseC.mk` a `Box[A]`, whose field no public member observes: refused, as with the
+  // result written; `UseB.mk` is the nearer `Box`'s `Option[A]` (None or Some(a): 2).
   def creatorRefusals = {
     val found = rows("""class Fact[A](a: A)
       |object Fact { def apply[A](a: A): Fact[A] = new Fact(a) }
@@ -254,28 +260,27 @@ class InferredResultsSpec extends Specification with InventoryFixtures {
       |final class Box[A](a: A)
       |object UseB { object Box { def apply[A](a: A): Option[A] = Some(a) }; def mk[A](a: A) = Box[A](a) }
       |object UseC { def mk[A](a: A) = new Box(a) }""".stripMargin)
-    val other = "which may name another term"
-    refused(found("UseF.mk"), other)
-      .and(refused(found("UseB.mk"), other))
-      .and(refused(found("UseC.mk"), "instance creation needing type arguments"))
+    val hidden = "final class field not observable injectively"
+    refused(found("UseF.mk"), s"$hidden: Fact.a")
+      .and(found("UseB.mk") === Count.Finite(2))
+      .and(refused(found("UseC.mk"), s"$hidden: Box.a"))
   }
 
-  // Scala widens a singleton in an inferred result (scalac rejects `val y: 2 = O.f`): `(1: One)` is
-  // an Int, `(v: V)` a Boolean. The singleton is refused, written or behind an alias.
+  // Scala widens a singleton in an inferred result (scalac rejects `val y: 2 = O.f`): `(1: One)` and
+  // `(1: 1)` are an Int (2^32), `(v: V)` a Boolean (2); `v`, a final `true`, adds nothing.
   def singletonAscriptions = {
     val found = rows(
       """type One = 1
       |object O { val v: Boolean = true; type V = v.type; def f = (1: One); def g = (v: V); def h = (1: 1) }""".stripMargin
     )
-    val reason = "inferred result type not resolved: singleton ascription"
-    refused(found("O.f"), reason)
-      .and(refused(found("O.g"), reason))
-      .and(refused(found("O.h"), reason))
+    (found("O.f") === Count.Finite(BigInt(2).pow(32)))
+      .and(found("O.g") === Count.Finite(2))
+      .and(found("O.h") === Count.Finite(BigInt(2).pow(32)))
   }
 
-  // Scala widens a call's singleton result (fixtures: `h` is an Int, `g` a `C`, `u2` an Int, `ga`
-  // an `E`): `one: 1` gives an Int (2^32); `this.type`, an enum case's type, an alias of a literal
-  // and a union of literals are refused; an object's singleton widens to itself (1); a union of
+  // Scala widens a call's singleton result: `one: 1`, the alias `One` and `1 | 2` give an Int
+  // (2^32); `this.type` a `C`, two values (a Boolean field) split over the captured `a`: 2^2 = 4;
+  // an enum case's type its enum (A or B: 2); an object's singleton stays itself (1); a union of
   // classes is kept (Int | String: ω).
   def singletonCalls = {
     val found = rows("""enum E { case A, B }
@@ -290,30 +295,33 @@ class InferredResultsSpec extends Specification with InventoryFixtures {
       |  def m: M.type = M; def gm = m
       |  def keep: Int | String = 1; def kk = keep
       |}""".stripMargin)
-    val reason = "inferred result type not resolved: singleton result of a call of"
     (found("O.h") === Count.Finite(BigInt(2).pow(32)))
-      .and(refused(found("C.g"), s"$reason self"))
-      .and(refused(found("O.k"), s"$reason aliased"))
-      .and(refused(found("O.u2"), s"$reason u"))
-      .and(refused(found("O.ga"), s"$reason a"))
+      .and(found("C.g") === Count.Finite(4))
+      .and(found("O.k") === Count.Finite(BigInt(2).pow(32)))
+      .and(found("O.u2") === Count.Finite(BigInt(2).pow(32)))
+      .and(found("O.ga") === Count.Finite(2))
       .and(found("O.gm") === Count.Finite(1))
       .and(found("O.kk") === Count.Countable)
   }
 
-  // `new Object` is an Object (a top in an output: ω, v1.md §2; it was ε₀); `new StringBuilder` names
-  // its absent declaration; a stdlib class the model gives type parameters needs them.
+  // `new Object` is an Object (a top in an output: ω, v1.md §2); `new StringBuilder` a
+  // `scala.collection.mutable.StringBuilder`, which no source or the stdlib model declares; `new
+  // Some(1)` a `Some[Int]` (2^32).
   def outsideCreation = {
     val found =
       rows("object O { def f = new Object; def g = new StringBuilder; def h = new Some(1) }")
     (found("O.f").render === "ω")
-      .and(refused(found("O.g"), "declaration not supplied: StringBuilder"))
-      .and(refused(found("O.h"), "inferred result type not resolved: instance creation needing"))
+      .and(
+        refused(found("O.g"), "declaration not supplied: scala.collection.mutable.StringBuilder")
+      )
+      .and(found("O.h") === Count.Finite(BigInt(2).pow(32)))
   }
 
+  // Rule X: the call site types the expansion, so the compiler's Boolean is only an upper bound.
   def transparentInline =
     refused(
       count("object Tn { transparent inline def t = true }", "Tn.t"),
-      "inferred result type not resolved: transparent inline method"
+      "transparent inline result: the call site observes the expansion's type, not the declared Boolean"
     )
 
 }

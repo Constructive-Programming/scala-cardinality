@@ -132,6 +132,16 @@ equations are read as least fixed points. A declaration may not supply its own i
   measured is excluded from its own supplied slots — but it is the same discipline: circular
   "definitions" do not create inhabitants.
 
+**Lazy recursion (stored side, type-arithmetic.md §8; owner's ruling).** A cycle through a lazy
+position is the greatest fixed point, counted as its per-lap label space raised to ω under the
+finite-program reading (D2). The label space is what a lap may choose: an arm's fields, which of
+several continuing arms or children. Holes alone choose nothing (`νX.X·X` = 1, the one knot). An
+arm with one hole ends the unfolding where it takes a value outside the cycle; an arm with two
+holes or more continues through one and holds, in the others, any value of their node — the
+cycle's own type included — which is a label like any other (`Rb(b: Boolean, l: => Rb, r: => Rb)`:
+`r` ranges over ω values each lap, `ε₀`). An arm's holes are read from how its fields' width grows with the cycle's, once per
+hole.
+
 **Boundary.** Least-fixed-point semantics justifies *reading* a recursive type; it does not
 justify assuming a program terminates. Divergence is excluded by model assumption, not proven
 away, and any recursive signature our fragment cannot decide stays `?`.
@@ -1945,7 +1955,7 @@ implicit conversion a body may meet, a source name — is unchanged.
 `.packageObject`, `.chainedPackage`; `BinderBoundsSpec.rebindableTops`;
 `HigherKindedRefusalSpec.boxedNames` (java.lang's boxed names read by their rooted names: their
 scalars' counts, their own keys), `StdlibModelSpec.javaWildcard` (`java.util.List` a sequence,
-`java.awt.List` refused unsupplied, 4 through a supplied declaration),
+`java.awt.List` refused unsupplied) and `.javaWildcardStub` (4 through a supplied declaration),
 `TastyStubsSpec` (a `java.sql` enum 16 and `java.awt.List` resolved through rendered JDK-module
 stubs), `.finalUnmodelled` (`Integer`, `Optional`),
 `NamespaceScopingSpec.unsuppliedWildcard` (the stored side under `scala.collection.mutable.*`); the Shadowed-builtin-names group of `GroundEnvironmentSpec` (declarations still shadow).
@@ -2027,8 +2037,13 @@ class extends has no instance of another class, so its value is its constructor 
 **Boundary.** Templates are matched by the simple name their declaration or parent clause spells,
 aliases followed. A compiled dependency stub names the parent the compiler resolved: its full
 path, or the simple name of a top-level template of its own package (`StubDeclarations`), so a
-stub's parent that some stub declares under that qualified name is that template alone, never a
-same-named one of another package. A parent outside the sources whose members are not known (all but the markers
+stub's parent is the template of that qualified name alone, never a same-named one of another
+package, whether or not a stub declares it (an undeclared one, a stdlib-held `java.util.Map`, is a
+parent outside the sources; the markers, `Product` and `Equals` keep their members by their
+qualified names). A stub template is asked about by its qualified name: only stubs whose parent is
+it and sources spelling its simple name may extend it (2026-11-10: scalameta's `Tree.begOffset` had
+read open because JDK `Map` implementors, reached through `Member.Function` / `Type.Map`, shared
+the simple names). A parent outside the sources whose members are not known (all but the markers
 and `Product`, `Equals`) may override anything: a member only such a parent may override is refused
 (`member may be overridden through a parent outside the sources: C.m`). Same-named templates of
 different packages share their subclasses, so a member one of them overrides stays open — the open

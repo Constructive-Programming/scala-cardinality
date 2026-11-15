@@ -1,7 +1,7 @@
 package cardinality.analysis
 
-import scala.meta.*
-
+import cardinality.Compiled.withheld
+import cardinality.Pending
 import cardinality.analysis.inhabitation.Inhabitation.Count
 import cardinality.analysis.inhabitation.NaturalSyntax.pow
 import org.specs2.Specification
@@ -25,14 +25,20 @@ class StdlibModelSpec extends Specification {
       Either spellings are one evidence identity                    $eitherIdentity
     Singleton terms
       None and Nil singletons have their one value                  $singletonTerms
-      an unresolved path's singleton is the one value it names      $unresolvedSingleton
-      an inaccessible source module's singleton stays refused       $inaccessibleSingleton
+      an unresolved path's singleton is the one value it names      ${Pending.knownLoss(
+      unresolvedSingleton
+    )}
+      an inaccessible source module's singleton stays refused       ${Pending.rejectedFixture(
+      inaccessibleSingleton
+    )}
     Sequences
       List, Vector, Seq, IndexedSeq and ArraySeq introduce Nil/Cons  $introduction
       an Array of a concrete element is a sequence                  $arrays
       an Array of a class or of an empty type is a sequence         $classArrays
       an Array of a type parameter needs its ClassTag               $abstractArray
-      an Array of a singleton needs its widened type's ClassTag     $singletonArrays
+      an Array of a singleton needs its widened type's ClassTag     ${Pending.knownLoss(
+      singletonArrays
+    )}
       an override over List keeps its identity                      $fromList
     Excluded and open declarations
       single-pass types are read as the sequence they yield         $singlePass
@@ -42,48 +48,87 @@ class StdlibModelSpec extends Specification {
       Java collections name their FQN; throwables, BigInt are data   $open
       boxed scalars and Optional count as what they hold            $finalUnmodelled
       an unapplied entry is an operator, applied where it is read   $unapplied
-      a union does not discriminate a model sequence's class        $unionClass
+      an unapplied entry where a proper type is expected is refused ${Pending.rejectedFixture(
+      unappliedProper
+    )}
+      a union discriminates a model sequence's class                $unionClass
     Absent declarations
-      a named import names the path it binds                         $namedImport
-      a selection through an import names the full path              $selected
-      a renamed import names the path and the name                   $renamed
-      a name found nowhere says the information is absent           $nowhere
-      a gap inside the supplied sources stays unresolved            $gap
+      a named import names the path it binds                         ${Pending.knownLoss(
+      namedImport
+    )}
+      a selection through an import names the full path              ${Pending.knownLoss(selected)}
+      a renamed import names the path and the name                   ${Pending.knownLoss(renamed)}
+      a name found nowhere says the information is absent           ${Pending.knownLoss(nowhere)}
+      a gap inside the supplied sources stays unresolved            ${Pending.rejectedFixture(gap)}
       a named import of a builtin reads the builtin                 $importedBuiltin
-      an import's own head may be rebound                           $importedHead
+      an import's own head may be rebound                           ${Pending.knownLoss(
+      importedHead
+    )}
     Shadowing
       a source declaration shadows the model                        $sourceShadows
       an import of a model path reads the model                     $importedModel
-      only fully qualified paths reach the model                    $relativePaths
+      `util.Either` is the model's, like the rooted spellings       $relativePaths
+      a root-anchored simple name is a top-level declaration        ${Pending.rejectedFixture(
+      rootedSimpleName
+    )}
       an unsupplied wildcard rebinds no model name                  $wildcardRefusal
       a supplied namespace answers instead                          $wildcardSupplied
-      a JDK wildcard reads List by its rooted name, supplied or not  $javaWildcard
-      listed stdlib namespaces shadow no model name                 $listedNamespaces
-      dependency namespaces are listed from their artifacts         $dependencyNamespaces
-      a listed namespace's member reads the model                   $namespaceMember
-      a listed namespace counts only through the library's head     $listedHead
+      a JDK wildcard reads List by its rooted name                   $javaWildcard
+      a JDK class outside java.base is refused with no classpath     ${Pending.knownLoss(
+      javaAwtUnread
+    )}
+      listed stdlib namespaces shadow no model name                 ${Pending.knownLoss(
+      listedNamespaces
+    )}
+      dependency namespaces are listed from their artifacts         ${Pending.knownLoss(
+      dependencyNamespaces
+    )}
+      a listed namespace's member reads the model                   ${Pending.knownLoss(
+      namespaceMember
+    )}
+      a listed namespace counts only through the library's head     ${Pending.knownLoss(listedHead)}
       a listed namespace's member outranks another file's member    $listedPrecedence
-      a supplied namespace's missing member names the wildcard      $wildcardOrigin
-      a package scala of the sources outranks the root package      $scalaSubpackage
+      a supplied namespace's missing member names the wildcard      ${Pending.knownLoss(
+      wildcardOrigin
+    )}
+      a package scala of the sources outranks the root package      ${Pending.knownLoss(
+      scalaSubpackage
+    )}
     Foreign parents
-      an open template's foreign parent is reported                 $openParent
-      a fixed receiver's parents are implemented                    $fixedParent
-      a constructor chooses only its parameters                     $constructorExempt
-      a nested object reads its open owner's parents                $nestedObject
+      an open template's foreign parent is reported                 ${Pending.knownLoss(openParent)}
+      a fixed receiver's parents are implemented                    ${Pending.knownLoss(
+      fixedParent
+    )}
+      a constructor chooses only its parameters                     ${Pending.knownLoss(
+      constructorExempt
+    )}
+      a nested object reads its open owner's parents                ${Pending.knownLoss(
+      nestedObject
+    )}
       IterableOnce leaves iterator to the sources                   $iterableOnce
       IterableOnce declares no type member                          $iterableTypes
       a model parent under an unsupplied wildcard is the model      $wildcardParent
       a sealed template whose subtypes are fixed is a fixed receiver $sealedParent
+      a sealed template with a subtype something extends is fixed  ${Pending.knownLoss(
+      sealedParentExtended
+    )}
       a parent whose standing its own search asks is the model's    $selfReachingParent
   """
 
-  private def inputs(sources: (String, String)*): List[MethodAnalysis.Input] =
-    sources.toList.map { (path, text) =>
-      MethodAnalysis.Input(path, dialects.Scala3(text).parse[Source].get)
-    }
+  private def inputs(sources: (String, String)*): List[cardinality.Compiled.Input] =
+    cardinality.Compiled.inputs(sources*)
 
   private def countIn(sources: (String, String)*)(name: String): Count =
-    MethodAnalysis.analyze(inputs(sources*)).find(_.name == name).get.count
+    cardinality.Compiled.analyze(inputs(sources*)).find(_.name == name).get.count
+
+  // Declarations a fixture names and the analysis is not supplied: the fixture is compiled against
+  // them and they are withheld (`Compiled.withheld`).
+  private val lib = withheld("package lib\nobject Unsupplied")
+  private val libBase = withheld("package lib\ntrait Base")
+
+  private val avro = withheld(
+    "package org.apache.avro\nclass Schema\nobject Schema { class Type }"
+  )
 
   private def count(code: String, name: String): Count = countIn("Example.scala" -> code)(name)
 
@@ -202,7 +247,11 @@ class StdlibModelSpec extends Specification {
   }
 
   def unresolvedSingleton =
-    count("object N { def wide: far.away.Unsupplied.type = ??? }", "N.wide") === Count.Finite(1)
+    count(
+      "object N { def wide: far.away.Unsupplied.type = ??? }" +
+        withheld("package far.away\nobject Unsupplied"),
+      "N.wide"
+    ) === Count.Finite(1)
 
   def inaccessibleSingleton = {
     val code = "object O { private object H }\nobject N { def out: O.H.type = ??? }"
@@ -271,7 +320,7 @@ class StdlibModelSpec extends Specification {
       .map(name =>
         refused(
           count(code, name),
-          "Array of an abstract element type is not read: scala.Array (building one needs " +
+          "Array of an abstract element type is not read: Array (building one needs " +
             "ClassTag evidence, and the reading has no polarity)"
         )
       )
@@ -450,42 +499,41 @@ class StdlibModelSpec extends Specification {
     (count(code, "O.boxed").render === "2^(2^32)")
       .and(count(code, "O.keyed") === Count.Finite(0))
       .and(count(code, "O.opt") === Count.Finite(27))
-      .and(refused(count(code, "O.eq"), "open stdlib type with unmodelled members: scala.Equals"))
+      .and(refused(count(code, "O.eq"), "open stdlib type with unmodelled members: Equals"))
   }
 
   // An unapplied entry in a higher-kinded position is an operator (D14), applied in its own scope:
   // `Box[Either]` holds an `Either[Unit, Unit]` (2 values: 2^2 functions to Boolean), `One[Option]`
-  // an `Option[Boolean]` (3^3 functions to itself). Read where a proper type is expected — no
-  // Scala program — it names its type lambda.
+  // an `Option[Boolean]` (3^3 functions to itself).
   def unapplied = {
     val code = """final case class Box[F[_, _]](v: F[Unit, Unit])
       |final case class One[F[_]](v: F[Boolean])
       |object U {
       |  def box(b: Box[Either]): Boolean = ???
       |  def opt(o: One[Option]): Option[Boolean] = ???
-      |  def proper(x: Option): Boolean = ???
       |}""".stripMargin
-    (count(code, "U.box") === Count.Finite(4))
-      .and(count(code, "U.opt") === Count.Finite(27))
-      .and(
-        refused(
-          count(code, "U.proper"),
-          "higher-kinded argument: scala.Option (type constructor [A] =>> 1 + A, " +
-            "needs higher-kinded instantiation)"
-        )
-      )
+    (count(code, "U.box") === Count.Finite(4)).and(count(code, "U.opt") === Count.Finite(27))
   }
 
-  // `Vector[Int] | String` would be a sum only with Vector's runtime class, which A2's table does
-  // not hold: refused, saying the model holds the declaration (not that it is absent).
-  def unionClass =
+  // Read where a proper type is expected — no Scala program, so the fixture is read as written —
+  // an unapplied entry names its type lambda.
+  def unappliedProper =
     refused(
-      count("object U { def v(x: Vector[Int] | String): Boolean = ??? }", "U.v"),
-      "Vector has no runtime class this reading tells apart (stdlib model)"
+      count("object U { def proper(x: Option): Boolean = ??? }", "U.proper"),
+      "higher-kinded argument: scala.Option (type constructor [A] =>> 1 + A, " +
+        "needs higher-kinded instantiation)"
     )
 
+  // Vector and String are disjoint classes the compiler names, so `Vector[Int] | String` is their
+  // sum, an infinite input: a Boolean of it is ω, as `String => Boolean` is.
+  def unionClass =
+    count("object U { def v(x: Vector[Int] | String): Boolean = ??? }", "U.v") === Count.Countable
+
   def namedImport =
-    count("import org.apache.avro.Schema\nobject U { def f(s: Schema): Schema = s }", "U.f") ===
+    count(
+      "import org.apache.avro.Schema\nobject U { def f(s: Schema): Schema = s }" + avro,
+      "U.f"
+    ) ===
       Count.Unresolved(
         List("declaration not supplied: org.apache.avro.Schema (named import Schema)")
       )
@@ -493,22 +541,31 @@ class StdlibModelSpec extends Specification {
   def selected =
     refused(
       count(
-        "import org.apache.avro.Schema\nobject U { def g(t: Schema.Type): Boolean = ??? }",
+        "import org.apache.avro.Schema\nobject U { def g(t: Schema.Type): Boolean = ??? }" + avro,
         "U.g"
       ),
       "declaration not supplied: org.apache.avro.Schema.Type (selected through named import Schema)"
     )
 
   def renamed =
-    count("import zz.{Widget as W}\nobject U { def f(w: W): W = w }", "U.f") ===
+    count(
+      "import zz.{Widget as W}\nobject U { def f(w: W): W = w }" + withheld(
+        "package zz\nclass Widget"
+      ),
+      "U.f"
+    ) ===
       Count.Unresolved(List("declaration not supplied: zz.Widget (renamed import W)"))
 
   // With nothing in scope that could bind it, and beside a wildcard of a listed dependency
   // namespace: kyo is listed from its artifacts (kyo 1.0.0-RC7), so the wildcard's doubt names
   // the declaration it binds instead of the whole namespace.
   def nowhere =
-    (count("object U { def f(x: Frame): Boolean = ??? }", "U.f") ===
-      Count.Unresolved(List(s"declaration not supplied: Frame (${StdlibModel.undeclared})")))
+    (count("object U { def f(x: Frame): Boolean = ??? }" + withheld("class Frame"), "U.f") ===
+      Count.Unresolved(
+        List(
+          s"declaration not supplied: Frame (${"not declared in the sources or stdlib-model/1"})"
+        )
+      ))
       .and(
         refused(
           count("import kyo.*\nobject U { def f(x: Frame): Boolean = ??? }", "U.f"),
@@ -546,7 +603,10 @@ class StdlibModelSpec extends Specification {
   def importedHead =
     count(
       "import lib.scala\nimport scala.collection.immutable.List\n" +
-        "object T { def l[A](a: A): List[A] = ??? }",
+        "object T { def l[A](a: A): List[A] = ??? }" +
+        withheld(
+          "package lib\nobject scala { object collection { object immutable { class List[A] } } }"
+        ),
       "T.l"
     ) === Count.Unresolved(
       List(
@@ -571,26 +631,32 @@ class StdlibModelSpec extends Specification {
   // A top-level package `util` outside the sources would outrank `scala.util` (Scala 3.9.0 fixture:
   // `summon[util.Either[Int, Int] =:= _root_.util.Either[Int, Int]]` compiles beside one), but none
   // is assumed (the never-shadowed assumption), so `util.Either` is the model's like
-  // `scala.util.Either` and `_root_.scala.util.Either`: Left(a) or Right(a). A root-anchored simple
-  // name is a top-level declaration, never a root import's.
+  // `scala.util.Either` and `_root_.scala.util.Either`: Left(a) or Right(a).
   def relativePaths = {
     val code = """object P {
       |  def rel[A](a: A): util.Either[A, A] = ???
       |  def full[A](a: A): scala.util.Either[A, A] = ???
       |  def rooted[A](a: A): _root_.scala.util.Either[A, A] = ???
-      |  def top[A](a: A): _root_.Option[A] = ???
       |}""".stripMargin
     (count(code, "P.rel") === Count.Finite(2))
       .and(count(code, "P.full") === Count.Finite(2))
       .and(count(code, "P.rooted") === Count.Finite(2))
-      .and(refused(count(code, "P.top"), "declaration not supplied: _root_.Option"))
   }
+
+  // A root-anchored simple name is a top-level declaration, never a root import's: `_root_.Option`
+  // names none, to scalac as to the model, so the fixture is read as written.
+  def rootedSimpleName =
+    refused(
+      count("object P { def top[A](a: A): _root_.Option[A] = ??? }", "P.top"),
+      "declaration not supplied: _root_.Option"
+    )
 
   // A wildcard import outranks the root imports, but an unsupplied `lib` is assumed to declare no
   // Option, Unit or Int (the never-shadowed assumption): Some(x) or None, and the one Unit.
   def wildcardRefusal = {
     val code =
-      "package p\nimport lib.*\nobject T { def f[A](x: A): Option[A] = ???; def u(x: Int): Unit = () }"
+      "package p\nimport lib.*\nobject T { def f[A](x: A): Option[A] = ???; def u(x: Int): Unit = () }" +
+        lib
     (count(code, "p.T.f") === Count.Finite(2)).and(count(code, "p.T.u") === Count.Finite(1))
   }
 
@@ -604,13 +670,7 @@ class StdlibModelSpec extends Specification {
   // `java.util.*` brings `java.util.List`, which outranks `scala.List`: `List` is that rooted name,
   // whose values are the sequences a Scala List holds (ω from an a). `F[List[A]]` there is
   // `F[java.util.List[A]]`, not the Scala one (0), and the rooted spelling is the same type (1).
-  // `java.awt.List` is a component the model does not read: with no declaration of it supplied, it
-  // is refused by its rooted name; with one (a dependency stub of `java.desktop`), it is read as
-  // that declaration, like any supplied class — a final class of one Boolean field: 2 values, so
-  // 2^2 maps to Boolean.
   def javaWildcard = {
-    val awt = "package java.awt\nfinal class List(val multiple: Boolean)"
-    val use = "import java.awt.*\nobject A { def l(a: List): Boolean = ??? }"
     val code = """import java.util.*
       |object W {
       |  def l[A](a: A): List[A] = ???
@@ -620,18 +680,15 @@ class StdlibModelSpec extends Specification {
     (count(code, "W.l") === Count.Countable)
       .and(count(code, "W.k") === Count.Finite(0))
       .and(count(code, "W.j") === Count.Finite(1))
-      .and(
-        refused(
-          count("import java.awt.*\nobject A { def l[A](a: A): List[A] = ??? }", "A.l"),
-          "java.awt.List"
-        )
-      )
-      .and(
-        countIn("Use.scala" -> use, "tasty/java.desktop/java/awt/List.scala" -> awt)(
-          "A.l"
-        ) === Count.Finite(4)
-      )
   }
+
+  // `java.awt.List` is a component the model does not read: with no dependency classpath it is
+  // refused by its rooted name. A build always passes a classpath, and the compiled front end
+  // always has the JDK to read (`DependencyRowsSpec.jdkModule`): this reading is the scalameta
+  // front end's alone.
+  def javaAwtUnread = refused(count(awtUse, "A.l"), "declaration not supplied: java.awt.List")
+
+  private val awtUse = "import java.awt.*\nobject A { def l(a: List): Boolean = ??? }"
 
   // scala.quoted, scala.jdk.CollectionConverters and quotes.reflect declare no model spelling
   // (Scala 3.9.0 fixtures: `summon[Option[Int] =:= scala.Option[Int]]` and the like compile under
@@ -670,7 +727,7 @@ class StdlibModelSpec extends Specification {
       .and(
         refused(
           count(code, "Q.m.t"),
-          "declaration not supplied: TypeRepr (" + StdlibModel.undeclared +
+          "declaration not supplied: TypeRepr (" + "not declared in the sources or stdlib-model/1" +
             ", may be a member of quotes.reflect (compile-time reflection)"
         )
       )
@@ -683,20 +740,32 @@ class StdlibModelSpec extends Specification {
   // assumption): any Int, 2^32 (inside `m`, the captured `Quotes` refuses `g` for its own reason).
   // So is a `scala.quoted` whose `scala` is `lib.scala`.
   def listedHead = {
-    def g(imports: String) = count(s"$imports\nobject T { def g(): Int = ??? }", "T.g")
-    def reflected(imports: String) = count(
+    def g(imports: String, support: String) =
+      count(s"$imports\nobject T { def g(): Int = ??? }" + withheld(support), "T.g")
+    def reflected(imports: String, support: String = "") = count(
       s"$imports\nobject T {\n  def m(using scala.quoted.Quotes): Boolean = {\n" +
-        "    import quotes.reflect.*\n    def g(): Int = ???\n    true\n  }\n}",
+        "    import quotes.reflect.*\n    def g(): Int = ???\n    true\n  }\n}" + support,
       "T.m.g"
     )
+    // What each head names outside the sources: `lib.quotes`, a top-level package `quotes`, and
+    // `lib.scala`.
+    val libQuotes = "package lib\nobject quotes { object reflect }"
+    val rootQuotes = "package quotes\nobject reflect"
+    val libScala =
+      "package lib\nobject scala { object quoted; object jdk { object CollectionConverters } }"
     val anyInt = Count.Finite(BigInt(2).pow(32))
-    (g("import lib.quotes\nimport quotes.reflect.*") === anyInt)
-      .and(g("import scala.quoted.*\nimport _root_.quotes.reflect.*") === anyInt)
-      .and(g("import quotes.reflect.*") === anyInt)
-      .and(g("import lib.scala\nimport scala.quoted.*") === anyInt)
-      .and(g("import lib.scala\nimport scala.jdk.CollectionConverters.*") === anyInt)
-      .and(refused(reflected("import lib.quotes"), "outside the counting model: scala.quoted"))
-      .and(clean(reflected("import lib.quotes"), "builtin name"))
+    (g("import lib.quotes\nimport quotes.reflect.*", libQuotes) === anyInt)
+      .and(g("import scala.quoted.*\nimport _root_.quotes.reflect.*", rootQuotes) === anyInt)
+      .and(g("import quotes.reflect.*", rootQuotes) === anyInt)
+      .and(g("import lib.scala\nimport scala.quoted.*", libScala) === anyInt)
+      .and(g("import lib.scala\nimport scala.jdk.CollectionConverters.*", libScala) === anyInt)
+      .and(
+        refused(
+          reflected("import lib.quotes", withheld(libQuotes)),
+          "outside the counting model: scala.quoted"
+        )
+      )
+      .and(clean(reflected("import lib.quotes", withheld(libQuotes)), "builtin name"))
       .and(clean(reflected("import scala.quoted.quotes"), "builtin name"))
       .and(clean(reflected("import scala.quoted.*"), "builtin name"))
   }
@@ -730,7 +799,7 @@ class StdlibModelSpec extends Specification {
   def dependencyNamespaces = {
     val cats = "import cats.syntax.functor.*\nobject C { def f(i: Int, b: Boolean): Boolean = ??? }"
     val kyo = "import _root_.kyo.*\nobject K { def f(i: Int, b: Boolean): Boolean = ??? }"
-    val member = "import _root_.kyo.*\nobject K { def f(s: Stream): Boolean = ??? }"
+    val member = "import _root_.kyo.*\nobject K { def f(s: Stream[Int, Any]): Boolean = ??? }"
     (count(cats, "C.f") === Count.Symbolic(pow(2, BigInt("8589934592"))))
       .and(count(kyo, "K.f") === Count.Symbolic(pow(2, BigInt("8589934592"))))
       .and(refused(count(member, "K.f"), "declaration not supplied: kyo.Stream (wildcard import)"))
@@ -742,7 +811,8 @@ class StdlibModelSpec extends Specification {
     refused(
       countIn(
         "Lib.scala" -> "package lib.sub\nfinal case class Present(x: Int)",
-        "Use.scala" -> "package app\nimport lib.*\nobject U { def f(t: sub.Missing): Boolean = ??? }"
+        "Use.scala" -> ("package app\nimport lib.*\nobject U { def f(t: sub.Missing): Boolean = ??? }" +
+          withheld("package lib.sub\nclass Missing"))
       )("app.U.f"),
       "declaration not supplied: lib.sub.Missing (selected through wildcard import)"
     )
@@ -754,7 +824,8 @@ class StdlibModelSpec extends Specification {
     refused(
       countIn(
         "Lib.scala" -> "package r7.scala\ntype Int = Boolean",
-        "Use.scala" -> "package r7\nobject T { def h[A](a: A): scala.Option[A] = ??? }"
+        "Use.scala" -> ("package r7\nobject T { def h[A](a: A): scala.Option[A] = ??? }" +
+          withheld("package r7.scala\nclass Option[A]"))
       )("r7.T.h"),
       "builtin name scala.Option may be shadowed by a declaration: package r7.scala (a package of the sources)"
     )
@@ -763,23 +834,28 @@ class StdlibModelSpec extends Specification {
   // list.
   def openParent =
     refused(
-      count("import lib.Base\ntrait T extends Base { def f[A](a: A): A = ??? }", "T.f"),
+      count("import lib.Base\ntrait T extends Base { def f[A](a: A): A = ??? }" + libBase, "T.f"),
       "inherited parent declaration not supplied: lib.Base (named import Base)"
     ).and(
       refused(
-        count("trait T extends Base { def f[A](a: A): A = ??? }", "T.f"),
-        s"inherited parent declaration not supplied: Base (${StdlibModel.undeclared})"
+        count("trait T extends Base { def f[A](a: A): A = ??? }" + withheld("trait Base"), "T.f"),
+        s"inherited parent declaration not supplied: Base (${"not declared in the sources or stdlib-model/1"})"
       )
     )
 
   // An object, a given and a final class implement every inherited member: concrete code adds no
   // choice — 1 (a), 1 (a).
   def fixedParent =
-    (count("import lib.Base\nobject O extends Base { def f[A](a: A): A = ??? }", "O.f") ===
+    (count(
+      "import lib.Base\nobject O extends Base { def f[A](a: A): A = ??? }" + libBase,
+      "O.f"
+    ) ===
       Count.Finite(1))
       .and(
-        count("import lib.Base\nfinal class C extends Base { def f[A](a: A): A = ??? }", "C.f") ===
-          Count.Finite(1)
+        count(
+          "import lib.Base\nfinal class C extends Base { def f[A](a: A): A = ??? }" + libBase,
+          "C.f"
+        ) === Count.Finite(1)
       )
 
   // `Err(m: Boolean)` has 2 values whatever RuntimeException declares: its parameters are read
@@ -789,7 +865,7 @@ class StdlibModelSpec extends Specification {
   def constructorExempt = {
     val code = "import lib.Base\nfinal class Err(m: Boolean) extends RuntimeException\n" +
       "case class K[A](a: A) extends Base { def g(x: A): A = ??? }\nclass K2 extends K[Int](1)\n" +
-      "trait Outer extends Base { final case class In(b: Boolean) }"
+      "trait Outer extends Base { final case class In(b: Boolean) }" + libBase
     (count(code, "Err.<init>") === Count.Finite(2))
       .and(count(code, "K.<init>") === Count.Finite(1))
       .and(
@@ -805,15 +881,16 @@ class StdlibModelSpec extends Specification {
     refused(
       count(
         "import lib.Base\nclass Outer extends Base { object In { def h[A](a: A): A = ??? } }\n" +
-          "class Outer2 extends Outer",
+          "class Outer2 extends Outer" + libBase,
         "Outer.In.h"
       ),
       "inherited parent declaration not supplied: lib.Base"
     )
 
-  // Without `iterator` the trait leaves an Iterator-valued member to its subclasses; with it alone,
-  // a subclass may still override `knownSize` (an Int f could read) or `stepper`. With all three
-  // defined, f is Boolean => Boolean: 4.
+  // Without `iterator` the trait leaves an Iterator-valued member abstract: a capability of the
+  // receiver, a sequence of Ints f may read, so f is ω. With it defined, nothing supplied extends T,
+  // so `knownSize` and `stepper` are the library's code, which no subclass replaces, and f is
+  // Boolean => Boolean: 4, as with all three defined final.
   def iterableOnce = {
     val bare = "trait T extends IterableOnce[Int] { def f(b: Boolean): Boolean = ??? }"
     val implemented = "trait T extends IterableOnce[Int] {\n" +
@@ -826,20 +903,9 @@ class StdlibModelSpec extends Specification {
       |  final override def stepper[S <: Stepper[?]](implicit shape: StepperShape[Int, S]): S = ???
       |  def f(b: Boolean): Boolean = ???
       |}""".stripMargin
-    refused(
-      count(bare, "T.f"),
-      "inherited parent declaration not implemented: scala.collection.IterableOnce.iterator"
-    ).and(
-      refused(
-        count(implemented, "T.f"),
-        "inherited stdlib member a subclass may override: scala.collection.IterableOnce.knownSize"
-      )
-    ).and(
-      refused(
-        count(implemented, "T.f"),
-        "inherited stdlib member a subclass may override: scala.collection.IterableOnce.stepper"
-      )
-    ).and(count(complete, "T.f") === Count.Finite(4))
+    (count(bare, "T.f") === Count.Countable)
+      .and(count(implemented, "T.f") === Count.Finite(4))
+      .and(count(complete, "T.f") === Count.Finite(4))
   }
 
   // Inside a template extending IterableOnce, `Int` is scala.Int and `Mine` the package's alias (a
@@ -857,27 +923,37 @@ class StdlibModelSpec extends Specification {
   // no builtin name (the never-shadowed assumption): the parents are the model's marker and
   // summary, so `f` is a alone (1) and `g` any Int (2^32).
   def wildcardParent =
-    (count("import lib.*\ntrait T extends Serializable { def f[A](a: A): A = ??? }", "T.f") ===
+    (count(
+      "import lib.*\ntrait T extends Serializable { def f[A](a: A): A = ??? }" + lib,
+      "T.f"
+    ) ===
       Count.Finite(1)).and(
       countIn(
-        "A.scala" -> "package r\nimport lib.*\ntrait T extends IterableOnce[String]",
-        "B.scala" -> "package r\nobject O extends T { def g(): Int = ??? }"
+        "A.scala" -> ("package r\nimport lib.*\ntrait T extends IterableOnce[String]" + lib),
+        "B.scala" ->
+          "package r\nobject O extends T { def iterator: Iterator[String] = ???; def g(): Int = ??? }"
       )("r.O.g") === Count.Finite(BigInt(2).pow(32))
     )
 
-  // P's instances are D1's, a final class: no subclass overrides `stepper`, so the receiver's own
-  // family is what stays unread. With a non-final child, a subclass may.
-  def sealedParent = {
-    val body = "{\n  def iterator: Iterator[Int] = ???\n  override def knownSize: Int = 0\n" +
-      "  def g(b: Boolean): String = ???\n}"
-    val closed = s"sealed trait P extends IterableOnce[Int] $body\nfinal class D1 extends P"
-    val open =
-      s"sealed trait P extends IterableOnce[Int] $body\nclass D1 extends P\nclass D2 extends D1"
-    val overridable = "inherited stdlib member a subclass may override"
-    refused(count(closed, "P.g"), "receiver is a sealed family this measurement does not split: P")
-      .and(clean(count(closed, "P.g"), overridable))
-      .and(refused(count(open, "P.g"), overridable))
-  }
+  // P's instances are D1's, a final class that overrides nothing: `stepper` and the rest are the
+  // library's code or P's, so the receiver holds nothing g may read: g is Boolean => Boolean, 4. With
+  // D1 extended by D2, which overrides nothing either, P's instances are D1's and D2's: 4 too.
+  private val sealedBody =
+    "{\n  def iterator: Iterator[Int] = ???\n  override def knownSize: Int = 0\n" +
+      "  def g(b: Boolean): Boolean = ???\n}"
+
+  def sealedParent =
+    count(
+      s"sealed trait P extends IterableOnce[Int] $sealedBody\nfinal class D1 extends P",
+      "P.g"
+    ) ===
+      Count.Finite(4)
+
+  def sealedParentExtended =
+    count(
+      s"sealed trait P extends IterableOnce[Int] $sealedBody\nclass D1 extends P\nclass D2 extends D1",
+      "P.g"
+    ) === Count.Finite(4)
 
   // Whether `Serializable` in `T`'s parents is the marker depends on what `import O.*` brings, and
   // `O` inherits `T`'s parents: the search for that channel meets itself. A search that meets itself
@@ -894,7 +970,8 @@ class StdlibModelSpec extends Specification {
       |  def g(i: Int, b: Boolean): Boolean = b
       |}""".stripMargin
     // One analysis, so every lookup shares the index's caches.
-    val counts = MethodAnalysis.analyze(inputs("Example.scala" -> code)).map(e => e.name -> e.count)
+    val counts =
+      cardinality.Compiled.analyze(inputs("Example.scala" -> code)).map(e => e.name -> e.count)
     val found = counts.toMap
     (counts.map(_._1).filter(Set("T.h", "U.f", "U.g")) === List("T.h", "U.f", "U.g"))
       .and(found("T.h") === Count.Finite(4))

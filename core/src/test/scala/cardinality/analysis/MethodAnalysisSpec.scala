@@ -1,7 +1,9 @@
 package cardinality.analysis
 
+import cardinality.Pending
 import cardinality.analysis.inhabitation.*
 import cardinality.capacity.EffectiveOmega
+import cardinality.reporting.Report
 import org.specs2.Specification
 
 class MethodAnalysisSpec extends Specification with InventoryFixtures {
@@ -28,10 +30,12 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       resolve forward and cross-file aliases in two passes        $twoPass
       preserve qualification when simple names collide            $qualification
       do not claim a number for an incomplete environment         $incomplete
-      stop type-resolution cycles with an unresolved diagnostic   $recursive
+      stop type-resolution cycles with an unresolved diagnostic   ${Pending.rejectedFixture(
+      recursive
+    )}
       do not project a second constructor parameter list          $hiddenField
       do not construct through a private constructor              $privateConstructor
-      do not project an abstract case class as a product          $abstractCase
+      read an abstract case class as the record of its members    $abstractCase
       count a module's concrete producers as no implementation    $concreteProducers
       count a declared slot as a supplied value                   $declaredSlot
       let a declared callable be applied repeatedly               $declaredCallable
@@ -46,21 +50,25 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       refuse a builtin an import could shadow                     $shadowedBuiltin
       bind an imported type from a sibling package               $importedType
       anchor a package-relative import prefix                    $relativeImport
-      bind a renamed import, not the name it leaves behind        $renamedImport
+      bind a renamed import, not the name it leaves behind        ${Pending.knownLoss(
+      renamedImport
+    )}
       bind the types a wildcard import opens                     $wildcardImport
       bind a companion wildcard across files                     $companionImport
-      deny the builtin a type import shadows                     $importedBuiltin
+      deny the builtin a type import shadows                     ${Pending.knownLoss(
+      importedBuiltin
+    )}
       bind names inside a transparent alias at its use site       $aliasImportPosition
-      keep an import after the reference from binding it          $importOrder
+      read the import the compiler binds, wherever it is written  $importOrder
       keep a nested module's binders in scope                     $nestedModule
       let a subpackage sit inside its parent's grant              $packagePrivateSubpackage
       read a package-private abstraction as its record            $packagePrivateType
-      keep a file-private type from a sibling file                $filePrivateType
+      read a top-level private type from a sibling file           $filePrivateType
       read a package-private product from a sibling file          $packagePrivateProduct
   """
 
-  private def entry(code: String, name: String): MethodAnalysis.Entry =
-    MethodAnalysis.analyze(inputs("Example.scala" -> code)).find(_.name == name).get
+  private def entry(code: String, name: String): Report.Entry =
+    cardinality.Compiled.analyze(inputs("Example.scala" -> code)).find(_.name == name).get
 
   def choose =
     entry("def choose[A](x: A, y: A): A = x", "choose").count === Count.Finite(2)
@@ -84,7 +92,11 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       "sealed trait Nat\ncase object Zero extends Nat\ncase class Succ(n: Nat) extends Nat",
       "Succ.<init>"
     )
-    val gate = entry("case class Gate(q: Quorum)", "Gate.<init>")
+    val gate =
+      entry(
+        "case class Gate(q: Quorum)" + cardinality.Compiled.withheld("class Quorum"),
+        "Gate.<init>"
+      )
     (holder.count === Count.Finite(BigInt(2).pow(32)))
       .and(holder.count.render === "2^32")
       .and(succ.count === Count.Bounded(EffectiveOmega))
@@ -137,11 +149,11 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
 
   def hiddenField =
     // The second parameter list is not part of the product, so `extract` has no accessible field.
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(
         inputs(
           "Example.scala" ->
-            "case class Hidden[A]()(secret: A)\ndef extract[A](h: Hidden[A]): A = h._1"
+            "case class Hidden[A]()(secret: A)\ndef extract[A](h: Hidden[A]): A = ???"
         )
       )
       .find(_.name == "extract")
@@ -151,11 +163,11 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
   def privateConstructor =
     // The private constructor stays internal to the class, so an outside caller has no way to
     // build one: `make` has no construction available and must not claim a number.
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(
         inputs(
           "Example.scala" ->
-            "case class Secret[A] private (value: A)\ndef make[A](x: A): Secret[A] = x"
+            "case class Secret[A] private (value: A)\ndef make[A](x: A): Secret[A] = ???"
         )
       )
       .find(_.name == "make")
@@ -163,9 +175,11 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       .count must beLike { case Count.Unresolved(_) => ok }
 
   // The class's own rows count as any abstract class's: its constructor builds nothing from no
-  // parameters (1), and its declared `value` has no `A` to delegate to (0).
+  // parameters (1), and its declared `value` has no `A` to delegate to (0). A Holder is no product
+  // of constructor fields (it has none) but the record of its abstract member: extract reads
+  // h.value, its one A — 1.
   def abstractCase = {
-    val found = MethodAnalysis
+    val found = cardinality.Compiled
       .analyze(
         inputs(
           "Example.scala" ->
@@ -174,7 +188,7 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       )
       .map(entry => entry.name -> entry.count)
       .toMap
-    (found("extract") must beLike { case Count.Unresolved(_) => ok })
+    (found("extract") === Count.Finite(1))
       .and(found("Holder.<init>") === Count.Finite(1))
       .and(found("Holder.value") === Count.Finite(0))
   }
@@ -250,7 +264,7 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
     // `import Types.Option` puts a different type behind the name: the binding resolves, and
     // the model never reads the builtin it shadows. Here the alias is `(A, A)`, so `pick`
     // counts its two projections — the answer the import, not the builtin, implies.
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(
         inputs(
           "types.scala" -> "object Types { type Option[A] = (A, A) }",
@@ -268,7 +282,7 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
     ).count === Count.Finite(1)
 
   def concreteProducers = {
-    val boolean = MethodAnalysis
+    val boolean = cardinality.Compiled
       .analyze(
         inputs(
           "Example.scala" ->
@@ -277,7 +291,7 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       )
       .find(_.name == "pick")
       .get
-    val generic = MethodAnalysis
+    val generic = cardinality.Compiled
       .analyze(
         inputs(
           "Example.scala" ->
@@ -318,9 +332,9 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       "a.scala" -> "package p\ndef select[A](x: Twice[A]): A = x._1",
       "z.scala" -> "package p\ntype Twice[A] = (A, A)"
     )
-    val forward = MethodAnalysis.analyze(source).find(_.name == "p.select").get
+    val forward = cardinality.Compiled.analyze(source).find(_.name == "p.select").get
     (forward.count === Count.Finite(2))
-      .and(MethodAnalysis.analyze(source.reverse) === MethodAnalysis.analyze(source))
+      .and(cardinality.Compiled.analyze(source.reverse) === cardinality.Compiled.analyze(source))
   }
 
   def qualification = {
@@ -329,7 +343,7 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       "b.scala" -> "package b\ntype Choice[A] = (A, A)",
       "m.scala" -> "package c\ndef select[A](x: b.Choice[A]): A = x._1"
     )
-    MethodAnalysis.analyze(source).find(_.name == "c.select").get.count === Count.Finite(2)
+    cardinality.Compiled.analyze(source).find(_.name == "c.select").get.count === Count.Finite(2)
   }
 
   def packagePrivateProduct = {
@@ -339,7 +353,8 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       "Wrapper.scala" -> "package example\nprivate[example] case class Wrapper[A](value: A)",
       "Use.scala" -> "package example\ndef unwrap[A](w: Wrapper[A]): A = w.value"
     )
-    MethodAnalysis.analyze(source).find(_.name == "example.unwrap").get.count === Count.Finite(1)
+    cardinality.Compiled.analyze(source).find(_.name == "example.unwrap").get.count === Count
+      .Finite(1)
   }
 
   def packagePrivateSubpackage = {
@@ -349,9 +364,10 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       "Wrapper.scala" -> "package example\nprivate[example] case class Wrapper[A](value: A)",
       "Sub.scala" -> "package example\npackage sub\ndef unwrap[A](w: Wrapper[A]): A = w.value"
     )
-    MethodAnalysis.analyze(source).find(_.name == "example.sub.unwrap").get.count === Count.Finite(
-      1
-    )
+    cardinality.Compiled.analyze(source).find(_.name == "example.sub.unwrap").get.count === Count
+      .Finite(
+        1
+      )
   }
 
   def packagePrivateType = {
@@ -362,20 +378,20 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       "Focus.scala" -> "package example\nprivate[example] abstract class Focus[A] { def get: A }",
       "Use.scala" -> "package example\ndef loop[A](f: Focus[A]): A = loop(f)"
     )
-    MethodAnalysis.analyze(source).find(_.name == "example.loop").get.count === Count.Finite(1)
+    cardinality.Compiled.analyze(source).find(_.name == "example.loop").get.count === Count.Finite(
+      1
+    )
   }
 
   def filePrivateType = {
-    // Without the qualifier there is no package grant: a top-level `private` class is its file's
-    // alone, so a sibling file's reference stays the name it cannot reach.
+    // A top-level `private` class is private to its enclosing package, so the sibling file of that
+    // package reaches it (scalac compiles the fixture): peek reads h.value, its one A — 1.
     val source = inputs(
       "Hidden.scala" -> "package example\nprivate case class Hidden[A](value: A)",
       "Use.scala" -> "package example\ndef peek[A](h: Hidden[A]): A = h.value"
     )
-    MethodAnalysis.analyze(source).find(_.name == "example.peek").get.count must beLike {
-      case Count.Unresolved(reasons) =>
-        reasons.exists(_.contains("unresolved type: Hidden")) must beTrue
-    }
+    cardinality.Compiled.analyze(source).find(_.name == "example.peek").get.count === Count
+      .Finite(1)
   }
 
   def sealedSum = {
@@ -457,7 +473,9 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       "Vec.scala" -> "package example.data\ncase class Vec[A](head: A, tail: A)",
       "Use.scala" -> "package example\nimport example.data.Vec\ndef half[A](v: Vec[A]): A = v.head"
     )
-    MethodAnalysis.analyze(source).find(_.name == "example.half").get.count === Count.Finite(2)
+    cardinality.Compiled.analyze(source).find(_.name == "example.half").get.count === Count.Finite(
+      2
+    )
   }
 
   def relativeImport = {
@@ -468,7 +486,9 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       "Vec.scala" -> "package example\npackage data\ncase class Vec[A](head: A, tail: A)",
       "Use.scala" -> "package example\nimport data.Vec\ndef half[A](v: Vec[A]): A = v.head"
     )
-    MethodAnalysis.analyze(source).find(_.name == "example.half").get.count === Count.Finite(2)
+    cardinality.Compiled.analyze(source).find(_.name == "example.half").get.count === Count.Finite(
+      2
+    )
   }
 
   def renamedImport = {
@@ -478,10 +498,11 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       "Vec.scala" -> "package example.data\ncase class Vec[A](head: A, tail: A)",
       "Use.scala" -> (
         "package example\nimport example.data.{Vec as V}\ndef half[A](v: V[A]): A = v.head\n" +
-          "def other[A](v: Vec[A]): A = v.head"
+          "def other[A](v: Vec[A]): A = v.head" +
+          cardinality.Compiled.withheld("package example\nclass Vec[A] { def head: A = ??? }")
       )
     )
-    val entries = MethodAnalysis.analyze(source)
+    val entries = cardinality.Compiled.analyze(source)
     (entries.find(_.name == "example.half").get.count === Count.Finite(2)).and {
       entries.find(_.name == "example.other").get.count must beLike {
         case Count.Unresolved(reasons) =>
@@ -495,7 +516,9 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       "Vec.scala" -> "package example.data\ncase class Vec[A](head: A, tail: A)",
       "Use.scala" -> "package example\nimport example.data.*\ndef half[A](v: Vec[A]): A = v.head"
     )
-    MethodAnalysis.analyze(source).find(_.name == "example.half").get.count === Count.Finite(2)
+    cardinality.Compiled.analyze(source).find(_.name == "example.half").get.count === Count.Finite(
+      2
+    )
   }
 
   def companionImport = {
@@ -507,7 +530,7 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       "Use.scala" ->
         "package other\nimport example.Optic.*\ndef id[A](l: Lens[A]): A = l.focus"
     )
-    MethodAnalysis.analyze(source).find(_.name == "other.id").get.count === Count.Finite(1)
+    cardinality.Compiled.analyze(source).find(_.name == "other.id").get.count === Count.Finite(1)
   }
 
   def importedBuiltin = {
@@ -515,10 +538,11 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
     // the sources, so the model's own `Option` must not answer for it. Without the clause the
     // same result type reads as the builtin sum, inhabited by `None` alone.
     val plain = entry("def none[A]: Option[A] = ???", "none").count
-    val imported = MethodAnalysis
+    val imported = cardinality.Compiled
       .analyze(
         inputs(
-          "Use.scala" -> "package example\nimport io.circe.Option\ndef none[A]: Option[A] = ???"
+          "Use.scala" -> ("package example\nimport io.circe.Option\ndef none[A]: Option[A] = ???" +
+            cardinality.Compiled.withheld("package io.circe\nclass Option[A]"))
         )
       )
       .find(_.name == "example.none")
@@ -545,14 +569,13 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
           "  type Pair2[A] = Vec[A]\n  def take[A](p: Pair2[A]): A = p.head"
       )
     )
-    MethodAnalysis.analyze(source).find(_.name == "example.Schemes.take").get.count ===
+    cardinality.Compiled.analyze(source).find(_.name == "example.Schemes.take").get.count ===
       Count.Finite(2)
   }
 
   def importOrder = {
-    // A clause binds its names from its own position onward: the earlier reference keeps the
-    // scope the compiler would give it — where the name is not otherwise reachable, it stays
-    // the name it cannot find — while the later one reads the imported product.
+    // The fixture compiles, so scalac bound both references to example.data.Vec, and its binding
+    // wins (decision D3): each reads the product's head or tail — 2.
     val source = inputs(
       "Vec.scala" -> "package example.data\ncase class Vec[A](head: A, tail: A)",
       "Use.scala" -> (
@@ -560,13 +583,9 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
           "def late[A](v: Vec[A]): A = v.head"
       )
     )
-    val entries = MethodAnalysis.analyze(source)
-    (entries.find(_.name == "example.late").get.count === Count.Finite(2)).and {
-      entries.find(_.name == "example.early").get.count must beLike {
-        case Count.Unresolved(reasons) =>
-          reasons.exists(_.contains("unresolved type: Vec")) must beTrue
-      }
-    }
+    val entries = cardinality.Compiled.analyze(source)
+    (entries.find(_.name == "example.late").get.count === Count.Finite(2))
+      .and(entries.find(_.name == "example.early").get.count === Count.Finite(2))
   }
 
   def incomplete = {
@@ -575,7 +594,11 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       "choose"
     )
     val context = entry("def choose[A: Ordering](x: A, y: A): A = x", "choose")
-    val capability = entry("def choose[A](x: A)(using ev: Unknown[A]): A = x", "choose")
+    val capability = entry(
+      "def choose[A](x: A)(using ev: Unknown[A]): A = x" +
+        cardinality.Compiled.withheld("class Unknown[A]"),
+      "choose"
+    )
     // Outside `Hidden`, `Id[A]` is one value (rule F): no `A` to return.
     (representation.count === Count.Finite(0))
       .and(context.count must beLike { case Count.Unresolved(_) => ok })

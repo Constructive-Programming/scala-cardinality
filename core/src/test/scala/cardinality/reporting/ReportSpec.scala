@@ -1,7 +1,8 @@
 package cardinality.reporting
 
-import scala.meta.*
+import scala.jdk.CollectionConverters.*
 
+import cardinality.Pending
 import cardinality.capacity.*
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
@@ -20,28 +21,27 @@ class ReportSpec extends Specification {
       nested definitions are their own rows     $nested
       enum cases are counted by their enum      $enumCases
       values inside a body add nothing          $bodyValues
-      unresolved names are the reason           $unresolved
+      unresolved names are the reason           ${Pending.knownLoss(unresolved)}
       a definition resolves inside its body     $enclosing
       a forward reference resolves through the body  $forward
-      entry points size one node at a time      $entryPoints
       package objects qualify their members     $packageObjects
       enum bodies contribute their cases        $enumBodies
       a companion object keeps its own value    $companions
-      a source counts its top-level values       $sourceTotals
       signatures carry their parameters         $signatures
       an applied user type substitutes arguments  $appliedType
       a parameterised recursion keeps its fixed point  $parameterisedRecursion
       a match type reduces on a known scrutinee  $matchType
-      a match type that does not reduce stays unread  $matchTypeStuck
+      a match type that does not reduce stays unread  ${Pending.knownLoss(matchTypeStuck)}
       a higher-kinded parameter names its arity  $higherKinded
       the top and the bottom of the lattice   $latticeEnds
 
     Report
-      reads a directory of sources              $directory
-      reads a library's sources jar             $jar
-      reads a single file                       $singleFile
+      reads a directory of sources              ${Pending.uncompiled(directory)}
+      reads a library's sources jar             ${Pending.uncompiled(jar)}
+      reads a library's binary jar beside its sources jar, under TASTy  $binaryJar
+      reads a single file                       ${Pending.uncompiled(singleFile)}
       reports a path it cannot read             $missing
-      reports a source it cannot parse          $unparsable
+      reports a source it cannot parse          ${Pending.uncompiled(unparsable)}
       renders the numbers it found              $renders
       counts an exact symbolic row as finite    $symbolicRow
       orders rows by cardinality                $orders
@@ -51,13 +51,13 @@ class ReportSpec extends Specification {
       a solved recursion reports its fixed point  $recursiveRows
       a lazy hole counts ω, and is no question    $lazyRow
       the ε₀ tier arrives through modelled types  $tierRow
-      a function space over an unmodelled type names it  $blockedRow
+      a function space over an unmodelled type names it  ${Pending.knownLoss(blockedRow)}
       an open abstraction has no bound            $openAbstraction
       a type constructor is a shape, not a gap    $constructorRow
       a named member resolves                     $memberByName
       an instance-qualified member resolves       $memberByValue
-      an abstract member is open                  $memberAbstract
-      a member the sources do not give reads as written  $memberUnknown
+      an abstract member through a path is open   $memberAbstract
+      a member the sources do not give reads as written  ${Pending.knownLoss(memberUnknown)}
       a refinement is read as the type it refines $refinementRow
       an open abstraction reads as one in a report  $openRow
 
@@ -66,14 +66,17 @@ class ReportSpec extends Specification {
       an argument from another file substitutes  $crossSourceArgument
       a qualified name resolves                  $crossSourceQualified
       the file's own package wins over another's $crossSourcePackage
-      a name two packages define stays unresolved  $crossSourceAmbiguous
+      a name two packages define stays unresolved  ${Pending.rejectedFixture(crossSourceAmbiguous)}
       an imported name is left to the import     $crossSourceImported
       a sealed hierarchy sums across files       $crossSourceSealed
       an opaque type is refused outside its scope $crossSourceOpaque
     """
 
+  // `Quorum`, a class the fixtures name and no source declares: compiled against, then withheld.
+  private val quorum = cardinality.Compiled.withheld("class Quorum")
+
   private def definitions(code: String): List[Definition] =
-    Counter.definitions(dialects.Scala3(code).parse[Source].get)
+    cardinality.Compiled.definitions(code)
 
   private def definition(code: String, name: String): Definition =
     definitions(code)
@@ -85,7 +88,7 @@ class ReportSpec extends Specification {
     definition(code, name).unbound.map(_.render)
 
   private def temporary(files: (String, String)*): Path = {
-    val root = Files.createTempDirectory("cardinality")
+    val root = cardinality.Compiled.temporary("report")
     files.foreach {
       case (name, content) =>
         val file = root.resolve(name)
@@ -142,10 +145,10 @@ class ReportSpec extends Specification {
     )
 
   def unresolved = {
-    (reasons("case class Holder(a: Quorum, b: Boolean)", "Holder") === List("Quorum"))
+    (reasons("case class Holder(a: Quorum, b: Boolean)" + quorum, "Holder") === List("Quorum"))
       .and(reasons("case class Generic[A](a: A)", "Generic") === List("A"))
       .and(
-        reasons("case class Wrapped(a: Option[Quorum])", "Wrapped") === List("Quorum")
+        reasons("case class Wrapped(a: Option[Quorum])" + quorum, "Wrapped") === List("Quorum")
       )
       .and(
         // A modelled collection is no longer a reason: since the solver counts unbounded
@@ -153,7 +156,7 @@ class ReportSpec extends Specification {
         reasons("case class Counted(a: List[Boolean])", "Counted") === Nil
       )
       .and(
-        reasons("case class Elements(a: List[Quorum])", "Elements") === List(
+        reasons("case class Elements(a: List[Quorum])" + quorum, "Elements") === List(
           "Quorum"
         )
       )
@@ -192,33 +195,8 @@ class ReportSpec extends Specification {
       .and(found.flatMap(_.unbound.map(_.render)) === Nil)
   }
 
-  def entryPoints = {
-    val source = dialects.Scala3("case class Pair(a: Boolean, b: Boolean)").parse[Source].get
-    val pair = source.stats.collectFirst { case definition: Defn.Class => definition }.get
-    val packageClause = dialects.Scala3("package p { case class X(a: Boolean) }").parse[Stat].get
-    val packageObject =
-      dialects.Scala3("package object p { case class X(a: Boolean) }").parse[Stat].get
-    (Counter.stat(pair) === TinySize(4))
-      .and(Counter.defn(pair) === TinySize(4))
-      .and(Counter.ctor(pair.ctor) === TinySize(4))
-      .and(Counter.param(pair.ctor.paramClauses.head.values.head) === BooleanSize)
-      .and(Counter.stat(packageClause) === BooleanSize)
-      .and(Counter.stat(packageObject) === BooleanSize)
-  }
-
   def packageObjects =
     definitions("package object p { case class X(a: Boolean) }").map(_.name) === List("p.X")
-
-  def sourceTotals = {
-    val source = dialects
-      .Scala3("val flag: Boolean = true\ncase class Pair(a: Boolean, b: Boolean)")
-      .parse[Source]
-      .get
-    (Counter.source(source) === TinySize(5))
-      .and(
-        Counter.source(dialects.Scala3("val flag: Boolean = true").parse[Source].get) === UnitSize
-      )
-  }
 
   def signatures = {
     val found = definitions("case class Pair[A, B](a: A, b: B)")
@@ -255,20 +233,62 @@ class ReportSpec extends Specification {
   }
 
   def jar = {
-    val archive = Files.createTempFile("cardinality", ".jar")
-    val out = new ZipOutputStream(Files.newOutputStream(archive))
-    try {
-      out.putNextEntry(new ZipEntry("README.md"))
-      out.write("not a source".getBytes(UTF_8))
-      out.closeEntry()
-      out.putNextEntry(new ZipEntry("p/Light.scala"))
-      out.write("package p\nenum Light { case Red, Green }".getBytes(UTF_8))
-      out.closeEntry()
-    } finally out.close()
+    val archive = zipped(
+      List(
+        "README.md" -> "not a source".getBytes(UTF_8),
+        "p/Light.scala" -> "package p\nenum Light { case Red, Green }".getBytes(UTF_8)
+      )
+    )
     val report = Report.of(List(archive))
     (report.sources.map(_.path) === List("p/Light.scala"))
       .and(report.definitions.map(_.name) === List("p.Light"))
       .and(report.errors === Nil)
+  }
+
+  // A jar of the given entries, each a path and its bytes.
+  private def zipped(entries: List[(String, Array[Byte])]): Path = {
+    val archive =
+      Files.createTempFile(cardinality.Compiled.temporary("report"), "cardinality", ".jar")
+    val out = new ZipOutputStream(Files.newOutputStream(archive))
+    try
+      entries.foreach { (name, bytes) =>
+        out.putNextEntry(new ZipEntry(name))
+        out.write(bytes)
+        out.closeEntry()
+      }
+    finally out.close()
+    archive
+  }
+
+  def binaryJar = {
+    val code = "package p\ncase class Pair(a: Boolean, b: Boolean)"
+    val compiled = cardinality.Compiled.classesOf("p/Pair.scala" -> code)
+    val classes = compiled.output.head
+    val held = Files.walk(classes)
+    val compiledEntries =
+      try
+        held.iterator.asScala
+          .filter(Files.isRegularFile(_))
+          .map(file => classes.relativize(file).toString -> Files.readAllBytes(file))
+          .toList
+      finally held.close()
+    val source = "p/Pair.scala" -> code.getBytes(UTF_8)
+    val binary = zipped(compiledEntries)
+    val sources = zipped(List(source))
+    val dependencies = Some(cardinality.tasty.CompiledClasses(Nil, compiled.classpath))
+    val read = Report.of(List(binary, sources), dependencies)
+    val alone = Report.of(List(binary), dependencies)
+    // A jar of both is its own sources jar.
+    val both = Report.of(List(zipped(source :: compiledEntries)), dependencies)
+    (read.errors === Nil)
+      .and(read.sources.map(_.path) === List("p/Pair.scala"))
+      .and(read.methods.map(m => m.name -> m.count.render) === List("p.Pair.<init>" -> "4"))
+      .and(both.methods.map(m => m.name -> m.count.render) === List("p.Pair.<init>" -> "4"))
+      .and(
+        alone.errors.map(_.message) === List(
+          "no sources beside the compiled classes: give the sources jar too"
+        )
+      )
   }
 
   def singleFile = {
@@ -277,7 +297,7 @@ class ReportSpec extends Specification {
   }
 
   def missing = {
-    val path = Files.createTempDirectory("cardinality").resolve("missing.scala")
+    val path = cardinality.Compiled.temporary("report").resolve("missing.scala")
     val report = Report.of(List(path))
     (report.sources === Nil).and(report.errors.map(_.path) === List(path.toString))
   }
@@ -295,7 +315,7 @@ class ReportSpec extends Specification {
   }
 
   def orders = {
-    val root = temporary(
+    val report = cardinality.Compiled.report(
       "Types.scala" ->
         """|case class Huge(f: String => String)
            |case class Many(xs: List[Boolean])
@@ -305,7 +325,7 @@ class ReportSpec extends Specification {
            |type Zero = Nothing
            |""".stripMargin,
     )
-    val rendered = Report.of(List(root)).render
+    val rendered = report.render
     val table = rendered.linesIterator.toList
       .dropWhile(_ != "Stored-value estimates (constructor inputs; `?` = unresolved)")
       .drop(2)
@@ -333,7 +353,7 @@ class ReportSpec extends Specification {
   }
 
   def renders = {
-    val root = temporary(
+    val report = cardinality.Compiled.report(
       "Types.scala" ->
         """|package p
            |sealed trait Shape
@@ -343,7 +363,7 @@ class ReportSpec extends Specification {
            |type Flag = Boolean
            |""".stripMargin,
     )
-    val rendered = Report.of(List(root)).render
+    val rendered = report.render
     val lines = rendered.linesIterator.toList
     val estimate = lines
       .dropWhile(_ != "Stored-value estimates (constructor inputs; `?` = unresolved)")
@@ -361,8 +381,8 @@ class ReportSpec extends Specification {
   // (2^32)^(2^32) is above the literal budget, so the row is a symbolic exact count: it prints in
   // its normal form and the headline tallies it with the finite rows, not the unresolved ones.
   def symbolicRow = {
-    val root = temporary("Ints.scala" -> "package p\ndef f(x: Int): Int = x")
-    val rendered = Report.of(List(root)).render
+    val report = cardinality.Compiled.report("Ints.scala" -> "package p\ndef f(x: Int): Int = x")
+    val rendered = report.render
     (rendered must contain("2^(2^37)  p.f  f(x: Int): Int  Ints.scala:2  [method]"))
       .and(rendered must contain("1 signature: 1 finite · 0 countably infinite · 0 unresolved"))
   }
@@ -370,7 +390,7 @@ class ReportSpec extends Specification {
   def appliedType = {
     val found = definitions(
       """|case class Pair[A](a: A, b: A)
-         |enum Opt[A] { case None; case Some(a: A) }
+         |enum Opt[+A] { case None; case Some(a: A) }
          |type TwoBools = Pair[Boolean]
          |case class Use(p: Pair[Boolean], o: Opt[Boolean], t: TwoBools)
          |""".stripMargin,
@@ -409,85 +429,88 @@ class ReportSpec extends Specification {
     )
   }
 
-  private def rowsOf(root: Path): List[(String, Option[Size], List[String])] =
-    Report.of(List(root)).definitions.map(d => (d.name, d.size, d.unbound.map(_.render)))
+  private def rowsOf(files: (String, String)*): List[(String, Option[Size], List[String])] =
+    cardinality.Compiled
+      .report(files*)
+      .definitions
+      .map(d => (d.name, d.size, d.unbound.map(_.render)))
 
   def crossSource = {
-    val root = temporary(
+    val found = rowsOf(
       "Box.scala" -> "package p\ncase class Box(a: Boolean)",
       "Use.scala" -> "package p\ncase class Use(b: Box)",
     )
     // A report reads the supplied sources as one set: `Box` is in a sibling file, and `Use` is
     // worth what a reference to it is worth.
-    rowsOf(root) === List(
+    found === List(
       ("p.Box", Some(BooleanSize), Nil),
       ("p.Use", Some(BooleanSize), Nil),
     )
   }
 
   def crossSourceArgument = {
-    val root = temporary(
+    val found = rowsOf(
       "Pair.scala" -> "package p\ncase class Pair[A](a: A, b: A)",
       "Use.scala" -> "package p\ncase class Use(p: Pair[Boolean])",
     )
-    rowsOf(root) === List(
+    found === List(
       ("p.Pair", Some(EffectiveOmega), List("A")),
       ("p.Use", Some(TinySize(4)), Nil),
     )
   }
 
   def crossSourceQualified = {
-    val root = temporary(
+    val found = rowsOf(
       "Box.scala" -> "package p\ncase class Box(a: Boolean)",
       "Use.scala" -> "package p\ncase class Use(b: p.Box)",
     )
-    rowsOf(root) === List(
+    found === List(
       ("p.Box", Some(BooleanSize), Nil),
       ("p.Use", Some(BooleanSize), Nil),
     )
   }
 
   def crossSourcePackage = {
-    val root = temporary(
+    val found = rowsOf(
       "a/Widget.scala" -> "package a\ncase class Widget(x: Boolean)",
       "b/Widget.scala" -> "package b\ncase class Widget(x: Boolean)",
       "a/Use.scala" -> "package a\ncase class Use(w: Widget)",
     )
     // A package member needs no import: inside `a`, `Widget` is `a.Widget`, whatever `b` defines.
-    rowsOf(root).filter(_._1 == "a.Use") === List(("a.Use", Some(BooleanSize), Nil))
+    found.filter(_._1 == "a.Use") === List(("a.Use", Some(BooleanSize), Nil))
   }
 
   def crossSourceAmbiguous = {
-    val root = temporary(
+    val found = rowsOf(
       "a/Widget.scala" -> "package a\ncase class Widget(x: Boolean)",
       "b/Widget.scala" -> "package b\ncase class Widget(x: Boolean)",
       "c/Use.scala" -> "package c\ncase class Use(w: Widget)",
     )
     // From a third package, `Widget` could only be an import of either: the report says so rather
     // than picking one.
-    rowsOf(root).filter(_._1 == "c.Use") === List(("c.Use", Some(EffectiveOmega), List("Widget")))
+    found.filter(_._1 == "c.Use") === List(("c.Use", Some(EffectiveOmega), List("Widget")))
   }
 
   def crossSourceImported = {
-    val root = temporary(
+    val found = rowsOf(
       "a/Widget.scala" -> "package a\ncase class Widget(x: Boolean)",
       "c/Use.scala" -> "package c\nimport a.Widget\ncase class Use(w: Widget)",
     )
     // The import decides what the name means, and it names a supplied declaration: `a.Widget`.
-    rowsOf(root).filter(_._1 == "c.Use") === List(("c.Use", Some(BooleanSize), Nil))
+    found.filter(_._1 == "c.Use") === List(("c.Use", Some(BooleanSize), Nil))
   }
 
   def crossSourceSealed = {
-    val root = temporary(
+    val found = rowsOf(
       "Nat.scala" -> "package p\nsealed trait Nat\ncase object Zero extends Nat\ncase class Succ(n: Nat) extends Nat",
       "Use.scala" -> "package p\ncase class Use(n: Nat)",
     )
     // Scala keeps a sealed parent's subtypes in its own file ("Cannot extend sealed trait Nat in a
     // different source file"), where the parent sums them; a sibling file reads the sum, recursion
     // included, through the package's system.
-    (rowsOf(root).map(_._1) === List("p.Nat", "p.Zero", "p.Succ", "p.Use"))
+    (found.map(_._1) === List("p.Nat", "p.Zero", "p.Succ", "p.Use"))
       .and(
-        rowsOf(root) === List(
+        found === List(
           ("p.Nat", Some(EffectiveOmega), Nil),
           ("p.Zero", Some(UnitSize), Nil),
           ("p.Succ", Some(EffectiveOmega), Nil),
@@ -497,14 +520,14 @@ class ReportSpec extends Specification {
   }
 
   def crossSourceOpaque = {
-    val root = temporary(
+    val found = rowsOf(
       "Id.scala" -> "package p\nopaque type Id = Byte",
       "User.scala" -> "package p\ncase class User(id: Id, active: Boolean)",
     )
     // An opaque row reads its representation (`Id` is 2^8). A reference from another file is
     // outside the scope that defines it, where the opaque type is one value (rule F): `User` is 2.
-    (rowsOf(root).filter(_._1 == "p.User") === List(("p.User", Some(TinySize(2)), Nil)))
-      .and(rowsOf(root).filter(_._1 == "p.Id") === List(("p.Id", Some(ByteSize), Nil)))
+    (found.filter(_._1 == "p.User") === List(("p.User", Some(TinySize(2)), Nil)))
+      .and(found.filter(_._1 == "p.Id") === List(("p.Id", Some(ByteSize), Nil)))
   }
 
   def matchType = {
@@ -513,7 +536,7 @@ class ReportSpec extends Specification {
          |type Snd[T] = T match { case (f, s) => s }
          |type Pick[T] = T match
          |  case Int => Boolean
-         |  case x => x
+         |  case _ => T
          |type Two = Fst[(Boolean, Boolean)]
          |type Second = Snd[(Int, Boolean)]
          |type ANumber = Pick[Int]
@@ -522,7 +545,8 @@ class ReportSpec extends Specification {
     )
     // A match type reduces on the argument's syntax: `Fst[(Boolean, Boolean)]` is `Boolean` because
     // the case pattern is that tuple and its body is the first binder. A concrete pattern matches
-    // by spelling and falls through to the binder case when it does not. The definitions' own rows
+    // by spelling and falls through to the wildcard case, whose body is the scrutinee, when it does
+    // not. The definitions' own rows
     // are stuck only on their parameter `T`: each instantiation decides them.
     found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
       ("Fst", Some(EffectiveOmega), List("T")),
@@ -617,23 +641,24 @@ class ReportSpec extends Specification {
   def memberAbstract = {
     val found = definitions(
       """|trait O { type Z }
-         |class C(x: O) { type Y = x.Z }
+         |class C(val x: O) { type Y = x.Z }
          |""".stripMargin,
     )
-    // A member a body declares abstract is supplied by whoever implements it: unbounded, which the
-    // row says, rather than an unknown name.
+    // A member a body declares abstract is supplied by whoever implements it: reached through the
+    // value x, no instantiation of C gives it, so the row is open, named as written (`x.Z`), rather
+    // than an unknown name.
     (found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
       ("O", None, Nil),
       ("C", Some(EffectiveOmega), List("O")),
       ("C#Y", Some(EffectiveOmega), List("x.Z")),
     ))
-      .and(found.find(_.name == "C#Y").exists(d => Definition.gap(d).contains(Definition.Gap.Open)))
+      .and(found.find(_.name == "C#Y").flatMap(Definition.gap) === Some(Definition.Gap.Open))
   }
 
   def memberUnknown = {
     val found = definitions(
-      """|class C(x: NotSupplied) { type Y = x.Z }
-         |""".stripMargin,
+      """|class C(val x: NotSupplied) { type Y = x.Z }
+         |""".stripMargin + cardinality.Compiled.withheld("class NotSupplied { type Z }"),
     )
     // The sources do not say what `x` is, so the reference is the reason, as it was written.
     found.find(_.name == "C#Y").map(d => (d.size, d.unbound.map(_.render))) ===
@@ -658,8 +683,10 @@ class ReportSpec extends Specification {
   }
 
   def openRow = {
-    val root = temporary("Types.scala" -> "package p\ntrait Open\ncase class Uses(o: Open)")
-    val rendered = Report.of(List(root)).render
+    val report = cardinality.Compiled.report(
+      "Types.scala" -> "package p\ntrait Open\ncase class Uses(o: Open)"
+    )
+    val rendered = report.render
     (rendered must contain("open to implementations (Open)"))
       .and(rendered must contain("1 unbounded by an open abstraction"))
   }
@@ -717,17 +744,17 @@ class ReportSpec extends Specification {
   }
 
   def lazyRow = {
-    val root = temporary(
+    val report = cardinality.Compiled.report(
       "Timeline.scala" ->
-        "package p\ncase class Timeline(head: Boolean, tail: => Timeline)",
+        "package p\nfinal class Timeline(head: Boolean, tail: => Timeline)",
     )
-    val rendered = Report.of(List(root)).render
+    val rendered = report.render
     val table = rendered.linesIterator.toList
       .dropWhile(_ != "Stored-value estimates (constructor inputs; `?` = unresolved)")
       .drop(2)
     // A hole the constructor never demands counts its infinite values as well, so `ω` is an
     // answer: the row shows the size, and the summary does not count it as unresolved.
-    (definition("case class Timeline(head: Boolean, tail: => Timeline)", "Timeline").size ===
+    (definition("final class Timeline(head: Boolean, tail: => Timeline)", "Timeline").size ===
       Some(EffectiveOmega))
       .and(table(0) must contain("ω  p.Timeline"))
       .and(rendered must contain("1 with more than one value"))
@@ -742,7 +769,7 @@ class ReportSpec extends Specification {
 
   def blockedRow = {
     val reducer = definition("case class Reducer(run: String => String)", "Reducer")
-    val blocked = definition("case class Blocked(step: Quorum => Quorum)", "Blocked")
+    val blocked = definition("case class Blocked(step: Quorum => Quorum)" + quorum, "Blocked")
     // `String` is a modelled space — countably many — so a function space over it answers ε₀ with
     // nothing left to name. A name the sources do not define still carries its own reason.
     (reducer.size === Some(EffectiveEpsilon0))

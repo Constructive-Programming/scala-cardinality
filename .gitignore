@@ -24,5 +24,8 @@ metals.sbt
 /cpd/
 mill-plugin/out/
 
+# scala-cli build directories (scripts/, the skill scripts)
+.scala-build/
+
 # The math pre-pass stages the site here before Laika renders it.
 /site-staged/

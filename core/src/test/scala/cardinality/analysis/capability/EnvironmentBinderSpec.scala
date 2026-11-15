@@ -1,8 +1,5 @@
 package cardinality.analysis.capability
 
-import scala.meta.*
-
-import cardinality.analysis.*
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 import org.specs2.execute.Result
@@ -24,9 +21,9 @@ class EnvironmentBinderSpec extends Specification {
       an open producer of the argument type keeps the refusal            $open
   """
 
-  private val found: Map[String, Count] =
-    MethodAnalysis
-      .analyze(List(MethodAnalysis.Input("Env.scala", dialects.Scala3(code).parse[Source].get)))
+  private lazy val found: Map[String, Count] =
+    cardinality.Compiled
+      .analyze(List(cardinality.Compiled.Input("Env.scala", code)))
       .map(entry => entry.name -> entry.count)
       .toMap
 

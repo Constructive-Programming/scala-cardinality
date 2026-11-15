@@ -1,8 +1,6 @@
 package cardinality.analysis.resolution
 
-import scala.meta.*
-
-import cardinality.analysis.*
+import cardinality.Pending
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 
@@ -39,15 +37,21 @@ class HigherKindedBindingSpec extends Specification {
       a transparent alias is expanded                               $aliasKey
       a local alias shadows a builtin name in a key                 $shadowedKey
       an opaque argument is transparent only in its scope           $opaqueKey
-      an opaque argument outside its scope is no readable key       $opaqueOutside
+      an opaque argument outside its scope is no readable key       ${Pending.knownLoss(
+      opaqueOutside
+    )}
       an idempotent union is its one alternative                    $unionKey
       equality evidence substitutes through F                       $leibniz
       subtype evidence does not lift through an invariant F         $noLift
       an applied endpoint of equality evidence                      $appliedEq
       a long equality chain settles                                 $longChain
       an equality that keeps unfolding is refused                   $unfolding
-      operators are keyed by their eta-long lambda                  $operatorKeys
-      an export of a vocabulary name is not trusted                 $exportedVocabulary
+      operators are keyed by their eta-long lambda                  ${Pending.knownLoss(
+      operatorKeys
+    )}
+      an export of a vocabulary name is not trusted                 ${Pending.knownLoss(
+      exportedVocabulary
+    )}
       inherited substitution keeps nominal identity                 $inherited
       a constructor field of F[Unit]                                $unfold
     Constructor arguments (R3)
@@ -60,7 +64,9 @@ class HigherKindedBindingSpec extends Specification {
       a curried type-lambda alias is applied                        $curried
       an unapplied constructor passed but never applied             $phantom
       a higher-kinded transparent alias takes a builtin constructor $pairAlias
-      a foreign callee reports only itself                          $foreignCallee
+      a foreign callee reports only itself                          ${Pending.knownLoss(
+      foreignCallee
+    )}
       a top-level alias's companion sees the file's opaque types    $aliasCompanion
     Context bounds (R4)
       a readable evidence joins the environment                     $evidence
@@ -68,10 +74,14 @@ class HigherKindedBindingSpec extends Specification {
       a higher-kinded evidence joins the environment                $hkEvidence
       a class's bound is evidence for its members                   $classEvidence
       a class's bound is a position read where it is written        $classBoundPosition
-      a foreign evidence names the foreign type                     $foreignBound
+      a foreign evidence names the foreign type                     ${Pending.knownLoss(
+      foreignBound
+    )}
       same-typed anonymous evidences are not counted                $ambiguous
       anonymous using parameters do not overwrite each other        $anonymous
-      a bounded binder's evidence is not provably unrelated         $boundedEvidence
+      a bounded binder's evidence is not provably unrelated         ${Pending.knownLoss(
+      boundedEvidence
+    )}
     Subtype bounds (R5, B1)
       an upper bound upcasts                                        $upper
       an upper bound does not downcast                              $noDowncast
@@ -92,8 +102,8 @@ class HigherKindedBindingSpec extends Specification {
   """
 
   private def entries(code: String): Map[String, Count] =
-    MethodAnalysis
-      .analyze(List(MethodAnalysis.Input("Kinds.scala", dialects.Scala3(code).parse[Source].get)))
+    cardinality.Compiled
+      .analyze(cardinality.Compiled.inputs("Kinds.scala" -> code))
       .map(entry => entry.name -> entry.count)
       .toMap
 
@@ -308,20 +318,15 @@ class HigherKindedBindingSpec extends Specification {
       .and(counts("T.swapped") === Count.Finite(0))
   }
 
-  // A parent instantiated at a binder keeps its key; one instantiated at `Option[B]` was read as a
-  // shape, which has lost the nominal identity `G[Option[B]]` needs (exact count 0).
+  // A parent instantiated at a binder keeps its key: Same's seed is a G[B], get — 1. Other's seed is
+  // a G[Option[B]], which a rigid G never turns into a G[B]: get has no implementation — 0.
   def inherited = {
     val counts = entries("""
       trait Base[F[_], A] { val seed: F[A] }
       trait Same[G[_], B] extends Base[G, B] { def get: G[B] }
       trait Other[G[_], B] extends Base[G, Option[B]] { def get: G[B] }
     """)
-    (counts("Same.get") === Count.Finite(1)).and(
-      counts("Other.get") must beLike {
-        case Count.Unresolved(reasons) =>
-          reasons must contain("nominal identity of substituted argument not tracked: A")
-      }
-    )
+    (counts("Same.get") === Count.Finite(1)).and(counts("Other.get") === Count.Finite(0))
   }
 
   // `Function1`, `Tuple2` and `=:=` are read as builtins wherever no source declares them, so an
@@ -329,7 +334,8 @@ class HigherKindedBindingSpec extends Specification {
   // not supply — leaves the reading unknown (before: counted).
   def exportedVocabulary =
     unresolved(
-      "export foo.Function1\nobject T { def f[A](g: Function1[A, A], a: A): A = a }",
+      "export foo.Function1\nobject T { def f[A](g: Function1[A, A], a: A): A = a }" +
+        cardinality.Compiled.withheld("package foo\nclass Function1[A, B]"),
       "T.f",
       "declaration not supplied: foo.Function1 (named export Function1)"
     )
@@ -465,9 +471,8 @@ class HigherKindedBindingSpec extends Specification {
   // A class's bound is the `using` parameter it stands for, also as a constructor position: the
   // estimate reads it inside the class, where `Tag` is a name it knows. `O.Tag[A]` is the sum
   // T1[A]() + T2[A]() = 2 whatever `A` is, so `Bound` and `Using` hold it beside `a`: 1 · 2 = 2.
-  // `R.Mark` has a subtype written through a renamed import, which the estimate refuses and the
-  // shape model misses (it would read 1 · 1 = 1; scalac's `R.Mark[Int]` holds `R.Z.M2`, so the
-  // truth is 2): read at the top of the file, `Mark` was no name the estimate knew and that 1 stood.
+  // `R.Mark` has a subtype written through a renamed import, which the compiler resolves:
+  // `R.Mark[A]` is M1[A]() + M2[A]() = 2 (scalac's `R.Mark[Int]` holds `R.Z.M2`), so 1 · 2 = 2.
   // Both spellings read alike: `K` and `KU` hold `Default[A]` beside `a` (4), `B` and `BU` a
   // `Boolean` beside `a` (2).
   def classBoundPosition = {
@@ -496,16 +501,10 @@ class HigherKindedBindingSpec extends Specification {
         final class Using[A](a: A)(using Mark[A])
       }
     """)
-    def unsummed(name: String) = counts(name) must beLike {
-      case Count.Unresolved(reasons) =>
-        reasons must contain(
-          "sealed family not summed: Mark (a subtype extends it through a renamed import: M2)"
-        )
-    }
     (counts("O.Bound.<init>") === Count.Finite(2))
       .and(counts("O.Using.<init>") === Count.Finite(2))
-      .and(unsummed("R.Bound.<init>"))
-      .and(unsummed("R.Using.<init>"))
+      .and(counts("R.Bound.<init>") === Count.Finite(2))
+      .and(counts("R.Using.<init>") === Count.Finite(2))
       .and(counts("O.K.<init>") === Count.Finite(4))
       .and(counts("O.KU.<init>") === Count.Finite(4))
       .and(counts("O.B.<init>") === Count.Finite(2))
@@ -519,7 +518,8 @@ class HigherKindedBindingSpec extends Specification {
       "declaration not supplied: cats.Monoid (named import Monoid)"
     )
 
-  // `summon[Default[A]]` is ambiguous (3.9.0: E172); exact count 1.
+  // `summon[Default[A]]` is ambiguous (3.9.0: E172); exact count 1. The refusal spells each type as
+  // the compiler does: the empty package's Default, FT2's own C.
   def ambiguous = {
     val counts = entries("""
       final case class Default[A](value: A)

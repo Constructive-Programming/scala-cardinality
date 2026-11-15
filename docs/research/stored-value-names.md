@@ -183,11 +183,11 @@ followed, the name is a reason (`?`), never a same-named declaration found elsew
   with `sealed family not summed: P (why)` — see
   [stored-value-families.md](stored-value-families.md).
 - **Lazy cycles the ν completion could not finish.** A by-name or function field naming a
-  definition that reaches back (`S(head, tail: => Cell)`, `Cell(s: S)`) — directly or through an
-  alias the body defines (`tail: Thunk`, `type Thunk = () => Cell`) — lets a program tie a lazy
-  knot (`lazy val c: Cell = Cell(S(true, c))`); when coiteration is blocked (here by the strict
-  `s: S`), the least fixed point counts only the finite values, an under-count. Every row on or
-  reading such a cycle says `lazy cycle not completed: X`. Source totals keep the μ value.
+  definition that reaches back lets a program tie a lazy knot; the completion counts it
+  (`S(head, tail: => Cell)` with `Cell(s: S)` is ω). Where a field names the cycle both strictly
+  and lazily (`Ks(p: (Ks, () => Ks))`), the reading cannot tell whether a knot exists, the least
+  fixed point counts only the finite values, a possible under-count, and every row on or reading
+  such a cycle says `lazy cycle not completed: X`. Source totals keep the μ value.
 - **Packages that read each other in a cycle.** Solved together in rounds; a read down the cycle
   longer than the rounds stops at a member of a package not solved yet, and says
   `cross-package cycle not solved: q.B` — never a supplied declaration called unresolved.
@@ -286,8 +286,6 @@ members, enum companions), `ReportSpec.memberByName`,
 - **A parent's export clauses** are never followed: a name one may define is refused in the
   subclass's body (`inherited type member not resolved: Boolean (exports of B)`), even where the
   export would bind what the reading would have found anyway.
-- **A blocked lazy cycle with no knot.** `X(b: => X, a: X)` admits no value (the strict `a`
-  demands one first), so μ = 0 is exact, but the cycle is still read as blocked.
 - **A pattern variable or an untyped self alias** is a value of no type read here: a path through
   it is its own reason (`val (p, n) = (new Prism, 1); type Y = p.X`).
 - **A class member through a bounded type parameter or an alias** is `?` (the bound's member is

@@ -20,30 +20,11 @@ final class Calculator private (jars: Seq[Path]) {
 
   private val entry = loader.loadClass("cardinality.Entry")
 
-  /** Renders the declarations of a compiled classpath into the stub file `out`. */
-  def stubs(classpath: Seq[Path], out: Path): Unit = {
-    val _ = call("stubs", list(classpath), out)
-  }
-
-  /** Writes the report over `sources` to `out`; the number of errors it holds. */
-  def report(sources: Seq[Path], stubs: Option[Path], out: Path): Int =
-    count(call("report", list(sources), optional(stubs), out))
-
-  /** Writes the bounded report for the qualified method `names`; the number of errors it holds. */
-  def selected(
-      sources: Seq[Path],
-      support: Seq[Path],
-      names: Seq[String],
-      stubs: Option[Path],
-      limits: Map[String, Long],
-      out: Path
-  ): Int = {
-    val overrides = new java.util.HashMap[String, java.lang.Long]
-    limits.foreach { case (name, value) => overrides.put(name, value) }
-    count(
-      call("selected", list(sources), list(support), list(names), optional(stubs), overrides, out)
-    )
-  }
+  /** Writes the report over `sources` to `out` (with `names`, the report of those qualified methods
+    * alone), read from their compiled `classes`; the number of errors it holds.
+    */
+  def report(sources: Seq[Path], names: Seq[String], classes: Calculator.Classes, out: Path): Int =
+    count(call("report", list(sources), list(names), compiled(classes), out))
 
   private def list[A](values: Seq[A]): java.util.List[A] = {
     val result = new java.util.ArrayList[A]
@@ -51,14 +32,16 @@ final class Calculator private (jars: Seq[Path]) {
     result
   }
 
-  private def optional(stubs: Option[Path]): Optional[Path] =
-    stubs.fold(Optional.empty[Path])(Optional.of(_))
+  private def compiled(classes: Calculator.Classes) =
+    Optional.ofNullable(
+      classes.output.map(paths => java.util.Map.entry(list(paths), list(classes.classpath))).orNull
+    )
 
   private def count(result: AnyRef): Int = result.asInstanceOf[java.lang.Integer].intValue
 
   // The entry point's method of that name, run with the calculator's loader as the thread's. One
-  // call at a time in the JVM: a report holds its sources' trees and its dependencies' stubs, and a
-  // build tool running one per module in parallel (a root `cardinalityReport`) would hold them all
+  // call at a time in the JVM: a report holds its sources' and its dependencies' compiled trees, and
+  // a build tool running one per module in parallel (a root `cardinalityReport`) would hold them all
   // at once and exhaust the heap that each report alone fits in.
   // ponytail: a JVM-wide lock, so a waiting task keeps its worker thread; a build-tool tag would
   // free it, at one per plugin.
@@ -68,8 +51,13 @@ final class Calculator private (jars: Seq[Path]) {
     thread.setContextClassLoader(loader)
     try
       entry.getMethods
-        .find(_.getName == method)
-        .getOrElse(throw new NoSuchMethodException(s"cardinality.Entry.$method"))
+        .find(m => m.getName == method && m.getParameterCount == arguments.size)
+        .getOrElse(
+          throw new NoSuchMethodException(
+            s"cardinality.Entry.$method with ${arguments.size} parameters: the calculator " +
+              s"(cardinalityVersion) is not one this plugin (${Calculator.version}) can call"
+          )
+        )
         .invoke(null, arguments*)
     catch { case e: InvocationTargetException => throw e.getCause }
     finally thread.setContextClassLoader(before)
@@ -78,6 +66,11 @@ final class Calculator private (jars: Seq[Path]) {
 }
 
 object Calculator {
+
+  /** The classes a report reads: the sources' compiled `output` (`None` when they did not compile,
+    * and every source is refused), and the dependency `classpath` its types refer to.
+    */
+  final case class Classes(output: Option[Seq[Path]], classpath: Seq[Path])
 
   /** The calculator's version: the plugin's own. */
   val version: String = BuildInfo.version
@@ -89,7 +82,7 @@ object Calculator {
   // calculator again, and its library threads are started once.
   private var loaded: Option[(Seq[(Path, Long)], Calculator)] = None
 
-  // Held while a calculator runs: one report or stub rendering at a time, whichever loader.
+  // Held while a calculator runs: one report at a time, whichever loader.
   private val running = new Object
 
   /** The calculator of these jars; refused where the build tool's JVM cannot run it. */

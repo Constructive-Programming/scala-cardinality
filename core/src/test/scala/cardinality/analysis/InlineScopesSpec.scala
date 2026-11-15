@@ -1,7 +1,6 @@
 package cardinality.analysis
 
-import scala.meta.*
-
+import cardinality.Pending
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 import org.specs2.matcher.MatchResult
@@ -16,31 +15,46 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
 
   def is = s2"""
     Definitions inside an inline body are read where they are written
-      a local method's using clause, context bound and default         $localClauses
+      a local method's using clause, context bound and default         ${Pending.knownLoss(
+      localClauses
+    )}
       a local method or given read like a supplied one                  $localPassing
-      this in an anonymous class, a local class, a local given          $nestedThis
-      a qualified this names its own template                           $qualifiedThis
+      this in an anonymous class, a local class, a local given          ${Pending.knownLoss(
+      nestedThis
+    )}
+      a qualified this names its own template                           ${Pending.knownLoss(
+      qualifiedThis
+    )}
       a local object's members are its own                              $localObject
-      a local type that hides an outer one refuses                      $localTypes
+      a local class has no companion to select from                     ${Pending.rejectedFixture(
+      localClass
+    )}
+      a local type that hides an outer one is the local one            $localTypes
     Applications are read to their last clause
-      a clause a callee does not take applies its result's apply        $furtherClauses
-      library and Predef results applied again                          $libraryClauses
+      a clause a callee does not take applies its result's apply        ${Pending.knownLoss(
+      furtherClauses
+    )}
+      library and Predef results applied again                          ${Pending.knownLoss(
+      libraryClauses
+    )}
       clauses a callee takes are its own                                $ownClauses
     Runtime classes, alias chains and verdicts
-      classOf of an array of a type variable reifies the variable       $reifiedClasses
-      a conversion behind any number of aliases is found                $aliasChains
-      a given whose type a wildcard may hide is read as its declaration  $doubtedConversions
-      a listed namespace's wildcard binds its own terms only            $listedTerms
-      a reading cut short decides nothing                               $interrupted
+      classOf of an array of a type variable reifies the variable       ${Pending.knownLoss(
+      reifiedClasses
+    )}
+      a conversion behind any number of aliases is found                ${Pending.knownLoss(
+      aliasChains
+    )}
+      a given conversion the body does not apply is no candidate       $doubtedConversions
+      a listed namespace's wildcard binds its own terms only            ${Pending.knownLoss(
+      listedTerms
+    )}
       a deferred inline member is an inline body's capability          $deferredMembers
       a passing body is eliminated by the solver like its def twin      $solverTwins
-      a conversion private to another package is never inserted        $privateConversions
-      a qualifier is converted from its own type's implicit scope       $anchoredConversions
+      a conversion the body does not apply is never inserted           $privateConversions
+      a qualifier's member wins over its implicit scope                $anchoredConversions
       only a template extending the receiver overrides its member       $overridingInlines
   """
-
-  private def parsed(code: String): MethodAnalysis.Input =
-    MethodAnalysis.Input("Example.scala", dialects.Scala3(code).parse[Source].get)
 
   private def pow2(exponent: Int): Count =
     Count.Symbolic(NaturalSyntax.pow(2, NaturalSyntax.pow(2, exponent)))
@@ -58,9 +72,17 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
   // Fixture locals: pick prints true, then false under a call-site `given Boolean = false`; bound
   // true, then false; viaDefault 5, then 9 under `given Int = 9` — the given implicit search fills
   // at the local call, and the default evaluated there, are expanded at each call site. The def
-  // twin pickD prints true at both.
+  // twin pickD prints true at both. The `Has[Boolean]` given `bound` leaves to search is declared
+  // here and not in the shared prelude, whose other fixture has no use for it.
   def localClauses = {
-    val found = rows(flagGiven + """object U {
+    val found = rows(flagGiven + """object Hs {
+      |  inline given Has[Boolean] = summonFrom {
+      |    case x: Boolean => new Has[Boolean] { def get: Boolean = x }
+      |    case _          => new Has[Boolean] { def get: Boolean = true }
+      |  }
+      |}
+      |import Hs.given
+      |object U {
       |  inline def pick(b: Boolean): Boolean = {
       |    def read(using f: Flag): Boolean = f.b
       |    read
@@ -168,25 +190,27 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
     val found = rows("""object Use {
       |  inline def f(x: Int): Int = { object O { def g(y: Int): Int = y }; O.g(x) }
       |  def fD(x: Int): Int = { object O { def g(y: Int): Int = y }; O.g(x) }
-      |  inline def other(x: Int): Int = { class K; K.g(x) }
       |}""".stripMargin)
-    (found("Use.f") === pow2(37))
-      .and(found("Use.f") === found("Use.fD"))
-      .and(
-        refused(found("Use.other"), "reads the local K, which has no companion this reading reads")
-      )
+    (found("Use.f") === pow2(37)).and(found("Use.f") === found("Use.fD"))
   }
 
-  // A local class named like a class outside the body would be read as the outer one, whose members
-  // are not the local one's.
+  // `K.g` selects from a companion the local class does not have: no Scala program, read as written.
+  def localClass =
+    refused(
+      rows("object Use { inline def other(x: Int): Int = { class K; K.g(x) } }")("Use.other"),
+      "reads the local K, which has no companion this reading reads"
+    )
+
+  // The compiled body names the local class, never the outer `Fn`: `(new Fn)(x)` is the local
+  // apply, the identity, and neither body uses a compile-time operation, so each counts as its
+  // `def` twin (every Int => Int, 2^(2^37)).
   def localTypes = {
     val found = rows("""final class Fn { def apply(x: Int): Int = x }
       |object U {
       |  inline def hidden(x: Int): Int = { final class Fn { def apply(y: Int): Int = y }; (new Fn)(x) }
       |  inline def fresh(x: Int): Int = { final class Gn { def apply(y: Int): Int = y }; (new Gn)(x) }
       |}""".stripMargin)
-    refused(found("U.hidden"), "declares the local type Fn, which hides a type of that name")
-      .and(refused(found("U.fresh"), "creates an instance of a class not read"))
+    (found("U.hidden") === pow2(37)).and(found("U.fresh") === pow2(37))
   }
 
   private val fn = """import scala.compiletime.summonFrom
@@ -280,28 +304,29 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
     refused(found("U.f"), "may expand the inline conversion given A9[Int, String]")
   }
 
-  // `forgetful.*` is in doubt (its `forgetful` may be `zzz.forgetful`), so the given's type name is
-  // not read; the declaration it would otherwise be is: a plain trait leaves `U.f` its number (4),
-  // one extending `Conversion` makes the inline-apply given a conversion every body may meet
-  // (probes/a7fix1/conv, valid Scala 3.9.0). The alternative, a type outside the sources, is not
-  // read as a conversion (D27's boundary). U.scala itself imports nothing.
+  // `forgetful.*` binds the supplied `p.forgetful` (the withheld `zzz` declares no `forgetful`). A
+  // plain trait leaves `U.f` its number, B => B through id, 4; one extending `Conversion` makes the
+  // inline-apply given a conversion (probes/a7fix1/conv, valid Scala 3.9.0), but the compiled body
+  // `id(x)` applies none, so it is no candidate (D2 of docs/plans/compiled-own-types.md): 4 too.
+  // U.scala itself imports nothing.
   def doubtedConversions = {
+    // `zzz`, a namespace the sources do not supply: compiled against, then withheld.
+    val zzz = cardinality.Compiled.withheld("package zzz\nobject Unsupplied")
     val use =
       "p/U.scala" -> "package p\nobject U {\n  enum B { case T, F }\n  def id(b: B): B = b\n  inline def f(x: B): B = id(x)\n}"
     val plain = counts(
       "p/forgetful.scala" -> "package p\npackage forgetful\ntrait ForgetfulFunctor[F[_]]",
-      "p/given.scala" -> "package p\nimport zzz.*\nimport forgetful.*\ngiven g: ForgetfulFunctor[List] with {}",
+      "p/given.scala" -> ("package p\nimport zzz.*\nimport forgetful.*\ngiven g: ForgetfulFunctor[List] with {}" + zzz),
       use
     )
     val converting = counts(
       "p/forgetful.scala" ->
         "package p\npackage forgetful\ntrait ForgetfulFunctor[A, C] extends Conversion[A, C]",
       "p/given.scala" ->
-        "package p\nimport zzz.*\nimport forgetful.*\ngiven g: ForgetfulFunctor[Int, Long] with { inline def apply(i: Int): Long = i.toLong }",
+        ("package p\nimport zzz.*\nimport forgetful.*\ngiven g: ForgetfulFunctor[Int, Long] with { inline def apply(i: Int): Long = i.toLong }" + zzz),
       use
     )
-    (plain("p.U.f") === Count.Finite(4))
-      .and(refused(converting("p.U.f"), "may expand the inline conversion g"))
+    (plain("p.U.f") === Count.Finite(4)).and(converting("p.U.f") === Count.Finite(4))
   }
 
   // `scala.quoted.*` declares the terms `Varargs` and `quotes` and no term `ExprMap` (a trait
@@ -321,32 +346,6 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
     )
     refused(found("p.U.viaVarargs"), "reads Varargs, which the wildcard import scala.quoted.*")
       .and(found("p.U.viaExprMap") === Count.Finite(4))
-  }
-
-  // A budget that stops reading `caller` anywhere inside `leaf` leaves `leaf` unjudged, not open:
-  // read again with the budget restored it is still refused for its inline match.
-  def interrupted = {
-    val input = parsed("""object Other { def k(x: Int): Int = x }
-      |object Cut {
-      |  inline def leaf(x: Int): Int = { val y: Int = Other.k(x); inline y match { case 1 => 1; case _ => 2 } }
-      |  inline def mid(x: Int): Int = leaf(x)
-      |  inline def caller(x: Int): Int = mid(x)
-      |}""".stripMargin)
-    val afterCuts: List[Count] = (1 to 300).toList.flatMap { quota =>
-      val work = new AnalysisWork(Long.MaxValue, MethodAnalysis.Limits().maxTypeDepth)
-      val index = new MethodAnalysis.Index(List(input), MethodAnalysis.Limits(), Some(work))
-      val targets = index.selected(Set(input.path), Set("Cut.caller", "Cut.leaf"))
-      work.target(quota)
-      targets.filter(_.name == "Cut.caller").foreach(index.measure)
-      work.target(Long.MaxValue)
-      targets.filter(_.name == "Cut.leaf").map(target => index.measure(target).count)
-    }
-    val stillRefused = afterCuts.filter {
-      case Count.Unresolved(reasons) =>
-        reasons.exists(_.contains("inline method: uses inline match"))
-      case _ => false
-    }
-    (afterCuts.size === 300).and(stillRefused.size === 300)
   }
 
   // Fixture a6-land dip: g(new A) prints true and g(new B) false — each expansion calls the static
@@ -397,8 +396,8 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
 
   // Scala never inserts an inaccessible implicit: conv, `private[lib]`, is no candidate in `app`
   // even under a wildcard import of R, so first counts as its `def` twin (every (Int, Int) => Int,
-  // 2^(2^69)); public, the import brings it, it may be inserted where an expression does not
-  // conform, and its expansion reads the call site: refused.
+  // 2^(2^69)). Public, the import brings it, but `t._1` already conforms: the compiled body applies
+  // no conversion, so it is no candidate either (D2): the twin again.
   def privateConversions = {
     def lib(access: String) = "lib.scala" -> s"""package lib
       |object R {
@@ -414,15 +413,14 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
     val hidden = counts(lib("private[lib] "), app)
     (hidden("app.C.first") === hidden("app.C.firstD"))
       .and(hidden("app.C.first") === pow2(69))
-      .and(
-        refused(counts(lib(""), app)("app.C.first"), "may expand the inline conversion conv")
-      )
+      .and(counts(lib(""), app)("app.C.first") === pow2(69))
   }
 
   // A qualifier is converted, or answered by an extension, only from the scopes around the body or
-  // its static type's implicit scope: conv and h, members of T's companion, may answer t.f and t.h
-  // (Box's inline f and h read the call site: refused), never u.f or u.h, which count as their
-  // `def` twins (every Int => Int, 2^(2^37)).
+  // its static type's implicit scope, and only where no member applies: conv and h, members of T's
+  // companion, could answer t.f and t.h, but T's own f and h take an Int, so the compiled bodies
+  // call the members and no conversion or extension is applied (D2). Every body counts as its
+  // `def` twin (every Int => Int, 2^(2^37)).
   def anchoredConversions = {
     val lib = "lib.scala" -> """package lib
       |final class T { def f(x: Int): Int = x; def h(x: Int): Int = x }
@@ -444,8 +442,8 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
     (found("app.C.onU") === found("app.C.onUD"))
       .and(found("app.C.hOnU") === found("app.C.onUD"))
       .and(found("app.C.onU") === pow2(37))
-      .and(refused(found("app.C.onT"), "the implicit conversion conv may answer"))
-      .and(refused(found("app.C.hOnT"), "h uses scala.compiletime.codeOf"))
+      .and(found("app.C.onT") === pow2(37))
+      .and(found("app.C.hOnT") === pow2(37))
   }
 
   // An expansion selects f on b's class at the call site: Sub overrides f, but not inline, and

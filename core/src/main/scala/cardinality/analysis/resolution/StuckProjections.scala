@@ -1,9 +1,7 @@
 package cardinality.analysis.resolution
 
-import scala.meta.{Type, TypeCase}
-
 import cardinality.analysis.inhabitation.Inhabitation.Shape
-import cardinality.analysis.model.SourceBindings
+import cardinality.analysis.model.Atoms
 import cardinality.types.Universe
 
 /** Stuck tuple projections (members MT3).
@@ -35,32 +33,18 @@ private[cardinality] object StuckProjections {
 
   }
 
-  /** The component a single-case projection takes, as (arity, 1-based index): one tuple pattern of
-    * distinct binders whose body is one of them.
+  /** The component a single-case projection takes, as (arity, 1-based index): a tuple pattern whose
+    * parts are distinct binders of the case (`Some` binder, `None` for any other part) and whose
+    * body is one of them. Each front end reads the case's parts from its own trees.
     */
-  def projection(cases: List[TypeCase]): Option[(Int, Int)] = cases match {
-    case List(single) =>
-      (single.pat, single.body) match {
-        case (Type.Tuple(parts), Type.Name(body)) =>
-          val binders = parts.collect {
-            case Type.Name(name) if name.headOption.exists(_.isLower) => name
-          }
-          Option
-            .when(binders.size == parts.size && binders.distinct.size == binders.size)(
-              binders.indexOf(body)
-            )
-            .filter(_ >= 0)
-            .map(index => parts.size -> (index + 1))
-        case _ => None
-      }
-    case _ => None
+  def component[B](parts: List[Option[B]], body: Option[B]): Option[(Int, Int)] = {
+    val binders = parts.flatten
+    body
+      .filter(_ => binders.size == parts.size && binders.distinct == binders)
+      .map(binders.indexOf)
+      .filter(_ >= 0)
+      .map(index => parts.size -> (index + 1))
   }
-
-  /** Whether an atom may stand for any type a caller picks: a projection atom does not (nested
-    * stuck projections are not read), and a bounded binder's choices are constrained.
-    */
-  def instantiable(id: String, bounded: String => Boolean): Boolean =
-    Projection.unapply(id).isEmpty && !bounded(id)
 
   /** Why the projections of one signature's shapes have no common reducing instantiation, if they
     * have none, given the proofs of its binders' bounds.
@@ -76,12 +60,12 @@ private[cardinality] object StuckProjections {
     )
     projected.groupMap(_._1)(_._2).toList.sortBy(_._1).collectFirst {
       case (scrutinee, arities) if arities.distinct.size > 1 =>
-        s"stuck match types on ${SourceBindings.label(scrutinee)} have no common reducing " +
+        s"stuck match types on ${Atoms.label(scrutinee)} have no common reducing " +
           s"instantiation: arities ${arities.distinct.sorted.mkString(", ")}"
       case (scrutinee, _) if bound(scrutinee) =>
-        s"stuck match types on ${SourceBindings.label(scrutinee)} meet a bound that mentions it"
+        s"stuck match types on ${Atoms.label(scrutinee)} meet a bound that mentions it"
       case (scrutinee, _) if equated(scrutinee) =>
-        s"stuck match types on ${SourceBindings.label(scrutinee)} meet type evidence that mentions it"
+        s"stuck match types on ${Atoms.label(scrutinee)} meet type evidence that mentions it"
     }
   }
 

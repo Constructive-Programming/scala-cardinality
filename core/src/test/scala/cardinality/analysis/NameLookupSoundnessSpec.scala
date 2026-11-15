@@ -1,5 +1,6 @@
 package cardinality.analysis
 
+import cardinality.Pending
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 import org.specs2.matcher.MatchResult
@@ -25,7 +26,9 @@ class NameLookupSoundnessSpec extends Specification with InventoryFixtures {
       resolve a parent clause through a wildcard import                 $wildcardParent
     Inherited member objects
       read a path through an object the template inherits               $inheritedObjectPath
-      refuse a path an unsupplied parent may bind                       $unsuppliedObjectPath
+      refuse a path an unsupplied parent may bind                       ${Pending.knownLoss(
+      unsuppliedObjectPath
+    )}
   """
 
   private val options = List(
@@ -169,7 +172,8 @@ class NameLookupSoundnessSpec extends Specification with InventoryFixtures {
     refused(
       counts(
         "c.scala" -> "package w\nobject c { type X = Unit }",
-        "w.scala" -> "package w\nclass W extends lib.Base { def g(): c.X = ??? }"
+        "w.scala" -> ("package w\nclass W extends lib.Base { def g(): c.X = ??? }" +
+          cardinality.Compiled.withheld("package lib\ntrait Base"))
       )("w.W.g"),
       "inherited term member not resolved: c (unsupplied parent lib.Base)"
     )

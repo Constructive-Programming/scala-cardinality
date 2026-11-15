@@ -44,11 +44,12 @@ Stored-value estimates (constructor inputs; `?` = unresolved)
 sbt 'cardinalityReportSelected example.Accessor.get'
 ```
 
-`cardinalityReportOf` runs the same report over sources the build does not compile itself
-— a directory, a single file, or a published `-sources.jar`:
+`cardinalityReportOf` runs the same report over a library the build does not compile
+itself: its binary jar, whose compiled classes are read against the project's dependencies,
+beside its `-sources.jar`, which names and places the rows. Either jar alone is refused:
 
 ```bash
-sbt 'cardinalityReportOf path/to/sources.jar'
+sbt 'cardinalityReportOf path/to/library.jar path/to/library-sources.jar'
 ```
 
 ## Mill
@@ -73,10 +74,11 @@ writes `report.txt` under the command's `out/` directory.
 "dev.constructive" %% "scala-cardinality" % "0.0.6"
 ```
 
-The build tool may run on JDK 17, 21 or 25. The calculator reads dependencies compiled by
-Scala up to the version its TASTy reader supports: 0.0.5 and later read Scala 3.0 through
-3.10. A newer Scala's jars appear as `dependency stub not read: … TASTy signature has
-wrong version` at the end of the report.
+The build tool may run on JDK 17, 21 or 25. The plugins compile the module first and read
+its compiled classes: a source without them is refused. The calculator reads code compiled
+by Scala up to the version its TASTy reader supports: 0.0.5 and later read Scala 3.0 through
+3.10. A newer Scala's classes appear as `compiled class not read: …` at the end of the
+report.
 
 ## Next
 

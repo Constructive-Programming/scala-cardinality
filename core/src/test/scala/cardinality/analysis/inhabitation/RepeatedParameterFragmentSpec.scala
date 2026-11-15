@@ -1,8 +1,6 @@
 package cardinality.analysis.inhabitation
 
-import scala.meta.*
-
-import cardinality.analysis.*
+import cardinality.reporting.Report
 import org.specs2.Specification
 
 class RepeatedParameterFragmentSpec extends Specification {
@@ -11,7 +9,6 @@ class RepeatedParameterFragmentSpec extends Specification {
 
   def is = s2"""
     Repeated argument sequences
-      parse the repeated wrapper around a function                $functionAst
       construct only Nil without an element producer              $emptyIntroduction
       prove infinitely many lengths with an element producer      $nonemptyIntroduction
       do not confuse an unproductive element cycle with a seed    $unproductiveElement
@@ -32,10 +29,9 @@ class RepeatedParameterFragmentSpec extends Specification {
   private val unit = Product(Nil)
   private val nothing = Sum(Nil)
 
-  private def entry(code: String, name: String): MethodAnalysis.Entry = {
-    val source = dialects.Scala3(code).parse[Source].get
-    MethodAnalysis
-      .analyze(List(MethodAnalysis.Input("Repeated.scala", source)))
+  private def entry(code: String, name: String): Report.Entry = {
+    cardinality.Compiled
+      .analyze(cardinality.Compiled.inputs("Repeated.scala" -> code))
       .find(_.name == name)
       .get
   }
@@ -46,11 +42,6 @@ class RepeatedParameterFragmentSpec extends Specification {
         reasons.exists(_.contains("Repeated-argument sequence elimination is unsupported")) must
           beTrue
     }
-
-  def functionAst = {
-    val source = dialects.Scala3("def f[A](fs: (A => Unit)*): Unit = ()").parse[Source].get
-    source.collect { case Type.Repeated(_: Type.Function) => true } === List(true)
-  }
 
   def emptyIntroduction =
     (Inhabitation.count(Nil, Repeated(a)) === Count.Finite(1)).and(
@@ -111,7 +102,10 @@ class RepeatedParameterFragmentSpec extends Specification {
     )
 
   def unknownElement =
-    entry("def ignore(xs: Missing*): Boolean = true", "ignore").count must beLike {
+    entry(
+      "def ignore(xs: Missing*): Boolean = true" + cardinality.Compiled.withheld("class Missing"),
+      "ignore"
+    ).count must beLike {
       case Count.Unresolved(reasons) => reasons.exists(_.contains("Missing")) must beTrue
     }
 

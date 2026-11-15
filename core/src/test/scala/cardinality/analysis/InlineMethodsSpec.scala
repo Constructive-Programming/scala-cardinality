@@ -1,5 +1,6 @@
 package cardinality.analysis
 
+import cardinality.Pending
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 import org.specs2.matcher.MatchResult
@@ -17,34 +18,50 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
       forwarding, choosing and comparing bodies                      $plainBodies
       an inline parameter read as a value, twice, or passed on       $inlineParameters
       an inline extension and an inline method calling one           $inlineCalls
-      inline vals and inline givens named in the body                $inlineValues
+      inline vals and inline givens named in the body                ${Pending.knownLoss(
+      inlineValues
+    )}
       definitions nested in a passing inline method                  $nestedPassing
       library members, extractors, named arguments, overriding       $libraryAndSyntax
     Compile-time operations refuse, wherever they hide
       scala.compiletime renamed, qualified, aliased or relative      $compileTimeNames
-      a passing-looking method calling a failing one                 $transitive
-      an inline parameter inspected by a callee                      $inspectedParameter
+      a passing-looking method calling a failing one                 ${Pending.knownLoss(
+      transitive
+    )}
+      an inline parameter inspected by a callee                      ${Pending.knownLoss(
+      inspectedParameter
+    )}
       a runtime type test on a type the expansion instantiates       $typeTests
-      a given left to implicit search, summon, valueOf               $searches
+      a given the compiler resolved, summon, valueOf                 $searches
       an abstract inline declaration and its implementation          $abstractInline
       the A5 fixtures stay refused                                   $a5Fixtures
-      names the reading cannot resolve                               $unresolved
+      names the reading cannot resolve                               ${Pending.knownLoss(
+      unresolved
+    )}
       a package's synthetic object inherits Any's members            $packageMembers
       compile-time operations in types the body writes               $compileTimeTypes
-      a member that does not apply falls back to an extension        $extensionFallback
-      an extension restating the member is never taken (P2)          $restatedExtension
-      an extension on its own type parameter may answer anything     $binderExtension
+      a member that does not apply falls back to an extension        ${Pending.knownLoss(
+      extensionFallback
+    )}
+      the member or extension the compiler applied (P2)              $restatedExtension
+      an extension on its own type parameter may answer anything     ${Pending.knownLoss(
+      binderExtension
+    )}
       a member an argument's or a subclass's class may override      $overriddenMembers
-      implicit search through extensions, context functions, eta     $searchForms
+      implicit search through extensions, context functions, eta     ${Pending.knownLoss(
+      searchForms
+    )}
       a type test on an array reads its element type                 $arrayTests
     Code the compiler may insert around the body
-      a channel outside the sources refuses all but identities       $channels
-      an inline conversion of the sources refuses every body         $inlineConversion
-      a conversion is read by its type, wherever it may be found     $conversionTypes
+      an unsupplied wildcard the compiler took nothing from          $channels
+      an inline conversion refuses only the bodies it is applied in  $inlineConversion
+      a conversion is read by its type, wherever it may be found     ${Pending.knownLoss(
+      conversionTypes
+    )}
       a conversion local to another method is found nowhere else     $conversionScope
-      an exported or a local conversion is found where it is visible $conversionVisibility
+      an exported or a local conversion the body does not apply      $conversionVisibility
     Verdicts and reasons
-      a cycle of inline calls is decided as one                      $cycles
+      a cycle of inline calls is decided as one                      ${Pending.knownLoss(cycles)}
       reasons quote what they name                                   $reasonPhrases
   """
 
@@ -131,7 +148,8 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
   // first: Int^(Int × Int) = 2^(32·2^64) = 2^(2^69); mk: P has 4 values, 4^2 = 16; opt and mtch: an
   // Option[Boolean] has 3 values, 2^3 = 8; lam applies a lambda literal, no argument's class: every
   // Boolean => Boolean, 4; typedCase tests the fixed class String: Any is one value, 2; Over.f
-  // overrides a method, 2^(2^37).
+  // overrides a method, 2^(2^37); head is the library's inline `NonEmptyTuple.head`, whose body uses
+  // no compile-time operation: `t._1`, as first, 2^(2^69).
   def libraryAndSyntax = {
     val found = rows("""final case class P(a: Boolean, b: Boolean)
       |class Base { def f(x: Int): Int = x }
@@ -152,9 +170,7 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
       .and(found("L.lam") === Count.Finite(4))
       .and(found("L.typedCase") === Count.Finite(2))
       .and(found("Over.f") === pow2(37))
-      .and(
-        refused(found("L.head"), "selects head on Tuple2, which the library table does not list")
-      )
+      .and(found("L.head") === pow2(69))
   }
 
   // Fixture a6 r: renamed[3] = 3, rooted[4] = 4, aliased[5] = 5, relative[6] = 6 — constValue
@@ -217,9 +233,10 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
       .and(found("Neg.isAd") === Count.Finite(2))
   }
 
-  // Fixture a6 b1: viaGiven prints "default", and "callsite" under a call-site given String: the
-  // inline given the body's search chose is expanded at each call site. explicit passes its given
-  // and reads as its def twin, refused for the solver's own reason (review-A6 q pins2).
+  // The given the compiler resolved is read (D4): `useShow(a)` takes the plain `Show.anyShow`, so
+  // implicitly1 reads as explicit and its def twin, a String parametric in A: countably many
+  // constants (review-A6 q pins2). `summon[A]` is the using parameter, 1. `valueOf` is the
+  // library's inline method, whose body matches inline: refused.
   def searches = {
     val found = rows("""trait Show[A] { def show(a: A): String }
       |object Show { given anyShow[A]: Show[A] = (a: A) => "any" }
@@ -231,10 +248,13 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
       |  inline def summoned[A](using A): A = summon[A]
       |  inline def v[A](using ValueOf[A]): A = valueOf[A]
       |}""".stripMargin)
-    refused(found("Neg.implicitly1"), "leaves a given of useShow to implicit search")
+    (found("Neg.implicitly1") === Count.Countable)
       .and(found("Neg.explicit") === found("Neg.explicitD"))
-      .and(refused(found("Neg.summoned"), "resolves a given with summon"))
-      .and(refused(found("Neg.v"), "calls scala.Predef.valueOf, an inline method not supplied"))
+      .and(found("Neg.explicit") === Count.Countable)
+      .and(found("Neg.summoned") === Count.Finite(1))
+      .and(
+        refused(found("Neg.v"), "calls inline method scala.Predef.valueOf, which uses inline match")
+      )
   }
 
   // Fixture a6 r compiles both; Impl.abs prints 3. An abstract inline declaration counts as an
@@ -250,7 +270,8 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
 
   // Fixture il (A5): byVal(1) = 10, byVal(a) = 20 with a == 1; pick[Int] and pick[String] choose
   // different arguments; summoned applies a call-site given. Fixture a5-fix1 r3: g's summonFrom
-  // prints 1, and 7 under a call-site given — the local definition is refused with its owner.
+  // prints 1, and 7 under a call-site given — the local definition is refused with its owner. The
+  // compiled tree holds a `summonFrom` as the inline match it is typed to.
   def a5Fixtures = {
     val found = rows("""import scala.compiletime.*
       |object T {
@@ -266,25 +287,24 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
     refused(found("T.byVal"), "inline method: uses inline match")
       .and(refused(found("T.pick"), "inline method: uses inline match"))
       .and(refused(found("T.summoned"), "inline method: uses scala.compiletime.summonInline"))
-      .and(refused(found("T.f"), "inline method: uses scala.compiletime.summonFrom"))
-      .and(
-        refused(
-          found("T.f.g"),
-          "definition inside an inline method: f uses scala.compiletime.summonFrom"
-        )
-      )
+      .and(refused(found("T.f"), "inline method: uses inline match"))
+      .and(refused(found("T.f.g"), "definition inside an inline method: f uses inline match"))
   }
 
   // A name bound outside the sources, an extension and an unlisted library member are not
   // resolved, so the body is not shown free of compile-time operations.
   def unresolved = {
-    val found = rows("""import ext.Lib
+    val found = rows(
+      """import ext.Lib
       |object L {
       |  inline def foreign(x: Int): Int = Lib.g(x)
       |  inline def ext(x: Int): Int = x.plusOne
       |  extension (x: Int) def plusOne: Int = x + 1
       |  inline def local(x: Int): Int = { import Lib.*; x }
-      |}""".stripMargin)
+      |}""".stripMargin + cardinality.Compiled.withheld(
+        "package ext\nobject Lib { def g(x: Int): Int = x }"
+      )
+    )
     refused(found("L.foreign"), "reads Lib, a declaration not supplied: ext.Lib (import of Lib)")
       .and(refused(found("L.ext"), "selects plusOne on scala.Int"))
       .and(refused(found("L.local"), "imports inside the body"))
@@ -334,14 +354,14 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
       .and(found("Use.plain") === pow2(37))
   }
 
-  // An extension that restates the member (same parameter names and types under the receiver's
-  // base type, an invariant receiver) never answers: the member applies wherever it would — the
-  // declaration of CanGet the member implements only adds an alternative. callR is m's Int => Int
-  // at 5 — 2^32; andThen builds Getter(s => inner.get(get(s))), a final class's record S => B
-  // with S, B rigid and no other B — 1 (eo's Getter.andThen). Swapped's base Opt[A, S] gives the
-  // extension s: A against the member's S, PolyGetter's get takes its own binder, Named's names
-  // its parameter t, Hidden's is private, Q's member wants a String, CoOpt is covariant: the
-  // extension may answer — `?`.
+  // The compiled body applies the member wherever it accepts the arguments (D2), so an extension of
+  // its name is no channel there. callR is R's `m`, a constant, at 5: an Int, 2^32; andThen builds
+  // Getter(s => inner.get(get(s))), a final class's record S => B with S, B rigid and no other B —
+  // 1 (eo's Getter.andThen). PolyGetter's, Named's and Hidden's (accessible in its class) `get`
+  // apply: `this` or `p` reads its function at s, 2. Swapped's `get` applies too; its two
+  // records give `read` and `back` twice each, so A is read(back(…read(s))) at any depth: countably
+  // many. CoGetter's `get` is a String, countably many. Q's member wants a String, so `q.m(5)` is
+  // the extension, whose summonFrom refuses.
   def restatedExtension = {
     val found = rows("""import scala.compiletime.summonFrom
       |final class R { def m(x: Int): Int = 1 }
@@ -386,16 +406,12 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
       |}""".stripMargin)
     (found("Use.callR") === Count.Finite(BigInt(2).pow(32)))
       .and(found("Getter.andThen") === Count.Finite(1))
-      .and(refused(found("Swapped.twice"), "applies get, which an extension of that name may"))
-      .and(refused(found("Use.callQ"), "applies m, which an extension of that name may answer"))
-      .and(refused(found("Use.same"), "applies get, which an extension of that name may answer"))
-      .and(
-        List("PolyGetter.again", "Named.call", "Hidden.call")
-          .map(name =>
-            refused(found(name), "applies get, which an extension of that name may answer")
-          )
-          .reduce(_ and _)
-      )
+      .and(found("Swapped.twice") === Count.Countable)
+      .and(refused(found("Use.callQ"), "calls inline method Q.m, which uses inline match"))
+      .and(found("Use.same") === Count.Countable)
+      .and(found("PolyGetter.again") === Count.Finite(2))
+      .and(found("Named.call") === Count.Finite(2))
+      .and(found("Hidden.call") === Count.Finite(2))
   }
 
   // The extension's receiver type is its own binder `Other`, not the class of that name: it applies
@@ -412,9 +428,8 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
   }
 
   // An unsupplied wildcard may bring a conversion the compiler inserts where a type does not
-  // conform. same and wrap return a parameter of the result's own type (an opaque alias unfolded
-  // in its scope): nothing is inserted, 1 each. call and pair have positions this reading does not
-  // type.
+  // conform; the compiled body shows none here (D2). same and wrap return a parameter of the
+  // result's own type (an opaque alias unfolded in its scope), pair the pair of it: 1 each.
   def channels = {
     val found = rows("""import ext.syntax.*
       |opaque type Box[A] = A
@@ -422,18 +437,15 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
       |object W {
       |  inline def same[A](a: A): A = a
       |  inline def pair[A](a: A): (A, A) = (a, a)
-      |}""".stripMargin)
-    val channel = "may expand an implicit conversion from outside the sources"
+      |}""".stripMargin + cardinality.Compiled.withheld("package ext.syntax\nobject Unsupplied"))
     (found("Box.wrap") === Count.Finite(1))
       .and(found("W.same") === Count.Finite(1))
-      .and(refused(found("W.pair"), channel))
+      .and(found("W.pair") === Count.Finite(1))
   }
 
-  // conv may be inserted wherever an expression's type does not conform (first), and answers an
-  // applied selection no member accepts (inc); same returns its parameter of the result's type.
-  // The closed world supplies every conversion, typed where the body is written: one whose own
-  // expansion passes is a call like any other, so first and inc count as their `def` twins; one
-  // that uses a compile-time operation is refused with it.
+  // A conversion refuses a body only where the compiled body applies it (D2). Here no expression
+  // needs one, so first and inc count as their `def` twins (2^(2^69) and 2^(2^37)) whether conv's
+  // body passes or uses a compile-time operation; same returns its parameter, 1.
   def inlineConversion = {
     def found(body: String) = rows(s"""inline given conv: Conversion[Int, String] = $body
       |object C {
@@ -448,13 +460,8 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
     (plain("C.same") === Count.Finite(1))
       .and(plain("C.first") === plain("C.firstD"))
       .and(plain("C.inc") === plain("C.incD"))
-      .and(
-        refused(
-          compileTime("C.first"),
-          "may expand the inline conversion conv, which uses scala.compiletime.codeOf"
-        )
-      )
-      .and(refused(compileTime("C.inc"), "the implicit conversion conv may answer"))
+      .and(compileTime("C.first") === pow2(69))
+      .and(compileTime("C.inc") === pow2(37))
   }
 
   // An expansion selects a member on its receiver's class at the call site, so an inline override
@@ -514,12 +521,19 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
   // whose summonFrom reads the call site ("plain", then "abcd"; 1, then 5): an extension group's
   // using clause, a context function read as its result, an eta-expanded method with a using
   // clause, and a callee taking a context function all leave a given to implicit search. With its
-  // given written, viaExtensionExplicit is countably many Strings (review-A6 q pins3).
+  // given written, viaExtensionExplicit is countably many Strings (review-A6 q pins3). Compiled,
+  // `literal`'s local `g` has scalac's type, `Int ?=> Int`, which the reading meets before the
+  // right-hand side: `literal` is refused for that type, and `applied`, where no `val` takes the
+  // literal's type, for the literal itself.
   def searchForms = {
     val found = rows("""import scala.compiletime.summonFrom
       |trait Show[A] { def show(a: A): String }
       |object Givens {
       |  inline given anInt: Int = summonFrom { case s: String => s.length; case _ => 0 }
+      |  inline given aShow: Show[Int] = summonFrom {
+      |    case s: String => new Show[Int] { def show(a: Int): String = s }
+      |    case _         => new Show[Int] { def show(a: Int): String = "plain" }
+      |  }
       |}
       |import Givens.given
       |object E {
@@ -533,6 +547,7 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
       |  def twice(f: (Int ?=> Int) => Int): Int = f(1)
       |  inline def contextCallee(x: Int): Int = twice(g => x)
       |  inline def literal(x: Int): Int = { val g = (n: Int) ?=> n + x; g(using 1) }
+      |  inline def applied(x: Int): Int = ((n: Int) ?=> n + x)(using 1)
       |}""".stripMargin)
     refused(found("E.viaExtension"), "leaves a given of shown to implicit search")
       .and(refused(found("E.viaContextFunction"), "reads f, of the context function type"))
@@ -540,7 +555,8 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
       .and(
         refused(found("E.contextCallee"), "calls twice, whose signature has the context function")
       )
-      .and(refused(found("E.literal"), "writes a context function literal"))
+      .and(refused(found("E.literal"), "writes the context function type"))
+      .and(refused(found("E.applied"), "writes a context function literal"))
       .and(found("E.explicitPlus") === pow2(37))
       .and(found("E.viaExtensionExplicit") === Count.Countable)
   }
@@ -618,7 +634,8 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
   // Fixture a6-fix1b ex2: `r.m(5)` answered by RichR's inline m through an exported given and a
   // given local to the body (2, then 9 under `given Int = 9`); a method around an inline method is
   // a scope of it, and an object that only exports another's givens is no implicit scope. Each c
-  // here uses a compile-time operation, so where it is visible it refuses.
+  // here uses a compile-time operation, but no body applies it (D2): every Int => Int, 2^(2^37),
+  // and the local succ, which also reads outer's y, every (Int, Int) => Int, 2^(2^69).
   def conversionVisibility = {
     val found = rows("""package ex
       |object Hidden { inline given c: Conversion[String, Int] = (s: String) => scala.compiletime.codeOf(s).length }
@@ -633,10 +650,9 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
       |    succ(y)
       |  }
       |}""".stripMargin)
-    val answers = "the implicit conversion c may answer"
-    refused(found("ex.Use.succ"), answers)
-      .and(refused(found("ex.Use2.succ"), answers))
-      .and(refused(found("ex.Local.outer.succ"), answers))
+    (found("ex.Use.succ") === pow2(37))
+      .and(found("ex.Use2.succ") === pow2(37))
+      .and(found("ex.Local.outer.succ") === pow2(69))
       .and(found("ex.Use3.succ") === pow2(37))
   }
 
@@ -661,8 +677,9 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
       .and(refused(found("Cy.tock"), "uses scala.compiletime.summonFrom"))
   }
 
-  // Fixture a6-quality leak: a reason names a companion, an eta-expanded library function, an
-  // anonymous given by its type, and quotes a tree as one line.
+  // Fixture a6-quality leak: f's `c` is the companion `Foo`, whose `apply` builds a `Foo` (2^32
+  // values) from y: 2^(2^37); g's `h` an `Int => Int` and k an `Int`: 2^(2^37) each. The anonymous
+  // given the compiler applied in `s` is named by its compiled name.
   def reasonPhrases = {
     val found = rows("""case class Foo(x: Int)
       |object Use {
@@ -676,10 +693,15 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
       """inline given Conversion[Int, String] = (x: Int) => scala.compiletime.codeOf(x)
       |object Use { inline def s(x: Int): String = x }""".stripMargin
     )
-    refused(found("Use.f"), "a value whose type is not read: the companion of Foo")
-      .and(refused(found("Use.g"), "a value whose type is not read: the function identity"))
-      .and(refused(found("Use.k"), "not read: if (y > 0) { 1 } else 2"))
-      .and(refused(anonymous("Use.s"), "the inline conversion given Conversion[Int, String]"))
+    (found("Use.f") === pow2(37))
+      .and(found("Use.g").render === "2^(2^37)")
+      .and(found("Use.k") === pow2(37))
+      .and(
+        refused(
+          anonymous("Use.s"),
+          "calls inline method <given@1>, which uses scala.compiletime.codeOf"
+        )
+      )
   }
 
 }

@@ -1,0 +1,65 @@
+# Fixtures scalac rejects on purpose, read as written (cardinality.Compiled). A fixture that is
+# rejected and not listed here, or listed and compiles, fails its test: the failure prints the name
+# to add or remove. A line no fixture asks for any more is dead. Each line: the SHA-256 of the
+# fixture's sources (path, NUL, text; joined by U+0001 in path order; withheld support included,
+# dependency stubs not), an example that asks for it, and why scalac rejects it.
+67ffc10bdb8ef0b730e7e4f850686471b389145a1f61efe16439c5e42c9b29c9  AliasOverrideIdentitySpec.arity  not valid Scala by design: Not enough type arguments for Alias[A, B]
+e6c2a7b31223be8f4a44c2b4607b286c6950345edcdb742b38b46c4a966dc8c7  AliasOverrideIdentitySpec.mutual  not valid Scala by design: First does not take type parameters
+5e3b285c06085aa14038aec193687be52f09274c2bd27968702124ef6dd42a92  AliasOverrideIdentitySpec.nearerImport  unsupplied on purpose, the declaration is ambiguous with an outer one when supplied: <error Not found: external> is not a legal path
+08e6bbc5947b7d2d142cb71b3f5f243de73c98b88dbdebda5b0e3580171f6035  AliasOverrideIdentitySpec.opaque  not valid Scala by design: Name clash between defined and inherited member:
+7dc3e3942f16b0fbbb7da6abce4d1c240c07e343498649c180f6d8d8f8120c42  AliasOverrideIdentitySpec.recursive  not valid Scala by design: Loop does not take type parameters
+a730d6c313fbaa259e00b075d8a099d753605b09bfea51c901878e4317576f73  BinderBoundsSpec.cyclicBounds  not valid Scala by design: illegal cyclic type reference: upper bound B | Int of type A refers back to the type itsel
+a47fea71f3be5d85b226d01f66c434e3648f54a569778cf08c3849eabe0e0f92  BinderBoundsSpec.invalidTerminal  not valid Scala by design: illegal cyclic type reference: lower bound Option[A] of type A refers back to the type its
+3e7a91334973f6d5bdcbdef33fdb8cb64a98297066bab75c68ffb949afc780bf  ClosedWorldSpec.stubOwners  names a declaration supplied only as a dependency stub: Not found: p
+66024297bb730ca6f0b88d7c12442af85312a2227eeea29336e4bdaef7362cec  ClosedWorldSpec.stubOwners  names a declaration supplied only as a dependency stub: <none> is extended twice
+ef396403595600e705fd5a705e099ef19ad0a87dbf75d12c617ab225fe4aa509  ClosedWorldSpec.stubParents  names a declaration supplied only as a dependency stub: Not found: p
+55ed71136c04c9fde83387b40d14386543a61fff419b6f988f92a09dbf63f8c1  ContextBindersSpec.limits  the compiler does not finish in 60 s
+bcf77fbc2e2d8e47f80b4e4d435c15b7ca887a626464b47d98129ecbe62d32c3  ContextualOverrideIdentitySpec.inlineParameter  not valid Scala by design: Cannot override non-inline parameter with an inline parameter
+ebcbabcd68f1fabf3592b7742cf999c5163ee8ad3a919de875991813023beb75  ContextualOverrideIdentitySpec.ordinary  not valid Scala by design: error overriding method get in trait Base of type (a: A)(using fallback: A): A;
+464a93a6e2dd6f0bf04058d725e5c3289ed2cb413a23da48f33812d58f1bb231  DefinitionInventorySpec.ambiguousLiterals  not valid Scala by design: Ambiguous given instances: both parameter _$2 and parameter _$1 match type A of parameter
+382faa2e0b30e40bfb11a2e95d58ac81e987458fdf895f4347efbedf7e033a97  EnvironmentCompletenessSpec.exportCycles  not valid Scala by design: T is already defined as type T
+c485aa990f3a80d10997c37e1a9fce42af187e457ca706d1f23e9336ae4c85d4  EnvironmentCompletenessSpec.exportRefusals  not valid Scala by design: T is already defined as type T
+e28d3861cc9cb3ecb385f5247f3a41773ad2bea8ae8f509f0b3699d65cfe2f6c  ExistentialInputSpec.aliasArgument  not valid Scala by design: unreducible application of higher-kinded type [A, R] =>> (A, A, A => R) to wildcard argume
+1f8d17221447add7d701e5f1e53574a1376862f068c2cd7f988dcfa11385452e  GeneralInfixApplicationSpec.arity  not valid Scala by design: Too many type arguments for Unary[A]
+d23b201603c308a4956afb9174ca37013b660e893db9fb07dc09df13d93e39c9  GeneralInfixApplicationSpec.arity  not valid Scala by design: Too many type arguments for Unary[A]
+0990722e7b1d4085ca84487ffdad115aff6860cbd2f2d6e26df169cb7693c9ce  GroundEnvironmentSpec.notBuiltin  not valid Scala by design: Not found: type Frame
+e026ee039c627796f5e5933f553eaefd92b63d3b48ab86bd475840c024b43126  GroundTypesSpec.repeatedFunctionType  not valid Scala by design: missing argument for parameter v1 of method apply in trait Function1: (v1: Int): A
+0f067b3bd07fc099e029b08b4ee5ceabde37149280029b052f600f3750de8fa4  HigherKindedRefusalSpec.argumentKinds  not valid Scala by design: Type argument [x, y] =>> x does not have the same kind as its bound [_$1]
+8758788abcecca3fcc7b60d439ceb2481b5eae089aff59d5f1aa09ed4a156edd  HigherKindedRefusalSpec.arity  not valid Scala by design: Too many type arguments for F[_]
+c93e2c908a6ce9ef8eac9b0006d1a0836b668f0bb0d8f6afe6f444db0b531a7e  HigherKindedRefusalSpec.builtinArity  not valid Scala by design: Int does not take type parameters
+931bab49b2905a07acc88a82a6bdc7b724e901b1b4839f812ac617768cc59e81  HigherKindedRefusalSpec.constructorsAsTypes  not valid Scala by design: Missing type parameter for [y] =>> y
+b73a56933b6ef249387dda91d43b6b3f14cf3269d394fd58c52aa16e038f8f9e  HigherKindedRefusalSpec.kindMismatch  not valid Scala by design: Type argument G does not have the same kind as its bound [_$1,_$2]
+a244b5aa9f77babaa4afdea916a006761cd84519a90fa343ed30e23d134e8e92  HigherKindedRefusalSpec.properUse  not valid Scala by design: Missing type parameter for F
+3905ed78c7ad1fb47a90251722826d9540380243e17f066076856ffe91f7ab56  HigherKindedRefusalSpec.viewBound  not valid Scala by design: view bounds `<%' are no longer supported, use a context bound `:' instead
+663489d2d7826a05c8a15b76f75461bfd3b4f86223cd5f3d0715eb6635b67cfc  HigherKindedRefusalSpec.wildcard  not valid Scala by design: unreducible application of higher-kinded type F to wildcard arguments
+c70ff0376c3da6b3cc729092a305c5d3768ec278edf4e0140b50e502532ac621  InferredResultsSpec.callBindings  unsupplied on purpose, the point is a source that does not compile: Not found: nowhere
+89f1aaa322ca5b54a568696b871ff013ee6cc6279e7379b43670bb4235395fbf  InferredResultsSpec.unsuppliedOverride  unsupplied on purpose, the point is a source that does not compile: <error Not found: type Ext> is not a class type
+c8ee43afecc4e3609026a006942e21623edcbc2b0446e09da1eda1120303d497  InlineScopesSpec.localClass  not valid Scala by design: value g is not a member of object K
+0ac19a8c0d158c5ad131c2d2d124f3925c32d3d2c9d696019332e7090a5bbaf7  MethodAnalysisSpec.recursive  not valid Scala by design: Loop does not take type parameters
+4a187d811deb4906ced9c817e2977143db6ed7382080f8c14416a43875258f76  MethodFeatureIntegrationSpec.privateRefinedMember  not valid Scala by design: object Hidden cannot be accessed as a member of (Owner : Owner.type) from the top-level de
+970a2901f864a202c55359de9c2638b44cb911cb471513ad744dd174434d1d65  MethodFeatureIntegrationSpec.privateRepeatedAlias  not valid Scala by design: non-private type Leak in object Owner refers to private object Hidden
+a65823f69fcee96ffab559d24f9357fdfefe0d3ac3d5deb389a9ad2fec967ba8  MethodRefinementSpec.hiddenEquality  not valid Scala by design: Found: R
+9b674bf4885b47d3021cc17f8d45a23e3e05cb1cf52baf627f0131de217bf885  MethodRefinementSpec.recursive  not valid Scala by design: illegal cyclic type reference: alias <refinement>.this.Y of type X refers back to the type
+e3adc6b5b5b24e6bd3fee10196606964162606c5b4dbfced77484e8455283452  MethodRefinementSpec.shadowedBinder  not valid Scala by design: Found: R
+3c0d511098264d66797838dac69adc1b984a3c453c92c8b619d9f30dd45889b6  MethodTypePlaceholderSpec.arity  not valid Scala by design: Not enough type arguments for Either[_, _]
+8c4d6cd5093f21587e3f63d8c3f388c7cb71acb87e8db4466bd16e8ab1cb1fc9  NamespaceSpec.ambiguousWildcards  not valid Scala by design: Reference to Obj is ambiguous.
+a17767921b86748855953f8aa574add7bfe1c3c53dc547827f734ac7913cdcc8  NamespaceSpec.qualifiedMiss  not valid Scala by design: type Missing is not a member of object O
+3613626410fd84b871e302f8f77b06be9dc03f17644c592c354322c882408680  NamespaceSpec.singleClause  not valid Scala by design: Not found: type W
+dfd8fd67f6e35c4216e44320837a02c9290acaea101c885a30eed562cbc20f56  NamespaceSpec.typeNotNamespace  not valid Scala by design: Expected a term, but found a type: Foo
+f9adb970a227a6e643f9478f2f576255d1f0e20ad8801ffa669e3ef188995f60  NamespaceSpec.unopenedPath  not valid Scala by design: Not found: data - did you mean Math? or perhaps math or meta?
+9c5b01ef7c2e9991aeb0765986804e1e7ecb85a621b048523d0f0787eaf98be9  OverrideIdentityImplementationSpec.fileIdentity  not valid Scala by design: Declaration of method seed not allowed here: only classes can have declared but undefined
+48d510c2d413f8452500260a2fd4b64d5cdf21136526dfcd4b5d3b3b8f63ac23  OwnersAndRecordsSpec.deferredBare  not valid Scala by design: Not found: deferred
+95c8e67f02069d9d15ebdcb6706cc396c8b917e937f935f365f117082ebb8ad6  PolyLambdaCardinalitySpec.arity  not valid Scala by design: Missing type parameter for [x] =>> x
+e57cb087d629b8e1e8a742694838e7b87f0de26e6974149b84ee9e779c34135d  PolyLambdaCardinalitySpec.arity  not valid Scala by design: Too many type arguments for [x] =>> x[x]
+67f4a09514b9ce013828661efc2d46e00ac467a602333b18892d87e99684840a  PureCodeSpec.blockedImport  unsupplied on purpose, the point is a source that does not compile: <error Not found: foo> is not a legal path
+34ac8f7d20de6360acb398509e49900cf84230bf9c09c11034e7286f509dd715  PureCodeSpec.varPath  not valid Scala by design: (Q.q : String) is not a valid singleton type, since it is not an immutable path
+089bc2e3d06c235b88f0736ac5a58a1fdfbe663dc11357d858c9589484821800  ReportSpec.crossSourceAmbiguous  not valid Scala by design: Not found: type Widget
+ba44e059a7b8552c7306e01c916d3e6750e0dbde2b0b0f74915fa69e2c75cb80  SingletonIntersectionMethodSpec.access  not valid Scala by design: non-private type Leak in object Outer refers to private object Hidden
+dfbef3df62d5bdb35fd5ef9447e7078bcb7da625213370d5c7c9ef4ad04e6b64  SingletonIntersectionMethodSpec.access  not valid Scala by design: object Hidden cannot be accessed as a member of Outer.type from the top-level definitions
+e7d2be84419076d66faa2fb0c301185f211574952cde3f98900f60108f7b93e3  SingletonIntersectionMethodSpec.markerRebound  unsupplied on purpose, the body does not type with the declaration supplied: <error Not found: custom - did you mean System?> is not a legal path
+bf86eb51c47b991b0d56a22fe48df4940b13fa024a432be427d483cbef58f5a8  SingletonIntersectionMethodSpec.negativeVar  not valid Scala by design: (x : Boolean) is not a valid singleton type, since it is not an immutable path
+7d203d61cb4669d1c51718394db512d67691be37c1e48be1213ec45b66912226  StdlibModelSpec.gap  not valid Scala by design: Not found: type Hidden
+cd5d8e277806b7cb64a46caca1610b74dc04d7e7d4ad1ee72f4d9c201048fe2f  StdlibModelSpec.inaccessibleSingleton  not valid Scala by design: object H cannot be accessed as a member of O.type from object N.
+bc874742bcc0dd7ae0e1c8c0c83a34bec658a440d4b81b5ff383c78d4d2578b9  StdlibModelSpec.rootedSimpleName  not valid Scala by design: Too many type arguments for <error type Option is not a member of <root>>[]
+a8751b67bb88b7d392296f62a4da3690f2922a0ddb609f63e6fd0871f76392e5  StdlibModelSpec.unappliedProper  not valid Scala by design: Missing type parameter for Option
+a66cc63b9da92427d0e32d556bb0bf40adfa22b5fc7f39d701751e2e275e5e12  ThrowableSlotsSpec.unaliased  not valid Scala by design: type IllegalStateException is not a member of scala

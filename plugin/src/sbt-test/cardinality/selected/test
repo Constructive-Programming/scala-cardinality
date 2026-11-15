@@ -1,6 +1,5 @@
+# The selected report is the module's report filtered by qualified name: the support is compiled
+# with the module, and its rows are not reported.
 > cardinalityReportSelected example.get
 > checkSelected
-> set cardinalityQueryLimits := Map("maxRequestWork" -> 1L)
-> cardinalityReportSelected example.get
-> checkBudget
 -> cardinalityReportSelected example.missing

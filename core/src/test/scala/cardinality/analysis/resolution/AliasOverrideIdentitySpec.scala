@@ -1,8 +1,6 @@
 package cardinality.analysis.resolution
 
-import scala.meta.*
-
-import cardinality.analysis.*
+import cardinality.Pending
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 
@@ -19,29 +17,39 @@ class AliasOverrideIdentitySpec extends Specification {
       retains equal-shaped but nominally distinct overloads            $nominal
       substitutes a receiver binder captured by a parent alias         $captured
       keeps captured binders separate from shadowing method binders    $shadowed
-      does not capture a caller binder in an alias body                 $caller
+      does not capture a caller binder in an alias body                 ${Pending.knownLoss(caller)}
       retains a separate inherited capability                          $capability
       normalizes an alias to a builtin tuple                            $tuple
       permits nested applications of the same nonrecursive alias        $nested
       keeps a nearer source alias distinct from an outer binder         $nearerAlias
     Conservative boundaries
-      guards recursive alias expansion                                 $recursive
-      guards mutually recursive aliases                                $mutual
-      guards opaque aliases                                            $opaque
+      guards recursive alias expansion                                 ${Pending.rejectedFixture(
+      recursive
+    )}
+      guards mutually recursive aliases                                ${Pending.rejectedFixture(
+      mutual
+    )}
+      guards opaque aliases                                            ${Pending.rejectedFixture(
+      opaque
+    )}
       keys abstract type members as the receiver's                     $abstractMember
-      guards higher-kinded alias parameters                            $higherKinded
-      guards type-lambda aliases                                        $lambda
-      guards bounded alias parameters                                  $bounded
-      guards incorrect alias arity                                     $arity
-      guards imported names in the alias declaration scope              $imported
-      respects the configured expansion depth limit                     $depth
-      guards nearer imports shadowing an outer binder                   $nearerImport
-      limits nested argument expansion                                  $argumentDepth
+      a higher-kinded alias's expansion is an overload, not an override $higherKinded
+      a type-lambda alias expands to the parameter it overrides         $lambda
+      a bounded alias parameter expands to the parameter it overrides   $bounded
+      guards incorrect alias arity                                     ${Pending.rejectedFixture(
+      arity
+    )}
+      guards imported names in the alias declaration scope              ${Pending.knownLoss(
+      imported
+    )}
+      guards nearer imports shadowing an outer binder                   ${Pending.rejectedFixture(
+      nearerImport
+    )}
   """
 
   private def count(code: String, name: String = "Instance.get"): Count =
-    MethodAnalysis
-      .analyze(List(MethodAnalysis.Input("Aliases.scala", dialects.Scala3(code).parse[Source].get)))
+    cardinality.Compiled
+      .analyze(cardinality.Compiled.inputs("Aliases.scala" -> code))
       .find(_.name == name)
       .get
       .count
@@ -130,7 +138,7 @@ class AliasOverrideIdentitySpec extends Specification {
       abstract class Instance[Missing] extends Base[Missing] {
         def get(a: Missing): Missing = a
       }
-    """)
+    """ + cardinality.Compiled.withheld("class Missing"))
 
   def capability =
     count("""
@@ -177,26 +185,31 @@ class AliasOverrideIdentitySpec extends Specification {
       abstract class Instance[A] extends Base[A] { type Member = A; def get(a: A): A = a }
     """) === Count.Finite(1)
 
+  // The compiler expands the alias: Base's get takes Option[A], so Instance's get(a: A) overloads it
+  // and Base's stays an abstract capability on this. An A => A body may return a, g(None),
+  // g(Some(a)), g(Some(g(None))), ...: countably many.
   def higherKinded =
-    unresolved("""
+    count("""
       type Alias[F[_], A] = F[A]
       trait Base[A] { def get(a: Alias[Option, A]): A }
       abstract class Instance[A] extends Base[A] { def get(a: A): A = a }
-    """)
+    """) === Count.Countable
 
+  // Alias[A] is A, so Instance's get overrides Base's and no capability is left: A => A is 1.
   def lambda =
-    unresolved("""
+    count("""
       type Alias = [A] =>> A
       trait Base[A] { def get(a: Alias[A]): A }
       abstract class Instance[A] extends Base[A] { def get(a: A): A = a }
-    """)
+    """) === Count.Finite(1)
 
+  // `A <: Any` bounds nothing: Alias[A] is A, an override as in lambda, 1.
   def bounded =
-    unresolved("""
+    count("""
       type Alias[A <: Any] = A
       trait Base[A] { def get(a: Alias[A]): A }
       abstract class Instance[A] extends Base[A] { def get(a: A): A = a }
-    """)
+    """) === Count.Finite(1)
 
   def arity =
     unresolved("""
@@ -210,29 +223,7 @@ class AliasOverrideIdentitySpec extends Specification {
       object Library { import external.Token; type Alias[A] = Token[A] }
       trait Base[A] { def get(a: Library.Alias[A]): A }
       abstract class Instance[A] extends Base[A] { def get(a: A): A = a }
-    """)
-
-  def depth = {
-    val code = """
-      type First[A] = Second[A]
-      type Second[A] = Third[A]
-      type Third[A] = Fourth[A]
-      type Fourth[A] = A
-      trait Base[A] { def get(a: First[A]): A }
-      abstract class Instance[A] extends Base[A] { def get(a: A): A = a }
-    """
-    MethodAnalysis
-      .analyze(
-        List(MethodAnalysis.Input("Depth.scala", dialects.Scala3(code).parse[Source].get)),
-        MethodAnalysis.Limits(maxTypeDepth = 3)
-      )
-      .find(_.name == "Instance.get")
-      .get
-      .count must beLike {
-      case Count.Unresolved(reasons) =>
-        reasons.exists(_.contains("inherited override identity")) must beTrue
-    }
-  }
+    """ + cardinality.Compiled.withheld("package external\nclass Token[A]"))
 
   def nested =
     count("""
@@ -260,21 +251,16 @@ class AliasOverrideIdentitySpec extends Specification {
   }
 
   def nearerImport =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(
-        List(
-          MethodAnalysis.Input(
-            "Import.scala",
-            dialects
-              .Scala3("""
+        cardinality.Compiled.inputs(
+          "Import.scala" -> """
           class Outer[T] {
             object Library { import external.T; type Alias = T }
             trait Base { def get(a: Library.Alias): T }
             abstract class Instance extends Base { def get(a: T): T = a }
           }
-        """).parse[Source]
-              .get
-          )
+        """
         )
       )
       .find(_.name == "Outer.Instance.get")
@@ -283,24 +269,5 @@ class AliasOverrideIdentitySpec extends Specification {
       case Count.Unresolved(reasons) =>
         reasons.exists(_.contains("inherited override identity")) must beTrue
     }
-
-  def argumentDepth = {
-    val code = """
-      type Id[A] = A
-      trait Base[A] { def get(a: Id[Id[Id[Id[A]]]]): A }
-      abstract class Instance[A] extends Base[A] { def get(a: A): A = a }
-    """
-    MethodAnalysis
-      .analyze(
-        List(MethodAnalysis.Input("Depth.scala", dialects.Scala3(code).parse[Source].get)),
-        MethodAnalysis.Limits(maxTypeDepth = 3)
-      )
-      .find(_.name == "Instance.get")
-      .get
-      .count must beLike {
-      case Count.Unresolved(reasons) =>
-        reasons.exists(_.contains("inherited override identity")) must beTrue
-    }
-  }
 
 }

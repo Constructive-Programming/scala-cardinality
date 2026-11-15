@@ -78,15 +78,15 @@ a number.
 
 ## Ergonomics
 
-For one type, with no build plugin:
+Without a build plugin, the library reads sources beside their compiled classes:
 
 ```scala
-Counter.`type`(dialects.Scala3("Either[Boolean, Option[Boolean]]").parse[Type].get)
-// TinySize(5)
+Report.of(paths, Some(CompiledClasses(output, classpath))).render
 ```
 
-For a source, `Counter.source` sums the value spaces of every definition it introduces;
-`Counter.sourceSignature` sums what their members declare. See
+`cardinality.reporting.Report` holds every definition's value space and every method's
+implementation count; `cardinality.tasty.CompiledClasses` is the sources' compiled output
+and the dependency classpath it is read against. See
 [counting methods](arithmetic/counting-methods.md) for the other number a report gives:
 the implementations a signature admits.
 

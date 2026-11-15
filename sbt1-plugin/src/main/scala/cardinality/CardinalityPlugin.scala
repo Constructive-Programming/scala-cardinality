@@ -1,6 +1,6 @@
 package cardinality
 
-import cardinality.loader.Calculator
+import cardinality.CardinalityTool.Classes
 import sbt.*
 import sbt.Keys.*
 
@@ -14,83 +14,43 @@ object CardinalityPlugin extends AutoPlugin {
   object autoImport extends CardinalityKeys {
 
     val cardinalityDependencyClasspath = taskKey[Seq[File]](
-      "Compiled dependencies whose declarations the reports read; `Nil` reads sources only."
+      "Compiled dependencies, jars and class directories, the project's classes are read against."
     )
 
   }
 
   import autoImport.*
 
-  override def projectSettings: Seq[Setting[?]] = CardinalityTool.defaults(autoImport) ++ Seq(
+  override def projectSettings: Seq[Setting[?]] = Seq(
+    // The project's own Compile dependencies, never `fullClasspath`: dependency paths stay explicit.
     cardinalityDependencyClasspath := (Compile / dependencyClasspath).value.files,
     cardinalitySeedSkill := CardinalityTool
       .seedSkill(streams.value.log, cardinalitySkillFile.value, (ThisBuild / baseDirectory).value),
-    cardinalityReport := CardinalityTool.report(
-      calculator.value,
-      (Compile / sources).value,
-      Some(stubs.value),
-      cardinalityReportFile.value,
-      streams.value.log
-    ),
+    cardinalityReport := run.value.report((Compile / sources).value, compiled.value),
+    // A library's binary jar given beside its sources jar is read against the project's
+    // dependencies.
     cardinalityReportOf := {
       val sources = CardinalityTool.paths.parsed.map(file)
-      CardinalityTool
-        .report(calculator.value, sources, None, cardinalityReportFile.value, streams.value.log)
+      run.value.report(sources, Classes(Some(Nil), cardinalityDependencyClasspath.value))
     },
-    cardinalityReportSelected := {
-      val query = CardinalityTool.Query(
-        CardinalityTool.names.parsed,
-        (Compile / sources).value,
-        cardinalityQuerySupport.value,
-        cardinalityQueryLimits.value
-      )
-      CardinalityTool.selected(
-        calculator.value,
-        query,
-        Some(stubs.value),
-        cardinalityReportFile.value,
-        streams.value.log
-      )
-    }
-  )
+    cardinalityReportSelected :=
+      run.value.selected(CardinalityTool.names.parsed, (Compile / sources).value, compiled.value)
+  ) ++ CardinalityTool.defaults(autoImport)
 
-  private lazy val calculator = Def.task(Calculator.of(calculatorJars.value.map(_.toPath)))
+  private val run = CardinalityTool.run(autoImport)
 
-  private lazy val calculatorJars = Def.task {
-    CardinalityTool.jars(
-      csrConfiguration.value,
-      cardinalityVersion.value,
-      target.value,
-      streams.value.log
-    )
-  }
-
-  // The dependencies' stubs, rendered again only when their stamp changes: every file of the
-  // classpath (a class directory walked) and of the calculator by size and modification time, and
-  // the JDK, whose classes render too. sbt 2's plugin keys its cached task by the same inputs.
-  private lazy val stubs = Def.task {
-    val dir = target.value / "cardinality"
-    val out = dir / "stubs.bin"
-    val stampFile = dir / "stubs.stamp"
+  // The project's compiled classes and the jars their types refer to, which the report reads.
+  // `exportedProducts` compiles first, so the classes match the sources the report reads. Sources
+  // that do not compile hand no classes, and the report refuses every one of them.
+  private val compiled = Def.task {
     val classpath = cardinalityDependencyClasspath.value
-    val stamp = stampOf(calculatorJars.value ++ classpath)
     val log = streams.value.log
-    val render = calculator.value
-    if (out.exists && stampFile.exists && IO.read(stampFile) == stamp)
-      log.debug(s"dependency stubs up to date: $out")
-    else {
-      render.stubs(classpath.map(_.toPath), out.toPath)
-      IO.write(stampFile, stamp)
+    (Compile / exportedProducts).result.value match {
+      case Value(products) => Classes(Some(products.files), classpath)
+      case Inc(_)          =>
+        log.warn("sources do not compile: the report reads none of them")
+        Classes(None, classpath)
     }
-    out.toPath
-  }
-
-  private def stampOf(files: Seq[File]): String = {
-    val stamps = files.flatMap { root =>
-      val all = if (root.isDirectory) (root ** -DirectoryFilter).get.sorted else Seq(root)
-      all.map(f => s"${f.getAbsolutePath} ${f.length} ${f.lastModified}")
-    }
-    Hash.toHex(Hash((sys.props("java.version") +: stamps).mkString("\n")))
   }
 
 }

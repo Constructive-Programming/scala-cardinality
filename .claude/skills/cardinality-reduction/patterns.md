@@ -70,7 +70,7 @@ Entry shape:
 - Fix: stage 3. A `def` on the sum; callers delegate.
 - Expect: adds signature rows, moves none. Gate on tests.
 - Boundary: switchboards (one-line delegation per case: `SingletonIntersections.resolved`, the
-  `Found` match in `MethodAnalysis`), renderers (`FinitePart.render`), interpreters (the
+  `Unbound` match in `TastyFrontEnd.spelled`), renderers (`FinitePart.render`), interpreters (the
   `Shape` matches in the inhabitation solver), a single equality test on a case object
   (`edge.kind == Continuation.OptionBranch`). Sites that agree on two arms but differ on the
   rest are switchboards too (`Binding.Here`/`Elsewhere` in `Scope`, `Solver`, `Namespaces`;
@@ -84,9 +84,20 @@ Entry shape:
   `Kinds.of(_) == Kind.Proper` at three sites. Pass 4: `Count.isZero` replaces the
   `Count.Finite(n) if n == 0` guards in `ViewSandwich` and `SequenceElimination`.
 
+### R8 Unannotated member type — confirmed
+- Signal (R): `?` signature row `val x: <inferred>` with `inferred result type not resolved: …`.
+- Fix: the build plugins now read the compiler's type from the module's TASTy (rule T,
+  `docs/plans/compiled-own-types.md`); a template or top-level member needs no annotation.
+  Annotate only for `cardinalityReportOf` runs; locals and pattern names are typed too (phase 2).
+- Expect: the row leaves `?` for its real size; nothing else moves.
+- Boundary: `transparent inline` results (rule X) stay `?`.
+- Evidence: 553de73 follow-up, `Skill.markers` `?` → `ω` by hand. Rule T: core `<inferred>` rows
+  426 → 55, 30 rows `?` → a number (`62ε₀ + 675ω` → `62ε₀ + 703ω`, `?` 3483 → 3471).
+  Phase 2: 55 → 0, `ClosedSpaces.tiers` anonymous members `?` → ω (`703ω` → `710ω`).
+
 ### R4 Independent numeric knobs — rejected
 - Signal (R): `2^n` row of several `Int`/`Long` fields (`SourceSnapshot.Limits`,
-  `AnalysisQuery.Budget`, `MethodAnalysis.Limits`).
+  `AnalysisQuery.Budget`).
 - Boundary: each knob is enforced on its own path. Not a target.
 
 ### R5 Splitting a rendered-message case — rejected
@@ -135,6 +146,40 @@ Entry shape:
 - Signal (M): a size such as `2^(2^32·3^(2^32)·…)` has `·` inside parentheses and is far past a
   Double. The first script split on `·` and missed the growth in M5.
 - Fix: `report-diff.scala` parses the size and sums exponent towers; `--check` runs its self-check.
+
+### M7 Selected report on core fails with `duplicate source origin` — proposed
+- Signal (M): `core/cardinalityReportSelected <name>` logs `could not read : duplicate source
+  origin` and fails; the full `cardinalityReport` on the same sources succeeds.
+- Fix: not found yet. `AnalysisQuery.run` refuses when two inputs share a `path`; core has no
+  two sources with the same file name, so check how the plugin builds the inputs' paths.
+- Workaround: run the full report and grep the rows.
+- Evidence: 2026-11-10, while measuring `Skill` (issue #30 pass).
+
+### M8 A measurement overflows a 1 MiB stack — confirmed
+- Signal (M): `StackOverflowError` at `EvidenceAnalysis.scala:350` under `GoalSolver.goal`, e.g.
+  `PolymorphicMemberSpec` "cannot create an instance", when sbt runs without `.jvmopts`
+  (`-Xss8m`); CI's launcher reads it and passes.
+- Cause: unbudgeted runs of the deleted scalameta front end (its `analyze`,
+  `cardinalityReportOf`) had `solverDepth = Int.MaxValue`, so a growing goal chain recurses until
+  the 256-state budget, each goal folding a deeper shape. `StackOverflowError` is fatal: `NonFatal`
+  does not catch it. Every row of the TASTy front end runs under `Readings.Depth` (64) and
+  `Readings.Work`.
+- Fix: `DeepStack` runs every `Index.measure` on its own 256 MiB (reserved) stack; no count
+  moves. `DeepStackSpec` asks from a 256 KiB thread.
+- Evidence: 2026-11-10, local `sbt` wrapper with a hard-coded `-Xmx4g` and no `.jvmopts`.
+
+### M9 Stub members read open through same-named JDK templates — confirmed
+- Signal (M): thousands of `member may be overridden through a parent outside the sources:
+  scala.meta.Tree.begOffset` (and `Type.`, `Stat.` …) on stub-backed receivers.
+- Cause: the closed world asked about a stub template by simple name, and keyed a stub parent the
+  stubs do not declare (stdlib-held `java.util.Map`, `java.lang.CharSequence`) by simple name, so
+  scalameta's `Member.Function` / `Type.Map` pulled in every JDK `Function` / `Map` implementor and
+  their undeclared JDK parents.
+- Fix: a stub parent is its qualified name, declared or not; a stub owner is asked about by its
+  qualified name (`ClosedWorld.owner`); library markers are known by qualified name too.
+- Expect: the reason leaves; rows move to their next reason (`capability record with members
+  hidden at the use site`, 926 → 2216). No count moved.
+- Evidence: 2026-11-10, reason 2277 → 0 lines.
 
 ## Source shape (stage 4)
 

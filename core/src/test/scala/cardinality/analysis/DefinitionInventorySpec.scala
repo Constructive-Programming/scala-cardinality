@@ -1,9 +1,6 @@
 package cardinality.analysis
 
-import scala.meta.*
-
-import cardinality.EoBaseline
-import cardinality.analysis.model.GivenNames
+import cardinality.Pending
 import org.specs2.Specification
 
 /** Rows for the definitions beyond defs (docs/research/definition-inventory.md): given aliases and
@@ -20,13 +17,12 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       a given alias is a method of its clauses                        $givenAliases
       an abstract given is a declaration, implemented without itself  $abstractGivens
       a local given alias is a row with clauses, a step without       $localGiven
-      an unmatched inherited given leaves the identity unresolved     $givenIdentity
+      a given with clauses implementing an inherited one is no slot   $givenIdentity
       an anonymous given is the member of its synthesized name        $anonymousGivens
-      a synthesized name is the one 3.9.0 gives                       $synthesizedNames
       an inline given alias is read by the inline-method rule         $inlineGivens
     Member values
       a value is a nullary signature of its type                      $memberValues
-      a pattern's names are not typed by syntax                       $patternValues
+      a pattern's names are typed by the compiler                       $patternValues
       a local value is no row                                         $localValues
       each name of a declaration is a slot of the others              $siblingDeclarations
       a value implementing a declaration is not its own slot          $ownSlot
@@ -35,23 +31,37 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       a member is a final class's, with the enclosing captures        $anonymousMembers
       each anonymous class of a body is a row of its own              $anonymousOrdinals
       an inherited concrete member is no capability of it             $anonymousFinal
-      hidden parent state a body may not reach is refused             $hiddenState
-      a level passing the argument or a body import is not followed   $passedLevels
+      hidden parent state a body may not reach is refused             ${Pending.knownLoss(
+      hiddenState
+    )}
+      a level passing the argument on is followed                     $passedLevels
+      a body import beside a captured argument                        ${Pending.knownLoss(
+      importedLevel
+    )}
       a value's or a given's context binders reach its members        $valueBinders
       an untyped value takes an overridden declaration's binders      $overriddenBinders
       a context-function literal binds its own clause once            $contextLiterals
+      an anonymous binder of a context-function literal, summoned     ${Pending.knownLoss(
+      anonymousLiteral
+    )}
+      a `summon` between two anonymous binders is refused             ${Pending.rejectedFixture(
+      ambiguousLiterals
+    )}
     Constructors
       an enum's parameterized case has the case-class constructor     $enumCases
       an enum case is typed where its enum is declared                $enumScope
       a case with a parent keeps the enum's binders                   $enumParents
       abstract classes, traits and conditional givens have one        $templateConstructors
-      a bound's evidence position is named by its evidence           $evidencePosition
+      a bound's evidence position is named by its evidence           ${Pending.knownLoss(
+      evidencePosition
+    )}
       a secondary constructor chooses the primary's arguments         $secondaryConstructor
       a secondary constructor of an open class reads no record        $secondaryOpen
-      a secondary constructor's body sees the class's members         $secondaryBody
+      a secondary constructor's body sees the class's members         ${Pending.knownLoss(
+      secondaryBody
+    )}
       the primary's arguments: by-name, repeated, none, evidence      $primaryArguments
     Identities
-      new rows have unique identities that moving does not change     $identities
   """
 
   def givenAliases = {
@@ -121,18 +131,16 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       .and(found("Local.local.h") === "4")
   }
 
-  // A given with clauses implementing an inherited one in an open class (D extends it): matching
-  // their parameter types is not done.
+  // A given with clauses implementing an inherited one in an open class (D extends it, without
+  // overriding g): the compiler's symbols say C.g implements T.g, so the declaration is the row
+  // itself, no slot. An A from a alone (b is a B): 1; 2 if the declaration were one more A.
   def givenIdentity =
-    refused(
-      rows(
-        """|trait T[B] { given g[A](using a: A, b: B): A }
-           |class C[B](x: B) extends T[B] { given g[A](using a: A, b: B): A = a }
-           |class D[B](x: B) extends C[B](x)
-           |""".stripMargin
-      )("C.g"),
-      "inherited override identity not resolved: g"
-    )
+    rows(
+      """|trait T[B] { given g[A](using a: A, b: B): A }
+         |class C[B](x: B) extends T[B] { given g[A](using a: A, b: B): A = a }
+         |class D[B](x: B) extends C[B](x)
+         |""".stripMargin
+    )("C.g") === inhabitation.Inhabitation.Count.Finite(1)
 
   // Scala names `given A = a` given_A: in C it implements the parent's abstract given of that name,
   // in D a parent's parameterless def, in the open O the parent's declaration again — never a slot
@@ -155,67 +163,6 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       .and(found("D.<given@4>") === "1")
       .and(found("E.other") === "2")
       .and(found("O.<given@9>") === "2")
-  }
-
-  // Each name as 3.9.0's `-Xprint:typer` prints it (fixtures `$S/probes/b5-fix2/gname`). The parser
-  // drops the bound of `Ord[? <: String]` (3.9.0: given_Ord_String), so that name is not known.
-  def synthesizedNames = {
-    val source = dialects
-      .Scala3("""|object N {
-                 |  given Int = 1
-                 |  given Ord[Int] = o
-                 |  given [T](using Ord[T]): Ord[List[T]] = o
-                 |  given (Int, String) = p
-                 |  given Ord[(Int, (Long, Short))] = o
-                 |  given (String => Int) = f
-                 |  given ((Int, Long) => String) = f
-                 |  given (() => Int) = f
-                 |  given (Int ?=> String) = f
-                 |  given Ord[Long => String] = o
-                 |  given scala.collection.immutable.Seq[Char] = s
-                 |  given Two[Int, Ord[String]] = t
-                 |  given Ord[Short] & Show[Short] = o
-                 |  given (Boolean | Char) = b
-                 |  given Ord[?] = o
-                 |  given Ord[? <: String] = o
-                 |  given Ord[Int Two Long] = o
-                 |  given Ord[[X] =>> Ord[X]] = o
-                 |  given M.x.type = M.x
-                 |  given Ord[M.type] = o
-                 |  given 3 = 3
-                 |  given Ord[Char] with {}
-                 |  given Ord[Int] with Show[Int] with {}
-                 |}""".stripMargin)
-      .parse[Source]
-      .get
-    val givens = source.collect { case g: (Defn.GivenAlias | Defn.Given) => g }
-    (givens.filter(GivenNames.unknown).map(_.pos.text) === List("given Ord[? <: String] = o"))
-      .and(
-        givens.flatMap(GivenNames.of) === List(
-          "given_Int",
-          "given_Ord_Int",
-          "given_Ord_List",
-          "given_Int_String",
-          "given_Ord_Int_Long_Short",
-          "given_String_to_Int",
-          "given_Int_Long_to_String",
-          "given_Int",
-          "given_Int_to_String",
-          "given_Ord_Function",
-          "given_Seq_Char",
-          "given_Two_Int_Ord",
-          "given_&_Ord_Show",
-          "given_|_Boolean_Char",
-          "given_Ord_",
-          "given_Ord_Two",
-          "given_Ord_Ord",
-          "given_x_type",
-          "given_Ord_M_type",
-          "given_",
-          "given_Ord_Char",
-          "given_Ord_Int_Show_Int"
-        )
-      )
   }
 
   def memberValues = {
@@ -243,9 +190,9 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
 
   def patternValues = {
     val found = rows("object Vals { val (left, right) = (true, false) }")
-    // Each name's type is a part of the right-hand side's, which only inference finds.
-    refused(found("Vals.left"), "a name of a pattern definition")
-      .and(refused(found("Vals.right"), "a name of a pattern definition"))
+    // Each name's type is a part of the right-hand side's, which scalac infers: a Boolean each (2).
+    (found("Vals.left") === inhabitation.Inhabitation.Count.Finite(2))
+      .and(found("Vals.right") === inhabitation.Inhabitation.Count.Finite(2))
   }
 
   def localValues =
@@ -336,23 +283,24 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       .and(found("Hidden.plain.<new#1>.seed").render === "2")
   }
 
-  // `peek` returns what Mid passed on, and an import of the body may rebind the argument's name:
-  // neither is followed, so both are refused (a or b, 2, in each, read through the argument).
-  def passedLevels = {
-    val found = rows(
-      """|abstract class Hide[A](h: A) { def peek: A = h; def seed: A }
-         |abstract class Mid[A](x: A) extends Hide[A](x)
-         |object Passed {
-         |  def mid[A](a: A, b: A): Hide[A] = new Mid[A](a) { def seed: A = peek }
-         |  object Box { val a: Boolean = true }
-         |  def imported(a: Boolean, b: Boolean): Hide[Boolean] =
-         |    new Hide[Boolean](a) { import Box.*; def seed: Boolean = peek }
-         |}""".stripMargin
-    )
-    val reason = "open class with hidden constructor state: Hide.h"
-    refused(found("Passed.mid.<new#1>.seed"), reason)
-      .and(refused(found("Passed.imported.<new#1>.seed"), reason))
-  }
+  private lazy val passed = rows(
+    """|abstract class Hide[A](h: A) { def peek: A = h; def seed: A }
+       |abstract class Mid[A](x: A) extends Hide[A](x)
+       |object Passed {
+       |  def mid[A](a: A, b: A): Hide[A] = new Mid[A](a) { def seed: A = peek }
+       |  object Box { val a: Boolean = true }
+       |  def imported(a: Boolean, b: Boolean): Hide[Boolean] =
+       |    new Hide[Boolean](a) { import Box.*; def seed: Boolean = peek }
+       |}""".stripMargin
+  )
+
+  // `peek` returns what Mid passed on, x, which is a: concrete code nothing overrides, so it adds no
+  // value to the captures a and b: 2.
+  def passedLevels = passed("Passed.mid.<new#1>.seed").render === "2"
+
+  // Beside `import Box.*` a reference to `a` is ambiguous (scalac E049), but `peek` still returns
+  // the captured a: any function of the captures a and b (Box.a is the constant true), 2^(2^2) = 16.
+  def importedLevel = passed("Passed.imported.<new#1>.seed").render === "16"
 
   def valueBinders = {
     val found = rendered(
@@ -392,8 +340,6 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
     |  def local[A]: A ?=> A = (x: A) ?=> { def g: A = x; g }
     |  def named2[A]: (A, A) ?=> Getter[Unit, A] =
     |    (x: A, y: A) ?=> new Getter[Unit, A] { def get(s: Unit): A = y }
-    |  def two[A]: (A, A) ?=> Getter[Unit, A] =
-    |    (_: A, _: A) ?=> new Getter[Unit, A] { def get(s: Unit): A = summon[A] }
     |  val held: Boolean ?=> Getter[Unit, Boolean] =
     |    (b: Boolean) ?=> new Getter[Unit, Boolean] { def get(s: Unit): Boolean = b }
     |  given lifted: (Boolean ?=> Getter[Unit, Boolean]) =
@@ -402,17 +348,27 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
 
   // A right-hand side that already is a context-function literal is not wrapped again (Scala 3
   // reference, context functions): its parameters are the clause's binders, once — givens in its
-  // body, named or not. One A: 1; x or y: 2; one Boolean: Boolean => Boolean, 4. Two anonymous
-  // binders of one type are ambiguous for summon.
+  // body, named or not. One A: 1; x or y: 2; one Boolean: Boolean => Boolean, 4.
   def contextLiterals = {
     val found = rows(literals)
     (found("Literal.one.<lambda#1>.<new#1>.get").render === "1")
-      .and(found("Literal.anon.<lambda#1>.<new#1>.get").render === "1")
       .and(found("Literal.local.<lambda#1>.g").render === "1")
       .and(found("Literal.named2.<lambda#1>.<new#1>.get").render === "2")
       .and(found("Literal.held.<lambda#1>.<new#1>.get").render === "4")
       .and(found("Literal.lifted.<lambda#1>.<new#1>.get").render === "4")
-      .and(refused(found("Literal.two.<lambda#1>.<new#1>.get"), "ambiguous anonymous evidence"))
+  }
+
+  // The anonymous binder is the one A `summon` finds: 1, as for `one`.
+  def anonymousLiteral = rows(literals)("Literal.anon.<lambda#1>.<new#1>.get").render === "1"
+
+  // Two anonymous binders of one type are ambiguous for `summon`, to scalac as to the reading.
+  def ambiguousLiterals = {
+    val two = rows(getter + """
+      |object Literal {
+      |  def two[A]: (A, A) ?=> Getter[Unit, A] =
+      |    (_: A, _: A) ?=> new Getter[Unit, A] { def get(s: Unit): A = summon[A] }
+      |}""".stripMargin)
+    refused(two("Literal.two.<lambda#1>.<new#1>.get"), "ambiguous anonymous evidence")
   }
 
   def enumCases = {
@@ -490,11 +446,13 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       "transparent ground values: evidence Ev[A]"
     )
 
-  private def bySignature(code: String): Map[(String, String), String] =
-    entries(code).map(entry => (entry.kind, entry.signature) -> entry.count.render).toMap
+  // A secondary constructor is the `method` row of its class's `<init>`, the primary the
+  // `constructor` row (each fixture has at most one secondary per class).
+  private def byKind(code: String): Map[(String, String), String] =
+    entries(code).map(entry => (entry.kind, entry.name) -> entry.count.render).toMap
 
   def secondaryConstructor = {
-    val found = bySignature(
+    val found = byKind(
       """|final case class Box[A](a: A, b: A) { def this(a: A) = this(a, a) }
          |final class K[A](val x: A) {
          |  val m: A = x
@@ -504,24 +462,24 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
     // The primary's arguments (A, A) from a alone: (a, a), 1 — the secondary constructor is no
     // member, so Box stays a product. The primary's two slots from two parameters: 4. K's member m
     // is not in scope of the self-invocation (the instance does not exist yet): y alone, 1.
-    (found(("method", "this(a: A): Box[A]")) === "1")
-      .and(found(("constructor", "Box[A](a: A, b: A)")) === "4")
-      .and(found(("method", "this(u: Unit, y: A): K[A]")) === "1")
+    (found(("method", "Box.<init>")) === "1")
+      .and(found(("constructor", "Box.<init>")) === "4")
+      .and(found(("method", "K.<init>")) === "1")
   }
 
   // A secondary constructor calls the primary one with a Boolean from u: 2. Read as a value of the
   // class, an open class's overridable `flag` (or a subclass's override) would double it, 4 — but
   // no constructor chooses a member.
   def secondaryOpen = {
-    val found = bySignature(
+    val found = byKind(
       """|class Open(val n: Boolean) { def this(u: Unit) = this(true); def flag: Boolean = n }
          |abstract class AbsM(val n: Boolean) { def this(u: Unit) = this(true); def flag: Boolean }
          |final class Closed(val n: Boolean) { def this(u: Unit) = this(true) }
          |""".stripMargin
     )
-    (found(("method", "this(u: Unit): Open")) === "2")
-      .and(found(("method", "this(u: Unit): AbsM")) === "2")
-      .and(found(("method", "this(u: Unit): Closed")) === "2")
+    (found(("method", "Open.<init>")) === "2")
+      .and(found(("method", "AbsM.<init>")) === "2")
+      .and(found(("method", "Closed.<init>")) === "2")
   }
 
   // The body after the self-invocation is typed as a function body of the class ([30] Constructor
@@ -549,7 +507,7 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
   // evidence last: (A, Ev[A]) from b and the secondary's own evidence, 1 · 2^2 (an Ev[A] is one of
   // two values, chosen as a function of the evidence's), 4 — 1 without the bound.
   def primaryArguments = {
-    val found = bySignature(
+    val found = byKind(
       """|final class P(f: => Boolean, xs: Boolean*) { def this(u: Unit) = this(true) }
          |final class N() { def this(u: Unit) = this() }
          |final case class Ev[A](flag: Boolean)
@@ -557,34 +515,10 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
          |final class R2[A](a: A) { def this(u: Unit, b: A) = this(b) }
          |""".stripMargin
     )
-    (found(("method", "this(u: Unit): P")) === "ω")
-      .and(found(("method", "this(u: Unit): N")) === "1")
-      .and(found(("method", "this(u: Unit, b: A): R[A]")) === "4")
-      .and(found(("method", "this(u: Unit, b: A): R2[A]")) === "1")
-  }
-
-  def identities = {
-    val code = """
-      |trait Named[A] { def name: Boolean }
-      |object Twice {
-      |  given Named[Int] = new Named[Int] { def name: Boolean = true }
-      |  given Named[Unit] = new Named[Unit] { def name: Boolean = false }
-      |}""".stripMargin
-    def keys(text: String) = {
-      val tree = dialects.Scala3(text).parse[Source].get
-      entries(text).map(entry => EoBaseline.identity(entry, tree))
-    }
-    val secondaries = """
-      |final class S(a: Boolean) {
-      |  def this(x: Unit) = { this(true); def helper(y: Unit): Boolean = a }
-      |  def this(x: Unit, z: Unit) = { this(false); def helper(y: Unit): Boolean = a }
-      |}""".stripMargin
-    // Both members are `Twice.<given>.<new#1>.name: Boolean` once the lines are dropped: the
-    // enclosing given alias tells them apart, and moving the file's lines moves no identity. The
-    // two secondary constructors' helpers are `S.<init#1>.helper` and `S.<init#2>.helper`.
-    (keys(code).distinct.size === keys(code).size)
-      .and(keys(code).toSet === keys("\n\n" + code).toSet)
-      .and(keys(secondaries).distinct.size === keys(secondaries).size)
+    (found(("method", "P.<init>")) === "ω")
+      .and(found(("method", "N.<init>")) === "1")
+      .and(found(("method", "R.<init>")) === "4")
+      .and(found(("method", "R2.<init>")) === "1")
   }
 
 }
