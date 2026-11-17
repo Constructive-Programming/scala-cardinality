@@ -61,7 +61,7 @@ class TastyFrontEndSpec extends Specification {
       |object KI { val z: Boolean = ???; inline def g(b: Boolean): Boolean = !b }
       |""".stripMargin
 
-  // What the compiler desugars or adds, each with the name the scalameta front end gives its row:
+  // What the compiler desugars or adds, each with the name of its row:
   // scopes of a body, nameless definitions, constructors, and members nobody wrote.
   private val shapes =
     """package shapes

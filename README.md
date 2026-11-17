@@ -337,8 +337,7 @@ type). A `?` row still carries the size the calculator reached, and the summary 
 whose size depends on their own type parameters apart.
 
 The report reads the algebra's sums as they are, coefficients included: `Either[String, String]`
-is `ω + ω`, and a module with two `String => String` methods and one `String` field is
-`2ε₀ + ω`. What the calculator cannot bound, it names: a `?` row says both that the number
+is `ω + ω`. What the calculator cannot bound, it names: a `?` row says both that the number
 reached ω or beyond and which type names stopped it from being tighter.
 
 `cardinalityReport` and `cardinalityReportSelected` compile the project first and read its

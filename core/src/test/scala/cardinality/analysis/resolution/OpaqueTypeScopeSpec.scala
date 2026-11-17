@@ -1,7 +1,6 @@
 package cardinality.analysis.resolution
 
 import scala.compiletime.testing.typeChecks
-import scala.meta.*
 
 import cardinality.analysis.*
 import cardinality.analysis.inhabitation.*

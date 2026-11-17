@@ -151,8 +151,7 @@ class TargetViewsSpec extends Specification {
   // (it throws, and supplies nothing), not the subclass's `???` member. S0K overrides the inherited
   // k, so k is open and reads as its abstract twin, an Int => Nothing no instance can have: S0 has
   // no instance and S0.??? is vacuous, 1. Read as S0's `???`, k's default would be an Int, k an
-  // input, and S0.??? every Int, 2^32 (register C6; Construction reads each level in its own scope
-  // too).
+  // input, and S0.??? every Int, 2^32 (register C6).
   def inheritedDefault =
     one(
       """class P0 { def k(x: Int): Nothing = ??? }

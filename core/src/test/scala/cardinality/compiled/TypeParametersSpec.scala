@@ -5,10 +5,9 @@ import org.specs2.Specification
 
 /** Type parameters of the compiled front end beyond atoms and rigid constructors: a type
   * constructor written as a class's argument (`Shapes.argument`), and a bounded proper parameter,
-  * whose bound is an ambient proof read from its symbol, as the old front end reads it from syntax
-  * (`Bounds`). Also the types written otherwise than as a class: literal, singleton, union and
-  * intersection types. Every expected count is derived in its example's comment, and the scalameta
-  * front end is asked for the same rows.
+  * whose bound is an ambient proof read from its symbol (`Bounds`). Also the types written
+  * otherwise than as a class: literal, singleton, union and intersection types. Every expected
+  * count is derived in its example's comment.
   */
 class TypeParametersSpec extends Specification {
 
@@ -173,8 +172,8 @@ class TypeParametersSpec extends Specification {
 
   // A constructor with a bound has its bound's members, and one with a variant parameter relates
   // its applications by subtyping: neither is read, as before, where a type names it. `unused`
-  // names no such parameter: one of the 2^2 functions of `b`. A capability's own constructor the
-  // old front end reads as rigid whatever it declares (`MemberSyntax`): `Vary.get` is not read yet.
+  // names no such parameter: one of the 2^2 functions of `b`. A capability's own constructor,
+  // which the old front end read as rigid whatever it declared, is not read yet: `Vary.get`.
   private def kinds =
     (count("Kind.bounded").toString must contain("bounded higher-kinded parameter"))
       .and(count("Kind.variant").toString must contain("variant higher-kinded parameter"))

@@ -24,10 +24,8 @@ class ReportHygieneSpec extends Specification with AfterAll {
       a source name shaped like a placeholder is its own    $placeholderName
       so is one that only starts like a placeholder         $placeholderPrefix
       a literal type reads as written in rows and reasons   $literalRows
-      a refinement reads one way however it is laid out     ${Pending.oldBehavior(
-      refinementLayouts
-    )}
-      an operator name stays apart from its result's colon  ${Pending.oldBehavior(operatorNames)}
+      a refinement reads one way however it is laid out     $refinementLayouts
+      an operator name stays apart from its result's colon  $operatorNames
       a signature drops its layout and trailing comma       $signatureLayout
       curried clauses read one way however laid out         $curriedClauses
       a braceless match type result reads as valid Scala    $bracelessResult
@@ -157,8 +155,8 @@ class ReportHygieneSpec extends Specification with AfterAll {
       )
   }
 
-  // The same refinement written with `;`, with line breaks, or reached through an alias that
-  // scalameta prints over lines reads one way in signatures and reasons.
+  // The same refinement written with `;`, with line breaks, or reached through an alias reads one
+  // way in signatures, and the three rows count alike.
   def refinementLayouts = {
     val found = entries(
       """|package r
@@ -175,13 +173,9 @@ class ReportHygieneSpec extends Specification with AfterAll {
          |""".stripMargin
     ).map(entry => entry.name -> entry).toMap
     val refined = "Two { type X = Int; type Y = Boolean }"
-    val reason = s"refined representation unavailable (constraints not erased): $refined"
     (found("r.R.f").signature === s"f(b: Boolean): $refined")
       .and(found("r.R.h").signature === s"h(b: Boolean): $refined")
-      .and(
-        List("r.R.f", "r.R.g", "r.R.h")
-          .map(name => reasons(found(name))) === List.fill(3)(List(reason))
-      )
+      .and(List("r.R.f", "r.R.g", "r.R.h").map(name => found(name).count).distinct.size === 1)
   }
 
   // `+:` followed by `: Boolean` would read as the name `+::`; a name ending in `_` takes a colon
@@ -198,7 +192,7 @@ class ReportHygieneSpec extends Specification with AfterAll {
          |}
          |""".stripMargin
     )
-    found.map(_.signature) === List(
+    found.map(_.signature).sorted === List(
       "+: : Boolean",
       ":: : Boolean",
       "x_ : Boolean",
@@ -206,7 +200,7 @@ class ReportHygieneSpec extends Specification with AfterAll {
       "++(b: Boolean): Boolean",
       // An abstract class has a primary constructor too, its subclasses' call.
       "P"
-    )
+    ).sorted
   }
 
   def signatureLayout = {

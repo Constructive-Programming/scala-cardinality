@@ -5,8 +5,7 @@ import org.specs2.Specification
 
 /** A capability record's member named like the measured definition (`Shapes.record`): it may be the
   * definition itself only on a value that is an instance of the definition's class too, and only
-  * with the definition's arity, as the old front end reads it. Every expected count is derived in
-  * its example's comment, and the scalameta front end is asked for the same rows.
+  * with the definition's arity. Every expected count is derived in its example's comment.
   */
 class NamesSpec extends Specification {
 

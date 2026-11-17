@@ -7,7 +7,11 @@ Sources: **R** = cardinality report row, **M** = measurement (baseline diff, rat
 run, gates), **C** = CPD.
 
 Status: **proposed** (not yet applied and gated), **confirmed** (applied and gated at least
-once), **rejected** (do not propose again unless the boundary changes).
+once), **rejected** (do not propose again unless the boundary changes), **retired** (the code it
+concerned is gone).
+
+Evidence lines are a record and keep the names of their time: many name classes of the scalameta
+front end, which the TASTy front end (`core/src/main/scala/cardinality/compiled/`) replaced.
 
 Entry shape:
 
@@ -69,12 +73,11 @@ Entry shape:
   the same question asked at several sites.
 - Fix: stage 3. A `def` on the sum; callers delegate.
 - Expect: adds signature rows, moves none. Gate on tests.
-- Boundary: switchboards (one-line delegation per case: `SingletonIntersections.resolved`, the
-  `Unbound` match in `TastyFrontEnd.spelled`), renderers (`FinitePart.render`), interpreters (the
+- Boundary: switchboards (one-line delegation per case: the `Unbound` match in
+  `TastyFrontEnd.spelled`), renderers (`FinitePart.render`), interpreters (the
   `Shape` matches in the inhabitation solver), a single equality test on a case object
   (`edge.kind == Continuation.OptionBranch`). Sites that agree on two arms but differ on the
-  rest are switchboards too (`Binding.Here`/`Elsewhere` in `Scope`, `Solver`, `Namespaces`;
-  the builtin-key `Found` matches in `ConstructorApplications` and `NominalKeys`).
+  rest are switchboards too.
 - Evidence: 331b579, four `case Found.Entry(entry)` sites → `Found.declared`. Earlier:
   `Definition.instantiationDependent` matched `Unbound` cases and `Definition.open` used
   `isInstanceOf[Unbound.Open]`; both moved onto `Unbound`, and the object helpers delegate
@@ -96,13 +99,12 @@ Entry shape:
   Phase 2: 55 → 0, `ClosedSpaces.tiers` anonymous members `?` → ω (`703ω` → `710ω`).
 
 ### R4 Independent numeric knobs — rejected
-- Signal (R): `2^n` row of several `Int`/`Long` fields (`SourceSnapshot.Limits`,
-  `AnalysisQuery.Budget`).
+- Signal (R): `2^n` row of several `Int`/`Long` fields (a budget's limits).
 - Boundary: each knob is enforced on its own path. Not a target.
 
 ### R5 Splitting a rendered-message case — rejected
 - Signal (R): `ω` case holding one `why: String` built from two or three templates over open
-  names (`TemplateClosures.Closure.Hidden`).
+  names.
 - Boundary: the split adds a case and a renderer and moves no tier.
 
 ## Measurement (M)
@@ -123,7 +125,7 @@ Entry shape:
   `Either` matches, so the swap landed (the row stayed one `?`).
 
 ### M3 The report needs more than the default heap — confirmed
-- Signal (M): `cardinalityReport` dies with `OutOfMemoryError` in `Library$Packages.solve`.
+- Signal (M): `cardinalityReport` dies with `OutOfMemoryError`.
 - Fix: run the sbt launcher with `-Xmx16g -Xss8m`. A wrapper script that hardcodes `-Xmx`
   ignores `.jvmopts`.
 - Evidence: pass 3, 4g failed, 16g ran (97 s).
@@ -147,15 +149,13 @@ Entry shape:
   Double. The first script split on `·` and missed the growth in M5.
 - Fix: `report-diff.scala` parses the size and sums exponent towers; `--check` runs its self-check.
 
-### M7 Selected report on core fails with `duplicate source origin` — proposed
+### M7 Selected report on core fails with `duplicate source origin` — retired
 - Signal (M): `core/cardinalityReportSelected <name>` logs `could not read : duplicate source
   origin` and fails; the full `cardinalityReport` on the same sources succeeds.
-- Fix: not found yet. `AnalysisQuery.run` refuses when two inputs share a `path`; core has no
-  two sources with the same file name, so check how the plugin builds the inputs' paths.
-- Workaround: run the full report and grep the rows.
+- Retired: the check that raised it went with the scalameta front end.
 - Evidence: 2026-11-10, while measuring `Skill` (issue #30 pass).
 
-### M8 A measurement overflows a 1 MiB stack — confirmed
+### M8 A measurement overflows a 1 MiB stack — retired
 - Signal (M): `StackOverflowError` at `EvidenceAnalysis.scala:350` under `GoalSolver.goal`, e.g.
   `PolymorphicMemberSpec` "cannot create an instance", when sbt runs without `.jvmopts`
   (`-Xss8m`); CI's launcher reads it and passes.
@@ -164,11 +164,11 @@ Entry shape:
   the 256-state budget, each goal folding a deeper shape. `StackOverflowError` is fatal: `NonFatal`
   does not catch it. Every row of the TASTy front end runs under `Readings.Depth` (64) and
   `Readings.Work`.
-- Fix: `DeepStack` runs every `Index.measure` on its own 256 MiB (reserved) stack; no count
-  moves. `DeepStackSpec` asks from a 256 KiB thread.
+- Fix (retired with that front end): `DeepStack` ran every measurement on its own 256 MiB
+  (reserved) stack; no count moved.
 - Evidence: 2026-11-10, local `sbt` wrapper with a hard-coded `-Xmx4g` and no `.jvmopts`.
 
-### M9 Stub members read open through same-named JDK templates — confirmed
+### M9 Stub members read open through same-named JDK templates — retired
 - Signal (M): thousands of `member may be overridden through a parent outside the sources:
   scala.meta.Tree.begOffset` (and `Type.`, `Stat.` …) on stub-backed receivers.
 - Cause: the closed world asked about a stub template by simple name, and keyed a stub parent the
@@ -179,6 +179,8 @@ Entry shape:
   qualified name (`ClosedWorld.owner`); library markers are known by qualified name too.
 - Expect: the reason leaves; rows move to their next reason (`capability record with members
   hidden at the use site`, 926 → 2216). No count moved.
+- Retired: the stubs and the scalameta front end that read them are gone; the TASTy front end keys
+  every template by the compiler's symbol.
 - Evidence: 2026-11-10, reason 2277 → 0 lines.
 
 ## Source shape (stage 4)
@@ -191,8 +193,7 @@ Entry shape:
 ### S2 Hand-written worklist reachability — confirmed
 - Signal (source): `@tailrec` loop over `(pending, seen)` that returns start + reachable.
 - Fix: `Graphs.reachable`.
-- Boundary: a walk that drops the start node or needs visit order (`ClosedWorld.ancestors`,
-  `BinderBounds.collect`).
+- Boundary: a walk that drops the start node or needs visit order.
 - Evidence: 331b579, `Linearization.bases`. Pass 3: the alias and synonym closures
   (`SourceIndex.closeAliases`, `RuntimeClasses.spellings`, `SealedFamilies.Synonyms.of`) and
   `EvidenceAnalysis.Closure.expand`, each over a `Graphs.fromEdges` graph built once.
@@ -202,32 +203,32 @@ Entry shape:
 ### S4 Hand-written "until `next == current`" loop — confirmed
 - Signal (source): `if (next == x) x else loop(next)` or a `var changed` / `while (changed)` loop.
 - Fix: `Graphs.fixpoint(start)(step)`.
-- Boundary: a loop with a widening branch (`Instantiations.iterate`) or a solver loop
+- Boundary: a loop with a widening branch (`Fixpoint.iterate`) or a solver loop
   (`GoalSolver.leastProductive` spends `inspect` fuel per node and mutates in place).
 - Evidence: pass 3, `PolymorphicMembers.opens`, `TargetViews.classify`, `Positivity.slots`,
   `OpaqueSumForwarding` (its `var` loop).
 
-### S5 Hand-written parent walk — confirmed
+### S5 Hand-written parent walk — retired
 - Signal (source): `@tailrec` match on `tree.parent`, or `Iterator.iterate(tree.parent)(…)`.
-- Fix: `Trees.ancestors(tree)` with `collectFirst` / `forall`; `Trees.innermost` when `f` is
-  costly and must stop early.
+- Fix (retired with the scalameta trees): `Trees.ancestors(tree)` with `collectFirst` / `forall`;
+  `Trees.innermost` when `f` is costly and must stop early. tasty-query's trees have no parent
+  links.
 - Evidence: pass 3, `Walk.owner`, `SourceIndex.static`.
 
 ### S6 Walk that needs a layer it cannot import — rejected
-- Boundary: `Overrides.ancestry` restates `InheritedScopes.breadthFirst`, but `types` would
-  import `analysis.resolution`. Moving `breadthFirst` is a separate refactor.
-- Also kept: `RuntimeClasses.closure` (stops at the first `Left`, order picks the error),
-  `NeutralSaturation.unbounded.reach` (stops early).
+- Boundary: a walk that restates a helper in a layer `types` may not import stays where it is;
+  moving the helper is a separate refactor.
+- Also kept: `NeutralSaturation.unbounded.reach` (stops early).
 
 ### S3 `mapAccumulate` for a counter-threading fold — rejected
-- Boundary: the two `.swap` calls read worse than the fold (`NominalKeys.all`).
+- Boundary: the two `.swap` calls read worse than the fold.
 
 ## CPD (C)
 
 ### C1 Over-gate duplicate — confirmed
 - Signal (C): any group of 25+ tokens; CI fails.
-- Fix: one shared copy where both callers reach it. Copies that differ in what they check
-  (`ClosedWorld.open` vs `TypeMembers.open`) are restructured until CPD no longer matches.
+- Fix: one shared copy where both callers reach it. Copies that differ in what they check are
+  restructured until CPD no longer matches.
 - Boundary: duplicated import blocks follow SKILL.md §6.2: restructure first; `// CPD-OFF` only
   after that is declined, and never outside imports.
 - Evidence: pass 4, a new `Trees.hasLazy` import made the headers of `Throws` and `ScopeTerms`
@@ -236,7 +237,8 @@ Entry shape:
 ### C2 Type union spelled at many sites — confirmed
 - Signal (C): 12-token idiom such as `Defn.Class | Defn.Trait | Defn.Object | Defn.Enum`
   (25 occurrences in 16 files at 331b579).
-- Fix: a type alias in `types/Trees.scala`.
+- Fix: a type alias beside the code that uses it (once in `types/Trees.scala`, deleted with the
+  scalameta front end).
 - Expect: no report movement.
 - Evidence: `TemplateDefn`, `ClassDefn`, `MethodDefn`; at pass 4 each union is spelled once, in
   its alias.
@@ -255,9 +257,10 @@ Entry shape:
   `Option[(String, Int)]` but means (name, arity), and stays.
 - Evidence: pass 3, `model.Anchor(source, offset)` beside `ResolutionContext`.
 
-### C6 Modifier test spelled at many sites — confirmed
+### C6 Modifier test spelled at many sites — retired
 - Signal (C): `mods.exists(_.is[Mod.X])` (12× `Case`, 8× `Abstract`, 7× `Private` at 6e4b304).
-- Fix: an extension beside `hasFinal` in `types/Trees.scala`; import it by name.
+- Fix (retired with the scalameta front end): an extension beside `hasFinal` in
+  `types/Trees.scala`; import it by name.
 - Expect: new `?` rows for the predicates (scalameta `Mod` is open); nothing moves.
 - Boundary: `clause.mod.exists(_.is[Mod.Using])` (5 sites) is on an `Option[Mod]`, not a modifier
   list; left.
@@ -265,13 +268,14 @@ Entry shape:
   sites, `BodyWalk.inlineMod` deleted); three spelled tests now call the existing
   `MemberSyntax.implicitModifier` and two the existing `MemberSyntax.restricted`.
 
-### C7 Tree accessor chain spelled at many sites — confirmed
+### C7 Tree accessor chain spelled at many sites — retired
 - Signal (C): `paramClauses.toList.flatMap(_.values)` (20 sites) and
   `flatMap(_.paramClauses).flatMap(_.values)` over clause groups.
 - Fix: an extension on the scalameta trait that declares the member
   (`Tree.WithParamClauses.parameters`): it covers `Ctor.Primary`, `Ctor.Secondary` and
   `Member.ParamClauseGroup` at once. Check the trait in the scalameta jar (`javap`).
-- Evidence: pass 3, `Trees.parameters`; `Trees.fields` reads through it.
+- Evidence: pass 3, `Trees.parameters`; `Trees.fields` reads through it. Retired with the
+  scalameta front end.
 
 ### C5 Standard one-liner — rejected
 - Signal (C): `.groupMap(_._1)(_._2)` and similar library one-liners.

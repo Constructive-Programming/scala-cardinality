@@ -29,7 +29,7 @@ sbt -Dcardinality.self=0.1.0-SNAPSHOT cardinalityReport   # target/**/<module>/c
   aggregates and has no sources of its own.
 - Narrow a single signature with `sbt -Dcardinality.self=0.1.0-SNAPSHOT 'cardinalityReportSelected <fqcn>'`.
 - Before changing anything, keep the starting report for §8:
-  `cp target/out/jvm/scala-3.9.0/scala-cardinality/cardinality/report.txt /tmp/cardinality-before.txt`
+  `cp target/out/jvm/scala-3.10.1/scala-cardinality/cardinality/report.txt /tmp/cardinality-before.txt`
   (and the plugin's, if the run touches `plugin/`). The committed baseline is not a substitute:
   it may predate commits pulled since.
 - Diff each run against the starting report with `report-diff.scala` (§8).
@@ -83,8 +83,7 @@ Four stages, ranked by impact. Try the lowest-numbered stage that applies first.
 
 1. Read the catalog (§7), then run the report (§1).
 2. List stored-value rows from largest to smallest (§1 order). These are the candidates.
-   Skip `?` rows in both sections: they are analyzer resolution limits (here mostly scalameta
-   `Tree`/`Type` openness), not reduction targets.
+   Skip `?` rows in both sections: they are analyzer resolution limits, not reduction targets.
 3. For each candidate, read its construction sites before classifying: the report shows
    sizes, not fields.
    - Several numeric fields: stage 1 or 2 only if the fields are not independent knobs.
@@ -106,7 +105,7 @@ The report shows a sum-typed parameter's size but not whether callers branch on 
 those sites in the sources.
 
 1. Inventory the build's own sums: `enum`, `sealed trait`, `sealed abstract class` under
-   `core/src/main`. Third-party hierarchies (scalameta `Tree`, `Type`, `Defn`, `Stat`) are
+   `core/src/main`. Third-party hierarchies (tasty-query's `Tree`, `Type`, `Symbol`) are
    visitor territory; leave them.
 2. Find case analysis outside the sum: `match`, `isInstanceOf[`, `== CaseObject` on one of
    those sums, directly or through a field, in code that is not the sum's own.
@@ -129,7 +128,7 @@ Three buckets, in order of value:
 1. **Type-duplicated helpers**: functions differing only in the type operated on. One
    generic function takes the varying operation as a parameter.
 2. **Hand-rolled machinery**: folds or loops that restate `Traversals.hylo`,
-   `localCata`, `Traversals.plated`, `Graphs.reachable` or a cats combinator. Swap them.
+   `Traversals.plated`, `Graphs.reachable`, `Graphs.fixpoint` or a cats combinator. Swap them.
 3. **Concrete-typed structural functions**: containers in and out, no domain logic. Add a
    type parameter only with a second caller; generalizing a single caller is speculation.
 
@@ -137,7 +136,7 @@ Before a swap, check the library's semantics (order, short-circuiting, strictnes
 source, not from the combinator's name: the analysis spends fuel per step, so order matters.
 Use cellar for external artifacts (`cellar get-external <coordinate> <fqn>`, then
 `cellar get-source` when the doc does not settle it), and grep for internal symbols.
-Leave domain-coupled code (`Measurement.resolve`, the solver walks): invariants pin it, not
+Leave domain-coupled code (`Fixpoint.solve`, the solver walks): invariants pin it, not
 types.
 
 ## 6. Duplication pass (CPD)
@@ -167,8 +166,8 @@ scala-cli run .claude/skills/cardinality-reduction/cpd-idioms.scala -- /tmp/cpd1
 
    | Repetition | Missing piece |
    | --- | --- |
-   | A type union spelled at many sites | a type alias in `types/Trees.scala` |
-   | A modifier test (`mods.exists(_.is[Mod.Sealed])`) | a named predicate; reuse an existing one first |
+   | A type union spelled at many sites | a type alias beside the code that uses it |
+   | A symbol or flag test spelled at many sites | a named predicate; reuse an existing one first |
    | The same parameter group in many signatures | a domain type (stage 2) |
    | A bare tuple with a fixed meaning | a named type (stage 2) |
    | Two helpers identical up to a name | one shared helper |
@@ -228,7 +227,7 @@ End every run by re-measuring (§1) and printing the total program cardinality b
 
 ```bash
 scala-cli run .claude/skills/cardinality-reduction/report-diff.scala -- /tmp/cardinality-before.txt \
-  target/out/jvm/scala-3.9.0/scala-cardinality/cardinality/report.txt
+  target/out/jvm/scala-3.10.1/scala-cardinality/cardinality/report.txt
 # native binary, once: scala-cli --power package --native .claude/skills/cardinality-reduction/report-diff.scala -o /tmp/report-diff
 ```
 

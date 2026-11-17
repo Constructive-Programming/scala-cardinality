@@ -479,12 +479,9 @@ discarded at this boundary. Conaturals therefore report $\omega$, not $\omega + 
 and blocked or empty cycles whose total is $0$ stay $0$.
 
 This normalization is **only** for completion of each lazy/coinductive type.
-It is not a rule of `Size.+`, enclosing sums, source totals, or class/object
-signatures: `Either[String, String]` remains $2\omega$, and
-`Either[LazyList[String], LazyList[String]]` is $2\varepsilon_0$, not $\varepsilon_0$.
-Source and signature aggregates add the completed contributions normally;
-`sourceSignature` with two `String => String` methods and a `String` field
-still reports $2\varepsilon_0 + \omega$.
+It is not a rule of `Size.+`, enclosing sums or source totals: `Either[String, String]`
+remains $2\omega$, and `Either[LazyList[String], LazyList[String]]` is $2\varepsilon_0$, not
+$\varepsilon_0$. Source aggregates add the completed contributions normally.
 
 A recursive equation whose estimate keeps growing never reaches a fixed point
 under coefficient-preserving addition: the estimate for $\mu X.\, (1 + X)$ climbs
@@ -519,17 +516,11 @@ implements these rules.
 
 The current API and representation have important limits:
 
-- `Counter.type` counts a single parsed type, through
-  [`typeIn`](https://github.com/constructive-programming/scala-cardinality/blob/main/core/src/main/scala/cardinality/capacity/Counter.scala).
-  `Counter.source` instead sums the contributions of every definition in a source, so it is not a
-  lookup of one chosen ADT, and a definition contributes its **solved** value rather than a fresh
-  evaluation of the same syntax — so a recursive definition and a reference to it always agree.
-- `Counter.sourceSignature` reports the other reading: the declared types of the members of a
-  definition (`Counter.defnSignature` for a single definition). Every typed field, term and method
-  contributes the size of its declared type, constructor and enum-case parameters included, so a
-  module with two `String => String` methods and one `String` field is $2\varepsilon_0 + \omega$, while
-  `Counter.source` reports that the module itself is a single value. Both readings return the same
-  `Size`; neither replaces the other.
+- The stored-value side, [`Stored`](https://github.com/constructive-programming/scala-cardinality/blob/main/core/src/main/scala/cardinality/compiled/Stored.scala),
+  reads each definition from the compiler's typed trees and reports one row per definition. A
+  type has no row of its own: a reference to it holds what the row of an alias of it reads. A
+  definition's row is its **solved** value rather than a fresh evaluation of the same tree, so a
+  recursive definition and a reference to it always agree.
 - [`Size`](https://github.com/constructive-programming/scala-cardinality/blob/main/core/src/main/scala/cardinality/capacity/Size.scala)
   is $a\cdot\varepsilon_0 + b\cdot\omega + n$: contributions counted per tier and added componentwise, so
   `Either[String, String]` is $2\omega$. Counts up to 127 are exact in the finite part, and
@@ -558,7 +549,7 @@ The current API and representation have important limits:
   top-level definitions, its implicit classes and objects, and the companion objects of its
   top-level types — not its other classes, traits, enums or objects) — and a reference anywhere else
   is one value (v1.md §2, opaque types): `U(id: p.Ids.Id)` is 1. Forward
-  references and recursion within a single compilation unit are resolved: `Counter.source` solves
+  references and recursion within a single compilation unit are resolved: the stored side solves
   the definitions as a system of equations by Kleene iteration from the empty type (§8), and
   abstract traits and sealed classes are folded from their concrete subtypes in the same unit.
   Cycles through recognized continuations — holes (`=> X`, `=> Option[X]`, `() => X`), strict
@@ -592,7 +583,7 @@ The current API and representation have important limits:
   Separately, completion of each lazy/coinductive type combines its $\mu$ estimate and infinite
   contribution, then returns one `EffectiveEpsilon0` if present, otherwise one `EffectiveOmega`
   if present, otherwise the unchanged finite total. General addition retains infinite-tier
-  coefficients; enclosing sums, source totals, and signatures are not normalized this way.
+  coefficients; enclosing sums and source totals are not normalized this way.
 
 [`ArticleCardinalitySpec`](https://github.com/constructive-programming/scala-cardinality/blob/main/core/src/test/scala/cardinality/capacity/ArticleCardinalitySpec.scala)
 is the article-focused regression suite. Together with
@@ -606,7 +597,6 @@ it separates implemented rules from executable **targets**:
 | Exponentials, currying, distributivity, the `0`/`1` rules, double negation | Asserted against independently known results |
 | Finite powersets and finite-list boundary cases | Asserted for empty, singleton, and nontrivial element types |
 | Polynomial sums across the three tiers | Asserted: $\omega + \omega = 2\omega$, lexicographic comparison, coarse products and powers, and the zero/one identities |
-| Member signatures of definitions | Asserted: fields, methods, constructor and enum-case parameters, and nested definitions summed per tier |
 | Parametric identity, projections, composition, contradiction, Option transformations | Pending: needs parametricity, which the type traversal does not model |
 | Recursive types (eager) with no base constructor | Asserted: least fixed points of the equation system; $\mu X.\, X$ counts $0$ |
 | Recursive types (eager) with a base constructor | Asserted: productive recursion widened to $\omega$, and an $\varepsilon_0$ payload never demoted |

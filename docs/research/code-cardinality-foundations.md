@@ -1955,9 +1955,9 @@ implicit conversion a body may meet, a source name — is unchanged.
 `.packageObject`, `.chainedPackage`; `BinderBoundsSpec.rebindableTops`;
 `HigherKindedRefusalSpec.boxedNames` (java.lang's boxed names read by their rooted names: their
 scalars' counts, their own keys), `StdlibModelSpec.javaWildcard` (`java.util.List` a sequence,
-`java.awt.List` refused unsupplied) and `.javaWildcardStub` (4 through a supplied declaration),
-`TastyStubsSpec` (a `java.sql` enum 16 and `java.awt.List` resolved through rendered JDK-module
-stubs), `.finalUnmodelled` (`Integer`, `Optional`),
+`java.awt.List` refused unsupplied), `.javaWildcardStub` (4 through a supplied declaration) and
+`.finalUnmodelled` (`Integer`, `Optional`); `TastyStubsSpec` (a `java.sql` enum 16 and
+`java.awt.List` resolved through rendered JDK-module stubs) was deleted with the stubs (422ad4e),
 `NamespaceScopingSpec.unsuppliedWildcard` (the stored side under `scala.collection.mutable.*`); the Shadowed-builtin-names group of `GroundEnvironmentSpec` (declarations still shadow).
 Scala 3.9.0 fixtures r5, r8 and review-A7q/sc show a rebinding the assumption sets aside.
 

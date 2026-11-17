@@ -24,20 +24,20 @@ import scala.meta.internal.semanticdb.*
   // sbt 2 writes each module's SemanticDB to `target/out/jvm/scala-<version>/<module>/meta`. A
   // directory that is not there (a module renamed, another Scala version, nothing compiled) stops
   // the scan: read as empty, it would list every symbol that module references.
-  val out = Path.of("target/out/jvm/scala-3.9.0")
-  def documents(dir: String): List[TextDocument] =
-    val root = out.resolve(dir)
+  // `core` is on tasty-query's Scala (`coreScalaVersion` in build.sbt), the plugins on the build's.
+  def documents(dir: String, scala: String = "3.9.0"): List[TextDocument] =
+    val root = Path.of(s"target/out/jvm/scala-$scala").resolve(dir)
     if !Files.isDirectory(root) then sys.error(s"no SemanticDB at $root: run scripts/dead-code.sh")
     Files.walk(root).iterator.asScala.filter(_.toString.endsWith(".semanticdb")).toList
       .flatMap(file => TextDocuments.parseFrom(Files.readAllBytes(file)).documents)
   def references(of: List[TextDocument]): Set[String] =
     of.flatMap(_.occurrences).filter(_.role == SymbolOccurrence.Role.REFERENCE).map(_.symbol).toSet
 
-  val core = documents("scala-cardinality/meta")
+  val core = documents("scala-cardinality/meta", "3.10.1")
   val production =
     references(core ++ documents("sbt-cardinality/meta") ++ documents("mill-cardinality_mill1/meta"))
   val tests =
-    references(documents("scala-cardinality/test-meta") ++ documents("mill-cardinality_mill1/test-meta"))
+    references(documents("scala-cardinality/test-meta", "3.10.1") ++ documents("mill-cardinality_mill1/test-meta"))
   val infos = core.flatMap(d => d.symbols.map(info => info.symbol -> (info, d.uri))).toMap
 
   // Members the compiler writes or the language calls by name: never listed.

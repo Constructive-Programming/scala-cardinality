@@ -9,9 +9,9 @@ each.
   constructor signature admits with everything in scope. `def choose[A](x: A, y: A): A`
   has 2.
 
-A module's stored-value estimate sums the value spaces of its definitions; what its members
-declare is the other reading. A module with two `String => String` methods and one `String`
-field is $2\varepsilon_0 + \omega$ by the second reading and one value by the first.
+A module is one value: the declared types of its members are not part of its stored-value
+estimate, so a module with two `String => String` methods and one `String` field holds one
+value. Each of those methods has an implementation-cardinality row of its own.
 
 ## A row
 

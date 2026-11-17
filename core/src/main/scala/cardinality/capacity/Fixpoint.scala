@@ -70,8 +70,8 @@ private[cardinality] object Fixpoint {
   ): S = {
     val cyclic = reaches.keySet.filter(name => reaches(name)(name))
     val mu = iterate(eqs, cyclic, empty, frozen = Set.empty)
-    // A definition between the cycle's nodes (the source front end's alias `type T = () => X`)
-    // is read again from the values a lap reads the nodes at.
+    // A definition between the cycle's nodes (one that reaches a node without being one) is read
+    // again from the values a lap reads the nodes at.
     val nodes = nu.arms.keySet ++ nu.parents.keySet
     val between = eqs.map(_._1).filter { k =>
       !nodes(k) && reaches.getOrElse(k, Set.empty).exists(nodes)

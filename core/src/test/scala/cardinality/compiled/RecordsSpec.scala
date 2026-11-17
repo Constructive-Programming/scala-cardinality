@@ -5,7 +5,7 @@ import org.specs2.Specification
 
 /** Capability records in the compiled front end (docs/plans/compiled-own-types.md, stretch 4): a
   * class or trait with members, named by a parameter's type. Every expected count is derived in its
-  * example's comment, and the scalameta front end is asked for the same rows.
+  * example's comment.
   */
 class RecordsSpec extends Specification {
 

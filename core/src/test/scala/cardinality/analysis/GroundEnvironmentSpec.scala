@@ -246,7 +246,7 @@ class GroundEnvironmentSpec extends Specification {
       )
   }
 
-  // A body matches on `this`, so the receiver is an input of the family's sum (`SealedReceivers`):
+  // A body matches on `this`, so the receiver is an input of the family's sum (`Receivers.split`):
   // E = A(Int) + B has 2^32 + 1 values, so f: Int has (2^32)^(2^32 + 1) = 2^(32·(2^32 + 1)); Color
   // = Red + Green (rgb fixed by each case) gives Boolean^2 = 4; S = SA(Int) + SB reads as E; Gen[A]
   // = Has(A) gives a String goal ω. Where the family does not read as a sum (H1's field is private

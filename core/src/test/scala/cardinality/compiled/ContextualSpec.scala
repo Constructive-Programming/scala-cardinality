@@ -5,8 +5,7 @@ import org.specs2.Specification
 
 /** Slice S5 of the compiled front end (docs/plans/compiled-own-types.md): contextual scope. A body
   * is counted, not searched, so what is contextual counts as the plain definition it is, where
-  * implicit search has nothing to choose. Every expected count is derived in its example's comment,
-  * and the scalameta front end is asked for the same rows.
+  * implicit search has nothing to choose. Every expected count is derived in its example's comment.
   */
 class ContextualSpec extends Specification {
 

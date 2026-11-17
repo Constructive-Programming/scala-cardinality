@@ -42,7 +42,7 @@ class InlinesSpec extends Specification {
       the library's inline methods are read from its classes           $library
       a callee the classes read do not hold refuses                    $missing
     The module
-      imports nothing of the scalameta reading                         $imports
+      imports nothing but tasty-query                                  $imports
   """
 
   private val libraries: List[Path] = sys.props
@@ -435,7 +435,7 @@ class InlinesSpec extends Specification {
   }
 
   // The module reads symbols and typed trees alone: of this project it imports nothing, and it
-  // names no scalameta tree and no row of the scalameta front end.
+  // names no scalameta tree.
   def imports = {
     val lines = Files
       .readString(Path.of("src/main/scala/cardinality/compiled/Inlines.scala"))

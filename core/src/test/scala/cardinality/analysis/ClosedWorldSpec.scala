@@ -4,7 +4,7 @@ import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 
 /** The closed world (docs/plans/v1.md §2): the supplied sources are the whole program, so a class
-  * no supplied template extends and a member none overrides are final (`ClosedWorld`). Each count
+  * no supplied template extends and a member none overrides are final (`ClosedProgram`). Each count
   * is derived in the comment beside it: with the member final, `target` ranges over the functions
   * of b, 2^2 = 4; with it open, over those of (b, m), 2^4 = 16.
   */

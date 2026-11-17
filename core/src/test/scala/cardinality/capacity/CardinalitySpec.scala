@@ -3,7 +3,7 @@ package cardinality.capacity
 import cardinality.Pending
 import org.specs2.Specification
 
-// Expected values are the true cardinalities, not what Counter returns today.
+// Expected values are the true cardinalities, not what the analyzer returns today.
 // A source's cardinality is the sum over the concrete data types it defines:
 // abstract traits/classes and type aliases add nothing on their own.
 class CardinalitySpec extends Specification {

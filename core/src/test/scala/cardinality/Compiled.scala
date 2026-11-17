@@ -35,7 +35,8 @@ import java.util.concurrent.ConcurrentHashMap
   * module (`Compiled.dependency`, `Compiled.reportOver`). The units are compiled before the
   * withheld support, so a unit cannot name what the fixture withholds.
   *
-  * Temporary directories (`scratch`) are made under `java.io.tmpdir` and deleted after use.
+  * Temporary directories (`temporary`) are made under `java.io.tmpdir` and deleted when the test
+  * JVM exits.
   */
 object Compiled {
 
@@ -202,13 +203,6 @@ object Compiled {
     val file = root.resolve(path.stripPrefix("/"))
     Files.createDirectories(file.getParent)
     Files.writeString(file, input.text, UTF_8)
-  }
-
-  /** `body` over a new temporary directory under `java.io.tmpdir`, deleted after it. */
-  def scratch[A](prefix: String)(body: Path => A): A = {
-    val directory = Files.createTempDirectory(prefix)
-    try body(directory)
-    finally deleted(directory)
   }
 
   /** A new temporary directory, for files read after the caller returns (compiled classes a row

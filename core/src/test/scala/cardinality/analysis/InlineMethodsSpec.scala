@@ -311,8 +311,8 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
   }
 
   // Top-level definitions live in a synthetic object, whose members include `Any`'s: `toString` is
-  // that object's, bound before the root imports — the order `TermBindings.scope` gives a package
-  // scope. The inline method counts as its def twin: countably many Strings (review-A6 q pins1).
+  // that object's, bound before the root imports, as in any package scope. The inline method
+  // counts as its def twin: countably many Strings (review-A6 q pins1).
   def packageMembers = {
     val found = rows("""inline def shown(x: Int): String = toString
       |def shownD(x: Int): String = toString""".stripMargin)

@@ -37,9 +37,10 @@ private[capacity] object Rows {
       .getOrElse(throw new AssertionError(s"no size for the alias of $code"))
 
   /** What one source's definitions hold together: its class, enum, module and top-level value rows,
-    * summed in row order. An abstraction, an alias and an opaque type add no value of their own.
-    * `Counter.source` adds a definition to the sum of the ones nested in it, and a capacity does
-    * not add associatively: the two differ for capacities nested in a module, which no fixture has.
+    * summed in row order. An abstraction, an alias and an opaque type add no value of their own. A
+    * capacity does not add associatively, so this flat sum can differ from one that adds each
+    * definition to the sum of those nested in it: only for capacities nested in a module, which no
+    * fixture has.
     */
   def total(code: String): Size =
     cardinality.Compiled

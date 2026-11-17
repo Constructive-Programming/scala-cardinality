@@ -96,11 +96,11 @@ class ImportClausesSpec extends Specification {
       .and(found(("e.H#Y", Alias)) === "unresolved[T (imported from x.T, not followed)]")
   }
 
-  // `ListedNamespaces`, shared with the method side: `scala.jdk.CollectionConverters` declares its
-  // conversion classes and `scala.quoted` six types (scala-library 3.9.0), none a root spelling, so
-  // `Int` stays the base type (its capacity, ≤2^32) under both, while `Expr` is the library's
-  // declaration, not supplied. `zz.*`, which no source supplies, may bind `Int` too (Scala 3.9.0
-  // binds a wildcard's name over a root import).
+  // As on the method side, `scala.jdk.CollectionConverters` declares its conversion classes and
+  // `scala.quoted` six types (scala-library 3.9.0), none a root spelling, so `Int` stays the base
+  // type (its capacity, ≤2^32) under both, while `Expr` is the library's declaration, not
+  // supplied. `zz.*`, which no source supplies, may bind `Int` too (Scala 3.9.0 binds a wildcard's
+  // name over a root import).
   def listedWildcards = {
     val found = rowsOf(
       "l/A.scala" -> "package l\nimport scala.jdk.CollectionConverters.*\nfinal case class Framed(id: Int)",

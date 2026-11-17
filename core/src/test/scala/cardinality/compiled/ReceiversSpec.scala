@@ -4,8 +4,7 @@ import cardinality.analysis.inhabitation.Inhabitation.Count
 import org.specs2.Specification
 
 /** Slice S4 of the compiled front end (docs/plans/compiled-own-types.md): a member of a class reads
-  * what its receivers hold. Every expected count is derived in its example's comment, and the
-  * scalameta front end is asked for the same rows.
+  * what its receivers hold. Every expected count is derived in its example's comment.
   */
 class ReceiversSpec extends Specification {
 
@@ -291,7 +290,7 @@ class ReceiversSpec extends Specification {
   // cases, so `f` is one of the 2^2 functions of them. The row captures the receiver as a whole.
   // A sum receiver that is not read (`Rose` is recursive) cannot change a `String` goal once the
   // context is not absurd: the solver's ω without it stands, `Leaf` being built from nothing, so
-  // `Rose.name` is ω. Left uncovered, as the old front end's `SealedReceivers` leaves them: a
+  // `Rose.name` is ω. Left uncovered, as the old front end left them: a
   // finite goal (`Rose.flag`), an enum whose only case has a recursive field (`Thorn`; the reading
   // does not show `Node(Nil)` built from nothing), a generic enum, whose case may be of one
   // instantiation alone (`Gadt`: no `Gadt[A]` but at `A = Int`, where `g` is absurd, so the count

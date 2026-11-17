@@ -240,7 +240,7 @@ class HigherKindedRefusalSpec extends Specification {
 
   // Under `import java.lang.*`, `Boolean` is java.lang.Boolean (3.9.0 accepts `val b: Boolean =
   // null` there and rejects `F[Boolean]` as an `F[scala.Boolean]`): exact count 0, not the 1 the
-  // two scala keys gave. The wildcard binds them by their rooted names (`ListedNamespaces`), whose
+  // two scala keys gave. The wildcard binds them by their rooted names, whose
   // values are the scalars' (v1.md §2): `plain` is a Boolean endomorphism, 4, while the keys stay
   // apart, so `boo`, `lng` and `dbl` are 0. It binds no other builtin name (java.lang has no
   // `Int`), so `int` is x alone (1). A renaming import binds no bare name.

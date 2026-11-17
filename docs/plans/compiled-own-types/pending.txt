@@ -1,5 +1,3 @@
-(a) pins old behavior | ReportHygieneSpec | a refinement reads one way however it is laid out
-(a) pins old behavior | ReportHygieneSpec | an operator name stays apart from its result's colon
 (c) known loss | AliasOverrideIdentitySpec | does not capture a caller binder in an alias body
 (c) known loss | AliasOverrideIdentitySpec | guards imported names in the alias declaration scope
 (c) known loss | ArticleCardinalitySpec | C cannot be manufactured

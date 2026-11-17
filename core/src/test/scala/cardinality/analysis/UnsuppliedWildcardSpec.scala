@@ -369,7 +369,7 @@ class UnsuppliedWildcardSpec extends Specification {
     found("q.V.andThen") === Count.Finite(0)
   }
 
-  // Term heads (`TermMembers`): every fixture compiles with Scala 3.9.0 (probes/a7fix2/spec, with
+  // Term heads: every fixture compiles with Scala 3.9.0 (probes/a7fix2/spec, with
   // a `zzz` stub declaring `trait Base` for scalac only), and its `val w` pins the binding. `C =
   // Int` inside `Lib`'s namespaces, `Boolean` in the packages of the same names: `|Int => Int| =
   // 2^(32·2^32) = 2^(2^37)` where the clause binds the head, 4 where it does not.

@@ -35,7 +35,7 @@ private[cardinality] object StuckProjections {
 
   /** The component a single-case projection takes, as (arity, 1-based index): a tuple pattern whose
     * parts are distinct binders of the case (`Some` binder, `None` for any other part) and whose
-    * body is one of them. Each front end reads the case's parts from its own trees.
+    * body is one of them. The TASTy front end reads the case's parts from its trees.
     */
   def component[B](parts: List[Option[B]], body: Option[B]): Option[(Int, Int)] = {
     val binders = parts.flatten

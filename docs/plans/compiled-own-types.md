@@ -17,10 +17,12 @@ abstract type member reached through a path read as open, and the leftovers belo
   sources of every module 16,577; `core/src/test/scala` 33,025 lines, 113 files. core depends on
   cats-eo, cats-eo-generics, cats-eo-schemes, tasty-query and cats-core; scalameta and
   scala3-compiler are Test dependencies only.
-- Tests (`core/testFull`): 2,064 examples, 0 failures, 370 pending (526 at `b53f9bf`): (a) pins old
-  behavior 2, (b) pins a refusal the compiled tree resolves 0, (c) known loss 306, rejected fixture
-  54, uncompiled support 6, count differs 0, and 2 of `ArticleCardinalitySpec`'s own targets;
-  [pending.txt](compiled-own-types/pending.txt) lists the 368 `Pending.*` examples.
+- Tests (`core/testFull`): 2,062 examples, 0 failures, 368 pending (526 at `b53f9bf`): (c) known
+  loss 306, rejected fixture 54, uncompiled support 6, and 2 of `ArticleCardinalitySpec`'s own
+  targets; [pending.txt](compiled-own-types/pending.txt) lists the 366 `Pending.*` examples. The
+  leftover cleanup re-pinned the two (a) examples (`ReportHygieneSpec`: the refinement layouts now
+  agree on a count, not on an old refusal; operator names compare as a set, not in the old row
+  order) and removed the empty (b) and count-differs classes.
 - Gates: `core/testFull`, `plugin/scripted` (5 of 5), `millPlugin/test`, `scalafmtCheckAll`,
   `scalafixAll --check`, `scripts/check-file-metrics.sh`, CPD (25 tokens) and `coverageAll`
   (core 94.45% statements, 90.20% branches; floor 90%) pass. scalac's coverage phase skips a

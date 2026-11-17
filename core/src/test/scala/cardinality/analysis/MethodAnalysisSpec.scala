@@ -605,11 +605,6 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       .and(capability.count must beLike { case Count.Unresolved(_) => ok })
   }
 
-  def unrelatedImport =
-    // An import that cannot hold this method's type parameter cannot add a value of it: a total
-    // parametric body builds its result from what it already has.
-    entry("import external.*\ndef choose[A](x: A, y: A): A = x", "choose").count === Count.Finite(2)
-
   def recursive =
     entry(
       "type Loop[A] = Loop[A]\ndef choose[A](x: Loop[A]): A = ???",

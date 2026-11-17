@@ -1,6 +1,5 @@
 package cardinality.analysis.inhabitation
 
-import cardinality.analysis.*
 import org.specs2.Specification
 
 class EvidenceTransportCardinalitySpec extends Specification {
@@ -117,12 +116,4 @@ class EvidenceTransportCardinalitySpec extends Specification {
       "no available proof"
     )
 
-}
-
-// These reduced fixtures compile against Scala's real sealed evidence classes, not just scalameta.
-private object AtomicEvidenceCompilationFixture {
-  def equality[A, B](x: A)(using ev: A =:= B): B = ev(x)
-  def reverse[A, B](x: B)(using ev: A =:= B): A = ev.flip(x)
-  def subtype[A, B](x: A)(using ev: A <:< B): B = ev(x)
-  def reflexive[A]: A =:= A = summon[A =:= A]
 }

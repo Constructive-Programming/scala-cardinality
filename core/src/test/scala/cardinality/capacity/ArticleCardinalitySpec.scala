@@ -37,7 +37,7 @@ class ArticleCardinalitySpec extends Specification {
 
   private def target(count: => Size, expected: Size, reason: String): Result = {
     val actual = count
-    pendingUntilFixed(s"$reason: type arithmetic gives $expected, Counter returns $actual")(
+    pendingUntilFixed(s"$reason: type arithmetic gives $expected, the analyzer returns $actual")(
       actual === expected
     )
   }
