@@ -307,26 +307,31 @@ object foo extends ScalaModule with CardinalityModule { def scalaVersion = "3.9.
 `mill foo.cardinalityReportSelected <qualified-method-name>...` run the reports below; each
 writes `report.txt` under the command's `out/` directory. `mill foo.cardinalitySeedSkill` seeds the reduction skill like `sbt cardinalitySeedSkill` (below), with Mill commands.
 
-`sbt cardinalityReport` measures every definition the project's `Compile`
-sources introduce — nested definitions included — and logs a report: what each
+`sbt cardinalityReport` compiles the project's `Compile` sources and measures every definition
+they introduce — nested definitions included — and logs a report: what each
 generic method or constructor can be, then the stored-value estimate over the
 definitions, ordered by how many values each holds. The same report is written to
 `target/cardinality/report.txt` (`cardinalityReportFile`), so a build can keep
 it, diff it, or post it as an artifact.
 
 ```
-scala-cardinality — 1 source, 10 definitions
-  stored-value estimates: constructor inputs only; finite capacities are upper bounds
-  ?: unresolved, not a proof of infinity
-  2 unresolved · 4 with more than one value · 2 with one value · 2 abstract
+scala-cardinality — 2 sources, 11 definitions
+  stored-value estimates: constructor inputs only; a finite capacity prints as the bound ≤2^b, marked (lossy) when it holds floating point
+  ?: no single number here — the reason after the row says what would give one
+  1 instantiation-dependent · 8 with more than one value · 2 with one value
 Stored-value estimates (constructor inputs; `?` = unresolved)
 
-?  example.Holder[A]  class     Light.scala:11  unresolved: A
-ω  example.Succ       class     Light.scala:17
-ω  example.Timeline   class     Light.scala:19
-2  example.Custom     class     Light.scala:5
-1  example.Zero       object    Light.scala:16
-—  example.Light      abstract  Light.scala:3
+?   example.Holder[A]  class     Light.scala:11  depends on its instantiation (A)
+ε₀  example.Reducer    class     Light.scala:20
+ω   example.Cursor     class     Light.scala:16
+ω   example.Nat        abstract  Natural.scala:5
+ω   example.Succ       class     Natural.scala:7
+ω   example.Timeline   class     Light.scala:18
+3   example.Light      abstract  Light.scala:3
+2   example.Custom     class     Light.scala:5
+2   example.Mode       enum      Light.scala:7
+1   example.Red        object    Light.scala:4
+1   example.Zero       object    Natural.scala:6
 ```
 
 A row carries the number and the reason: `ω` is a countably infinite value space (a recursive

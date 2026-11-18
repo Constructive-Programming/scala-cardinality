@@ -16,10 +16,11 @@ value. Each of those methods has an implementation-cardinality row of its own.
 ## A row
 
 ```
-?  example.Holder[A]  class     Light.scala:11  unresolved: A
-ω  example.Succ       class     Light.scala:17
-2  example.Custom     class     Light.scala:5
-—  example.Light      abstract  Light.scala:3
+?   example.Holder[A]  class     Light.scala:11  depends on its instantiation (A)
+ε₀  example.Reducer    class     Light.scala:20
+ω   example.Succ       class     Natural.scala:7
+3   example.Light      abstract  Light.scala:3
+2   example.Custom     class     Light.scala:5
 ```
 
 The columns are the number, the definition, its kind, its source position, and the reason
